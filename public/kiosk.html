@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#381E11">
+  <link rel="manifest" href="/manifest-kiosk.json">
+  <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
+  <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
+  <title>Mafaza — Photobooth Kiosk</title>
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v3.1">
+  <style>
+    /* Specific overrides for Konsep C: Warm Playful Retro */
+    .template-retro-card {
+      background: var(--cream-card);
+      border: 3px solid var(--border-soft);
+      border-radius: 24px;
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+      width: 220px;
+      text-align: center;
+      position: relative;
+      box-shadow: 0 6px 18px rgba(123, 72, 46, 0.06);
+    }
+    .template-retro-card:hover, .template-retro-card.selected {
+      border-color: var(--coral);
+      transform: translateY(-8px) scale(1.03);
+      box-shadow: 0 14px 30px rgba(230, 120, 107, 0.35);
+    }
+    .template-check-badge {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--coral);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .template-retro-card.selected .template-check-badge {
+      opacity: 1;
+    }
+    .preview-photo-card {
+      border: 2.5px solid var(--border-soft);
+      border-radius: 14px;
+      overflow: hidden;
+      cursor: pointer;
+      position: relative;
+      background: var(--cream-card);
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: 0 3px 8px rgba(123, 72, 46, 0.05);
+    }
+    .preview-photo-card:hover {
+      transform: translateY(-2px) scale(1.02);
+      border-color: var(--coral);
+    }
+    .preview-photo-card.active-in-slot {
+      border: 3px solid var(--coral);
+      box-shadow: 0 4px 14px rgba(230, 120, 107, 0.35);
+      transform: translateY(-2px);
+    }
+    .preview-slot-tab {
+      padding: 5px 12px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1.5px solid var(--border-soft);
+      background: var(--cream-card);
+      color: var(--caramel-brown);
+      transition: all 0.15s;
+    }
+    .preview-slot-tab.active {
+      background: var(--coral);
+      color: #fff;
+      border-color: var(--coral);
+      box-shadow: 0 2px 8px rgba(230, 120, 107, 0.3);
+    }
+
+    /* Studio Preview 3-Card Layout */
+    .preview-studio-grid {
+      display: grid;
+      grid-template-columns: 350px 330px 300px;
+      gap: 20px;
+      align-items: stretch;
+      justify-content: center;
+      z-index: 20;
+      max-width: 1040px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    @media (max-width: 1080px) {
+      .preview-studio-grid {
+        grid-template-columns: 1fr 1fr;
+        max-width: 720px;
+      }
+    }
+    .preview-col-card {
+      background: var(--cream-card);
+      border: 2px solid var(--border-soft);
+      border-radius: 24px;
+      padding: 18px;
+      box-shadow: var(--shadow-warm);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      text-align: left;
+      position: relative;
+    }
+    .preview-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      gap: 8px;
+    }
+    .preview-card-title {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--caramel-brown);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+    }
+    .preview-badge-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(230, 120, 107, 0.15);
+      color: var(--coral);
+      border: 1px solid rgba(230, 120, 107, 0.35);
+      white-space: nowrap;
+    }
+    .preview-badge-mustard {
+      background: rgba(212, 167, 84, 0.18);
+      color: #7a581a;
+      border: 1px solid rgba(212, 167, 84, 0.4);
+    }
+    .preview-badge-teal {
+      background: rgba(95, 143, 138, 0.18);
+      color: #3b6662;
+      border: 1px solid rgba(95, 143, 138, 0.4);
+    }
+    .preview-canvas-stage {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at center, #2d1d15 0%, #1a100b 100%);
+      border-radius: 16px;
+      padding: 12px;
+      border: 2px solid #ead8c7;
+      box-shadow: inset 0 4px 14px rgba(0, 0, 0, 0.35);
+      margin: 6px 0 10px;
+      min-height: 290px;
+      max-height: 44vh;
+      overflow: hidden;
+    }
+    .preview-canvas-stage canvas {
+      max-height: 40vh;
+      max-width: 100%;
+      width: auto;
+      height: auto;
+      display: block;
+      cursor: grab;
+      touch-action: none;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      background: #ffffff;
+    }
+    .preview-pan-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      background: var(--cream-bg);
+      border: 1.5px solid var(--border-soft);
+      border-radius: 14px;
+      padding: 6px 8px;
+    }
+    .preview-tool-group {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .preview-tool-btn {
+      background: #ffffff;
+      border: 1.5px solid var(--border-soft);
+      color: var(--caramel-brown);
+      border-radius: 9px;
+      padding: 5px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      line-height: 1;
+    }
+    .preview-tool-btn:hover {
+      border-color: var(--coral);
+      color: var(--coral);
+      transform: translateY(-1px);
+    }
+    .preview-slot-tabs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .preview-slot-tab {
+      padding: 6px 8px;
+      border-radius: 10px;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      border: 1.5px solid var(--border-soft);
+      background: var(--cream-bg);
+      color: var(--caramel-brown);
+      transition: all 0.15s;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .preview-slot-tab:hover {
+      border-color: var(--coral);
+    }
+    .preview-slot-tab.active {
+      background: var(--coral);
+      color: #fff;
+      border-color: var(--coral);
+      box-shadow: 0 3px 10px rgba(230, 120, 107, 0.3);
+    }
+    .qr-showcase-box {
+      background: var(--cream-bg);
+      border: 1.5px dashed var(--border-soft);
+      border-radius: 18px;
+      padding: 12px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      flex: 1;
+    }
+    .qr-image-frame {
+      width: 138px;
+      height: 138px;
+      background: #ffffff;
+      padding: 8px;
+      border-radius: 16px;
+      border: 2px solid var(--border-soft);
+      box-shadow: 0 6px 16px rgba(123, 72, 46, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+    .qr-image-frame img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      border-radius: 8px;
+    }
+    .btn-open-gallery-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 12px;
+      background: #ffffff;
+      border: 1.5px solid var(--border-soft);
+      color: var(--caramel-brown);
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-open-gallery-link:hover {
+      border-color: var(--coral);
+      color: var(--coral);
+      background: #fffaf5;
+    }
+    .preview-bottom-bar {
+      margin-top: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      background: var(--cream-card);
+      border: 2px solid var(--border-soft);
+      padding: 10px 20px;
+      border-radius: 999px;
+      box-shadow: 0 6px 20px rgba(123, 72, 46, 0.08);
+      z-index: 20;
+      max-width: 680px;
+      width: 100%;
+    }
+  </style>
+</head>
+<body style="overflow: hidden;">
+  <!-- Shutter Flash Overlay -->
+  <div id="flashOverlay" class="flash-screen"></div>
+
+  <div class="kiosk-wrapper" id="kioskWrapper">
+    <!-- Dynamic Per-Event Custom Background (Image / S3 Video / YouTube) -->
+    <div id="kioskCustomBgContainer" class="kiosk-custom-bg-container" style="display: none;">
+      <img id="kioskBgImage" class="kiosk-bg-media" style="display: none;" alt="Event Background">
+      <video id="kioskBgVideo" class="kiosk-bg-media" autoplay loop muted playsinline style="display: none;"></video>
+      <div id="kioskBgYoutubeWrap" class="kiosk-bg-youtube-wrap" style="display: none;">
+        <iframe id="kioskBgYoutubeIframe" frameborder="0" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+      </div>
+      <div id="kioskBgOverlay" class="kiosk-bg-overlay"></div>
+    </div>
+
+    <!-- Warm Corner Accents -->
+    <div class="retro-corner-tl"></div>
+    <div class="retro-corner-br"></div>
+
+    <!-- 1. SCREEN: WELCOME (Halaman Utama Konsep C) -->
+    <div id="screenWelcome" class="kiosk-screen active">
+      <!-- Top Small Brand & Language Pill -->
+      <div style="position: absolute; top: 28px; left: 40px; right: 40px; display: flex; justify-content: space-between; align-items: center; z-index: 20;">
+        <div style="display: flex; align-items: center; gap: 8px; background: var(--cream-card); padding: 8px 18px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); box-shadow: 0 4px 12px rgba(123,72,46,0.06);">
+          <span style="font-size: 18px;">📷</span>
+          <span id="kioskBrandTitle" style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; color: var(--caramel-brown); letter-spacing: 0.8px;">MAFAZA</span>
+        </div>
+        
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <button id="btnKioskFullscreen" type="button" onclick="kiosk.toggleFullScreen()" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--coral); font-size: 13px; font-weight: 800; color: var(--coral); cursor: pointer; box-shadow: 0 4px 12px rgba(230,120,107,0.18);">
+            ⛶ Layar Penuh
+          </button>
+          <a href="/admin?tab=photos" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 700; color: var(--caramel-brown); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(123,72,46,0.06);">
+            📷 Dasbor Admin
+          </a>
+        </div>
+      </div>
+
+      <!-- Main Headline in Warm Serif Recoleta/Fraunces Style -->
+      <div style="max-width: 650px; margin-top: 20px; position: relative; z-index: 20; text-align: center;">
+        <h1 id="welcomeHeadlineText" style="font-size: 52px; font-weight: 800; color: var(--caramel-brown); line-height: 1.15; margin-bottom: 28px; text-shadow: 0 2px 4px rgba(123,72,46,0.05);">
+          Abadikan<br>Momen Spesialmu<br>Di Sini! 😊
+        </h1>
+
+        <!-- Primary Action Button -->
+        <div style="display: flex; justify-content: center; align-items: center; z-index: 20;">
+          <button class="btn btn-coral btn-large" style="z-index: 30; cursor: pointer;" onclick="kiosk.startSession()">
+            Mulai Foto ➔
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. SCREEN: QR SCAN / GUEST CHECK -->
+    <div id="screenQR" class="kiosk-screen">
+      <div style="position: absolute; top: 28px; left: 40px; z-index: 25;">
+        <button class="btn btn-secondary" style="padding: 8px 18px; font-size: 13.5px;" onclick="kiosk.stopQrScannerLoop(); kiosk.showScreen('screenWelcome')">
+          ❮ Kembali
+        </button>
+      </div>
+
+      <!-- Step progress: (1) Scan QR / Identifikasi -->
+      <div class="step-progress-retro" data-step-screen="screenQR">
+        <div class="step-item active">
+          <div class="step-circle">1</div>
+          <div class="step-label">Pindai QR</div>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item">
+          <div class="step-circle">2</div>
+          <div class="step-label">Pilih Frame</div>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item">
+          <div class="step-circle">3</div>
+          <div class="step-label">Foto</div>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item">
+          <div class="step-circle">4</div>
+          <div class="step-label">Selesai</div>
+        </div>
+      </div>
+
+      <h2 style="font-size: 38px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">Pindai QR Guest Card</h2>
+      <p style="font-size: 15px; color: var(--text-muted); margin-bottom: 18px;">
+        Arahkan kartu QR Anda ke depan kamera untuk menghubungkan foto ke galeri smartphone pribadi tanpa login.
+      </p>
+
+      <!-- Scan status feedback badge -->
+      <div id="qrScanFeedback" style="background: rgba(123,72,46,0.08); padding: 7px 18px; border-radius: 99px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 18px; display: inline-flex; align-items: center; gap: 8px;">
+        <span id="qrScanDot" style="width: 10px; height: 10px; background: var(--coral); border-radius: 50%; display: inline-block;"></span>
+        <span id="qrScanFeedbackText">Mendeteksi kartu QR di depan kamera...</span>
+      </div>
+
+      <div class="camera-retro-frame" style="height: 300px; width: 450px; margin-bottom: 18px; position: relative; overflow: hidden;">
+        <video id="qrVideoFeed" autoplay playsinline muted style="width:100%; height:100%; object-fit:cover;"></video>
+        <div class="camera-bracket-tl"></div>
+        <div class="camera-bracket-tr"></div>
+        <div class="camera-bracket-bl"></div>
+        <div class="camera-bracket-br"></div>
+        <div style="position: absolute; left: 15%; right: 15%; height: 3px; background: linear-gradient(90deg, transparent, #ff4757, transparent); top: 50%; transform: translateY(-50%); box-shadow: 0 0 12px #ff4757; pointer-events: none;"></div>
+      </div>
+
+      <!-- Quick test selector (Sangat membantu untuk uji coba alur Tamu A vs Tamu B langsung di browser/kiosk) -->
+      <div style="background: var(--cream-card); padding: 12px 20px; border-radius: 14px; border: 1.5px solid var(--border-soft); margin-bottom: 20px; max-width: 520px; width: 100%; box-sizing: border-box; text-align: left;">
+        <div style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center;">
+          <span>🎟️ Atau Pilih Kartu Tamu Terdaftar (Simulasi/Tes):</span>
+          <span id="kioskPassCountBadge" style="color: var(--text-muted); font-size: 11px;">0 Kartu</span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="kioskGuestPassQuickSelect" style="flex: 1; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--border-soft); font-size: 13px; font-weight: 700; background: #fff; color: var(--caramel-brown);">
+            <option value="">-- Pilih Kartu Tamu (Tamu #1, Tamu #2, dst) --</option>
+          </select>
+          <button class="btn btn-primary" style="padding: 9px 16px; font-size: 13px; font-weight: 700; white-space: nowrap;" onclick="kiosk.selectGuestPassFromDropdown()">Gunakan Kartu</button>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 16px; z-index: 30;">
+        <button id="btnSkipQr" class="btn btn-secondary" onclick="kiosk.skipQR()">Lewati (Mode Bebas)</button>
+        <button class="btn btn-coral" onclick="kiosk.generateGuestPassOnSpot()">✨ Buat QR Baru di Booth</button>
+      </div>
+    </div>
+
+    <!-- 3. SCREEN: PILIH TEMPLATE FAVORITMU -->
+    <div id="screenTemplate" class="kiosk-screen">
+      <div style="position: absolute; top: 28px; left: 40px; z-index: 25;">
+        <button class="btn btn-secondary" style="padding: 8px 18px; font-size: 13.5px;" onclick="kiosk.goBackFromTemplate()">
+          ❮ Kembali
+        </button>
+      </div>
+
+      <!-- Step progress: Pilih Frame ACTIVE -->
+      <div class="step-progress-retro" data-step-screen="screenTemplate">
+        <div class="step-item active">
+          <div class="step-circle">1</div>
+          <div class="step-label">Pilih Frame</div>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item">
+          <div class="step-circle">2</div>
+          <div class="step-label">Foto</div>
+        </div>
+        <div class="step-line"></div>
+        <div class="step-item">
+          <div class="step-circle">3</div>
+          <div class="step-label">Selesai</div>
+        </div>
+      </div>
+
+      <h2 style="font-size: 36px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">Pilih Frame Favoritmu</h2>
+      <p style="font-size: 15px; color: var(--text-muted); margin-bottom: 24px;">Sesuaikan dengan tema dan gaya acaramu</p>
+
+      <div id="templateListContainer" style="display: flex; gap: 24px; justify-content: center; margin-bottom: 28px; z-index: 20;">
+        <!-- Populated via JS -->
+      </div>
+
+      <button class="btn btn-coral btn-large" style="z-index: 30;" onclick="kiosk.startCountdownSequence()">
+        Lanjut Siap Foto! ➔
+      </button>
+    </div>
+
+    <!-- 4. SCREEN: KAMERA & COUNTDOWN (Konsep C: Warm Playful Retro dari Gambar 2) -->
+    <div id="screenCapture" class="kiosk-screen" style="padding: 12px 24px 14px; justify-content: space-between; overflow-y: auto;">
+      <!-- Top Header Group: Step Progress + Pose Indicator -->
+      <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30;">
+        <!-- Step progress: Foto ACTIVE -->
+        <div class="step-progress-retro compact" data-step-screen="screenCapture" style="margin-bottom: 8px;">
+          <div class="step-item completed">
+            <div class="step-circle">✓</div>
+            <div class="step-label">Pilih Frame</div>
+          </div>
+          <div class="step-line completed"></div>
+          <div class="step-item active">
+            <div class="step-circle">2</div>
+            <div class="step-label">Foto</div>
+          </div>
+          <div class="step-line"></div>
+          <div class="step-item">
+            <div class="step-circle">3</div>
+            <div class="step-label">Selesai</div>
+          </div>
+        </div>
+
+        <!-- Top Pose Badge -->
+        <div style="display: flex; gap: 12px; align-items: center; justify-content: center; margin-bottom: 6px;">
+          <div class="badge-pill badge-coral" id="poseIndicator" style="font-size: 16px; font-weight: 800; padding: 7px 22px;">
+            <span class="pose-pill-dot"></span>
+            <span id="poseIndicatorText">Foto 1/3</span>
+          </div>
+          <div class="badge-pill badge-pending" id="smileHint" style="font-size: 14px; font-weight: 600; padding: 7px 18px;">
+            <span id="smileHintText">Tersenyumlah ke kamera! 😊</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- MAIN CAMERA VIEWPORT with Corner Brackets (Expanded Full Studio Size) -->
+      <div class="camera-retro-frame">
+        <video id="videoFeed" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block;"></video>
+
+        <!-- Corner photo brackets -->
+        <div class="camera-bracket-tl"></div>
+        <div class="camera-bracket-tr"></div>
+        <div class="camera-bracket-bl"></div>
+        <div class="camera-bracket-br"></div>
+
+        <!-- Big Centered Countdown Overlay (Animasi Melingkar) -->
+        <div id="countdownBox" class="countdown-big-overlay" style="display: none;">
+          <div class="countdown-ring-wrap">
+            <svg class="countdown-svg" viewBox="0 0 160 160">
+              <circle class="countdown-svg-bg" cx="80" cy="80" r="68"></circle>
+              <circle class="countdown-svg-progress" id="countdownSvgProgress" cx="80" cy="80" r="68"></circle>
+            </svg>
+            <div class="countdown-number-box">
+              <span id="countdownNum" class="countdown-num">3</span>
+              <span id="countdownLabel" class="countdown-label">SIAP</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Full-Frame Captured Photo Hold Preview (Pause between poses to show captured result) -->
+        <div id="postCapturePreviewOverlay" class="post-capture-preview-overlay" style="display: none;">
+          <img id="postCapturePreviewImg" src="" alt="Hasil Foto Pose">
+          <div class="post-capture-top-bar">
+            <span class="post-capture-badge" id="postCaptureBadgeText">✨ Hasil Foto Pose 1</span>
+          </div>
+          <div class="post-capture-bottom-bar">
+            <div class="post-capture-status-pill" id="postCaptureTimerText">
+              ⏱️ Lanjut ke Pose 2 dalam 3 detik...
+            </div>
+            <div class="post-capture-actions">
+              <button type="button" class="post-capture-btn-retake" onclick="kiosk.retakeFromHoldOverlay()">
+                🔄 Foto Ulang Pose Ini
+              </button>
+              <button type="button" class="post-capture-btn-next" id="postCaptureBtnNext" onclick="kiosk.skipHoldOverlay()">
+                Lanjut Sekarang ➔
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inter-Pose Toast Banner -->
+        <div id="captureToast" class="capture-toast" style="display: none;">
+          <span id="captureToastIcon">✨</span>
+          <span id="captureToastText">Pose 1 tersimpan!</span>
+        </div>
+
+        <!-- Flash overlay inside camera -->
+        <div id="cameraFlash" class="camera-flash-overlay"></div>
+      </div>
+
+      <!-- BOTTOM CONTROL BAR & CAPTURED PHOTOS DOCK -->
+      <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30;">
+        <div class="camera-retro-controls-bar" style="display: flex; align-items: center; justify-content: center; margin: 8px auto 8px; z-index: 30;">
+          <!-- Center: Iconic Double-Ring Coral Shutter Button -->
+          <button class="shutter-btn-retro" id="btnKioskShutter" onclick="kiosk.handleShutterClick()" title="Ambil Foto">
+            <div class="shutter-btn-inner"></div>
+          </button>
+        </div>
+
+        <!-- CAPTURED PHOTOS DOCK WITH DELETE & RETAKE -->
+        <div class="filmstrip-dock-retro" id="filmstripDock">
+          <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 6px; padding: 0 8px;">
+            <span style="font-size: 15px; font-weight: 800; color: var(--caramel-brown);">
+              🎞️ Foto Terambil: <strong id="capturedCountText" style="color: var(--coral);">0/3</strong>
+            </span>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn-dock-action btn-dock-retake-all" id="btnRetakeAll" onclick="kiosk.retakeAllPoses()" style="display: none;">
+                🔄 Foto Ulang Semua
+              </button>
+              <button class="btn btn-coral btn-dock-proceed" id="btnProceedToPreview" onclick="kiosk.proceedToPreviewScreen()" style="display: none; padding: 8px 22px; font-size: 14px;">
+                ✨ Lanjut ke Preview ➔
+              </button>
+            </div>
+          </div>
+
+          <!-- Cards Row -->
+          <div id="poseThumbnails" class="filmstrip-cards-row">
+            <!-- Populated dynamically via JS: each pose slot with preview image, delete, retake -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. SCREEN: PROCESSING -->
+    <div id="screenProcessing" class="kiosk-screen">
+      <div style="font-size: 64px; margin-bottom: 16px;">✨</div>
+      <h2 style="font-size: 36px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">Sedang Menyusun Foto Cantikmu...</h2>
+      <p style="font-size: 16px; color: var(--text-muted); margin-bottom: 24px;">
+        Mengganti slot hijau template dan menyempurnakan kualitas warna resolusi tinggi.
+      </p>
+      <div style="width: 320px; height: 10px; background: var(--border-soft); border-radius: var(--radius-pill); overflow: hidden;">
+        <div style="width: 100%; height: 100%; background: linear-gradient(90deg, var(--coral), var(--muted-mustard), var(--dusty-teal));"></div>
+      </div>
+    </div>
+
+    <!-- 6. SCREEN: FINAL PREVIEW & PRINT -->
+    <div id="screenPreview" class="kiosk-screen" style="padding: 18px 24px; justify-content: center; overflow-y: auto;">
+      <!-- Step progress: Selesai ACTIVE -->
+      <div class="step-progress-retro compact" data-step-screen="screenPreview" style="margin-bottom: 10px;">
+        <div class="step-item completed">
+          <div class="step-circle">✓</div>
+          <div class="step-label">Pilih Frame</div>
+        </div>
+        <div class="step-line completed"></div>
+        <div class="step-item completed">
+          <div class="step-circle">✓</div>
+          <div class="step-label">Foto</div>
+        </div>
+        <div class="step-line active"></div>
+        <div class="step-item active">
+          <div class="step-circle">3</div>
+          <div class="step-label">Selesai</div>
+        </div>
+      </div>
+
+      <h2 style="font-size: 30px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 2px;">Hasil Foto Anda Siap! 🎉</h2>
+      <p style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 14px;">
+        Pilih foto terbaik untuk tiap slot &amp; geser posisi foto langsung di dalam frame agar pas!
+      </p>
+
+      <!-- BALANCED 3-CARD STUDIO WORKSPACE -->
+      <div class="preview-studio-grid">
+        <!-- CARD 1: Frame Preview & Interactive Pan/Zoom -->
+        <div class="preview-col-card">
+          <div>
+            <div class="preview-card-header">
+              <h3 class="preview-card-title">🖼️ Frame Hasil</h3>
+              <span id="activeSlotBadge" class="preview-badge-pill">Slot #1 Aktif</span>
+            </div>
+            <p style="font-size: 11.5px; color: var(--coral); font-weight: 600; margin-bottom: 4px;">
+              👆 Sentuh &amp; geser foto di dalam frame untuk mengatur posisi
+            </p>
+          </div>
+
+          <div class="preview-canvas-stage">
+            <canvas id="finalCanvas"></canvas>
+          </div>
+
+          <!-- Unified Pan & Zoom Toolbar -->
+          <div class="preview-pan-toolbar">
+            <div class="preview-tool-group">
+              <button type="button" class="preview-tool-btn" onclick="kiosk.panActiveSlot(-25, 0)" title="Geser Kiri">⬅️</button>
+              <button type="button" class="preview-tool-btn" onclick="kiosk.panActiveSlot(0, -25)" title="Geser Atas">⬆️</button>
+              <button type="button" class="preview-tool-btn" onclick="kiosk.panActiveSlot(0, 25)" title="Geser Bawah">⬇️</button>
+              <button type="button" class="preview-tool-btn" onclick="kiosk.panActiveSlot(25, 0)" title="Geser Kanan">➡️</button>
+            </div>
+            <div class="preview-tool-group">
+              <button type="button" class="preview-tool-btn" onclick="kiosk.zoomActiveSlot(0.15)" title="Perbesar">🔍+</button>
+              <button type="button" class="preview-tool-btn" onclick="kiosk.zoomActiveSlot(-0.15)" title="Perkecil">🔍-</button>
+            </div>
+            <button type="button" class="preview-tool-btn" onclick="kiosk.resetActiveSlotTransform()" title="Reset Posisi">↺ Reset</button>
+          </div>
+        </div>
+
+        <!-- CARD 2: Koleksi Foto & Slot Selector -->
+        <div class="preview-col-card">
+          <div style="display: flex; flex-direction: column; flex: 1;">
+            <div class="preview-card-header">
+              <h3 class="preview-card-title">📸 Koleksi Foto</h3>
+              <span class="preview-badge-pill preview-badge-mustard">Pilih Foto</span>
+            </div>
+            <p style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 8px;">
+              Klik foto di bawah untuk dipasang ke <strong id="targetSlotName" style="color: var(--coral);">Slot #1</strong>:
+            </p>
+
+            <!-- Slot tabs selector (single clean grid row) -->
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 11px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 5px;">Pilih Slot Frame:</div>
+              <div id="previewSlotButtons" class="preview-slot-tabs-grid"></div>
+            </div>
+
+            <!-- Photo grid -->
+            <div id="capturedPhotosGrid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; max-height: 240px; overflow-y: auto; padding: 2px; flex: 1;">
+              <!-- Rendered by JS -->
+            </div>
+          </div>
+
+          <div style="margin-top: 10px; padding-top: 8px; border-top: 1.5px dashed var(--border-soft); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; color: var(--text-muted); font-weight: 600;">Ingin ambil ulang pose?</span>
+            <button type="button" class="preview-tool-btn" style="padding: 5px 10px; font-size: 11.5px;" onclick="kiosk.returnToCameraFromPreview()">
+              📷 Ke Kamera
+            </button>
+          </div>
+        </div>
+
+        <!-- CARD 3: Print & QR Galeri Digital -->
+        <div class="preview-col-card">
+          <!-- Top: Print Controls -->
+          <div>
+            <div class="preview-card-header">
+              <h3 class="preview-card-title">🖨️ Cetak Foto</h3>
+              <span id="printerReadyBadge" class="preview-badge-pill preview-badge-teal">● Printer Ready</span>
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; margin: 6px 0 8px; background: var(--cream-bg); padding: 6px 12px; border-radius: 12px; border: 1.5px solid var(--border-soft);">
+              <span style="font-size: 12px; font-weight: 700; color: var(--caramel-brown);">Jumlah Cetak:</span>
+              <select id="printCopiesSelect" style="background: #ffffff; color: var(--caramel-brown); border: 1.5px solid var(--border-soft); padding: 4px 10px; border-radius: 8px; font-size: 12.5px; font-weight: 700; cursor: pointer;">
+                <option value="1">1 Lembar</option>
+                <option value="2" selected>2 Lembar</option>
+                <option value="3">3 Lembar</option>
+                <option value="4">4 Lembar</option>
+              </select>
+            </div>
+
+            <button id="btnPrintSession" class="btn btn-coral" style="width: 100%; font-size: 13.5px; padding: 10px 14px; margin-bottom: 6px;" onclick="kiosk.printCurrentSession()">
+              🖨️ Cetak Foto Sekarang
+            </button>
+
+            <!-- Secondary row: Auto-Print toggle & Chrome Print Dialog button -->
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px;">
+              <label style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--caramel-brown); cursor: pointer; background: var(--cream-bg); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border-soft);" title="Otomatis cetak setiap kali selesai foto">
+                <input type="checkbox" id="autoPrintToggle" onchange="kiosk.toggleAutoPrintSetting(this.checked)" style="accent-color: var(--coral); cursor: pointer;">
+                <span>⚡ Auto-Cetak</span>
+              </label>
+              <button type="button" class="preview-tool-btn" style="font-size: 11px; padding: 4px 8px;" onclick="kiosk.printViaChromeDialog()" title="Cetak langsung via Windows / Android Print Service / macOS">
+                🖨️ Cetak Perangkat
+              </button>
+            </div>
+
+            <!-- Non-blocking print status banner -->
+            <div id="printStatusBanner" style="display: none; font-size: 11px; font-weight: 700; padding: 6px 10px; border-radius: 10px; background: rgba(95, 143, 138, 0.16); color: #2d5955; border: 1px solid rgba(95, 143, 138, 0.4); margin-bottom: 8px; text-align: center;">
+              ✅ Terkirim ke antrean printer!
+            </div>
+          </div>
+
+          <!-- Bottom: QR Code Digital Gallery -->
+          <div class="qr-showcase-box">
+            <div style="font-size: 11.5px; font-weight: 800; color: var(--caramel-brown); letter-spacing: 0.3px;">
+              📱 SCAN QR SIMPAN KE HP
+            </div>
+
+            <div class="qr-image-frame">
+              <img id="guestQrCodeImg" src="" alt="QR Galeri" style="display: none;">
+              <div id="guestQrFallback" style="font-size: 11px; color: var(--text-muted); font-weight: 600; padding: 8px;">
+                ⏳ Memuat QR...
+              </div>
+            </div>
+
+            <div id="guestPassInfoText" style="font-size: 10.5px; color: var(--text-muted); font-weight: 600; line-height: 1.35;">
+              Unduh Foto Frame, Raw, Live Photo &amp; Boomerang tanpa login!
+            </div>
+
+            <a id="guestGalleryDirectLink" href="#" target="_blank" class="btn-open-gallery-link" style="display: none;">
+              🔗 Buka Galeri Digital ↗
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- COHESIVE BOTTOM BAR -->
+      <div class="preview-bottom-bar">
+        <div style="display: flex; align-items: center; gap: 8px; padding-left: 6px;">
+          <span style="font-size: 16px;">⏱️</span>
+          <span style="color: var(--text-muted); font-size: 13px; font-weight: 600;">
+            Kembali otomatis dalam <strong id="autoReturnTimer" style="color: var(--coral); font-size: 14px;">45</strong> detik
+          </span>
+        </div>
+        <button class="btn btn-brown" style="padding: 10px 26px; font-size: 14px;" onclick="kiosk.finishSession()">
+          ✅ Selesai (Kembali ke Beranda)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Operator Unlock PIN Modal -->
+  <div id="operatorPinModal" style="position: fixed; inset: 0; background: rgba(56, 30, 17, 0.6); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; z-index: 99999;">
+    <div class="card-retro" style="width: 380px; text-align: center; padding: 32px;">
+      <div style="font-size: 40px; margin-bottom: 6px;">🔒</div>
+      <h3 style="font-size: 24px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">PIN Operator</h3>
+      <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 20px;">Masukkan PIN (Default: 1234)</p>
+      
+      <input type="password" id="operatorPinInput" maxlength="6" style="background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 14px; font-size: 32px; letter-spacing: 12px; text-align: center; color: var(--caramel-brown); width: 220px; padding: 10px; margin-bottom: 24px;">
+      
+      <div style="display: flex; gap: 12px; justify-content: center;">
+        <button class="btn btn-secondary" onclick="closeOperatorPinModal()">Batal</button>
+        <button class="btn btn-coral" onclick="verifyOperatorPin()">Buka Panel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Photo Detail Modal (Lihat / Foto Ulang / Hapus) -->
+  <div id="photoPreviewModal" class="photo-modal-overlay" style="display: none;" onclick="kiosk.closePhotoModal(event)">
+    <div class="photo-modal-card" onclick="event.stopPropagation()">
+      <div class="photo-modal-header">
+        <h3 id="photoModalTitle" style="font-size: 20px; font-weight: 700; color: var(--caramel-brown);">Foto Pose 1</h3>
+        <button class="photo-modal-close" onclick="kiosk.closePhotoModal()">✕</button>
+      </div>
+      <div class="photo-modal-body">
+        <img id="photoModalImg" src="" alt="Detail Foto" style="max-height: 52vh; max-width: 100%; border-radius: 16px; object-fit: contain; box-shadow: var(--shadow-warm); border: 3px solid #fff;">
+      </div>
+      <div class="photo-modal-actions">
+        <button class="btn btn-secondary" onclick="kiosk.deletePoseFromModal()" style="color: #c53030; border-color: #feb2b2;">
+          🗑️ Hapus Foto
+        </button>
+        <button class="btn btn-coral" onclick="kiosk.retakePoseFromModal()">
+          🔄 Foto Ulang Pose Ini
+        </button>
+        <button class="btn btn-brown" onclick="kiosk.closePhotoModal()">
+          ✓ Simpan &amp; Lanjut
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Info Cetak & Digital -->
+  <div id="infoPrintModal" class="photo-modal-overlay" style="display: none;" onclick="kiosk.closeInfoModals(event)">
+    <div class="photo-modal-card" style="max-width: 500px; padding: 28px 24px;" onclick="event.stopPropagation()">
+      <div class="photo-modal-header" style="margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 28px;">🖨️</span>
+          <h3 style="font-size: 22px; font-weight: 800; color: var(--caramel-brown);">Cetak &amp; Digital Instan</h3>
+        </div>
+        <button class="photo-modal-close" onclick="kiosk.closeInfoModals()">✕</button>
+      </div>
+      
+      <div style="font-size: 14px; line-height: 1.7; color: var(--dark-roast); margin-bottom: 24px; text-align: left;">
+        <div style="background: var(--cream-bg); padding: 14px; border-radius: 16px; border: 1.5px solid var(--border-soft); margin-bottom: 12px; display: flex; gap: 12px; align-items: flex-start;">
+          <span style="font-size: 22px;">⚡</span>
+          <div>
+            <strong style="color: var(--caramel-brown);">Cetak Fisik Cepat:</strong>
+            <p style="color: var(--text-muted); font-size: 13px; margin-top: 2px;">Printer foto Epson L8050 langsung mencetak strip foto 2 rangkap dalam waktu kurang dari 25 detik dengan kualitas foto glossy tahan air.</p>
+          </div>
+        </div>
+
+        <div style="background: var(--cream-bg); padding: 14px; border-radius: 16px; border: 1.5px solid var(--border-soft); display: flex; gap: 12px; align-items: flex-start;">
+          <span style="font-size: 22px;">📱</span>
+          <div>
+            <strong style="color: var(--caramel-brown);">Unduh Digital via QR:</strong>
+            <p style="color: var(--text-muted); font-size: 13px; margin-top: 2px;">Setelah selesai berfoto, scan kode QR di layar menggunakan smartphone Anda untuk langsung mendownload foto resolusi tinggi &amp; animasi GIF tanpa perlu login.</p>
+          </div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <button class="btn btn-secondary" onclick="kiosk.closeInfoModals()">Tutup</button>
+        <button class="btn btn-coral" onclick="kiosk.closeInfoModals(); kiosk.startSession();">Mulai Foto Sekarang ➔</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Panduan Seru & Tips Pose -->
+  <div id="infoFunModal" class="photo-modal-overlay" style="display: none;" onclick="kiosk.closeInfoModals(event)">
+    <div class="photo-modal-card" style="max-width: 520px; padding: 28px 24px;" onclick="event.stopPropagation()">
+      <div class="photo-modal-header" style="margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 28px;">🎉</span>
+          <h3 style="font-size: 22px; font-weight: 800; color: var(--caramel-brown);">Tips Berfoto Seru &amp; Mudah!</h3>
+        </div>
+        <button class="photo-modal-close" onclick="kiosk.closeInfoModals()">✕</button>
+      </div>
+      
+      <div style="font-size: 14px; line-height: 1.6; color: var(--dark-roast); margin-bottom: 24px; text-align: left;">
+        <p style="color: var(--text-muted); margin-bottom: 14px;">
+          Nikmati pengalaman photobooth yang seru dengan 3 langkah gampang:
+        </p>
+        
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center; margin-bottom: 16px;">
+          <div style="background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 12px 8px;">
+            <div style="font-size: 24px; margin-bottom: 4px;">✌️</div>
+            <strong style="font-size: 12px; color: var(--caramel-brown);">Pose 1</strong>
+            <p style="font-size: 11px; color: var(--text-muted);">Senyum Manis</p>
+          </div>
+          <div style="background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 12px 8px;">
+            <div style="font-size: 24px; margin-bottom: 4px;">😎</div>
+            <strong style="font-size: 12px; color: var(--caramel-brown);">Pose 2</strong>
+            <p style="font-size: 11px; color: var(--text-muted);">Gaya Bebas</p>
+          </div>
+          <div style="background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 12px 8px;">
+            <div style="font-size: 24px; margin-bottom: 4px;">❤️</div>
+            <strong style="font-size: 12px; color: var(--caramel-brown);">Pose 3</strong>
+            <p style="font-size: 11px; color: var(--text-muted);">Heart Pose</p>
+          </div>
+        </div>
+
+        <div style="background: rgba(230, 120, 107, 0.12); border: 1.5px solid var(--coral); border-radius: 14px; padding: 10px 14px; font-size: 12.5px; color: var(--dark-roast);">
+          💡 <strong>Tips:</strong> Jika hasil foto dirasa kurang pas, Anda bebas menekan tombol <strong>Foto Ulang</strong> atau <strong>Hapus</strong> sebelum dicetak!
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px; justify-content: flex-end;">
+        <button class="btn btn-secondary" onclick="kiosk.closeInfoModals()">Tutup</button>
+        <button class="btn btn-coral" onclick="kiosk.closeInfoModals(); kiosk.startSession();">Yuk Mulai Foto! ➔</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <script src="/js/notify.js?v=warm-retro-v3.5"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v3.5"></script>
+</body>
+</html>

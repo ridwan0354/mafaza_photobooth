@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1800" width="1200" height="1800">
+  <!-- 4x6 Single Portrait Frame -->
+  <rect width="1200" height="1800" fill="#18181B"/>
+  <rect x="40" y="40" width="1120" height="1720" fill="none" stroke="#F59E0B" stroke-width="6" rx="24"/>
+
+  <!-- Header -->
+  <text x="600" y="110" font-family="'Playfair Display', serif, sans-serif" font-size="38" font-weight="bold" fill="#F59E0B" text-anchor="middle" letter-spacing="4">
+    DIMAS &amp; SARAH
+  </text>
+  <text x="600" y="145" font-family="'Inter', sans-serif" font-size="18" fill="#A1A1AA" letter-spacing="6" text-anchor="middle">
+    CELEBRATION OF LOVE
+  </text>
+
+  <!-- Green Chroma Slot for Main Pose (#00FF00) -->
+  <rect id="green_slot_single" x="100" y="180" width="1000" height="1350" fill="#00FF00" rx="16"/>
+
+  <!-- Footer Elements -->
+  <text x="600" y="1610" font-family="'Playfair Display', serif, sans-serif" font-size="28" font-style="italic" fill="#E4E4E7" text-anchor="middle">
+    Thank You for Celebrating With Us
+  </text>
+  <text x="600" y="1660" font-family="'Inter', sans-serif" font-size="20" fill="#F59E0B" letter-spacing="4" text-anchor="middle">
+    19 • 10 • 2026
+  </text>
+  <text x="600" y="1720" font-family="'Inter', sans-serif" font-size="14" fill="#71717A" text-anchor="middle">
+    Scan QR Code on Guest Card to Download HD Digital Photo
+  </text>
+</svg>

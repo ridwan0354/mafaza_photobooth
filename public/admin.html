@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mafaza — Dashboard Admin Photobooth</title>
+  <link rel="icon" type="image/jpeg" href="/assets/logo-mafaza.jpg">
+  <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v2.1">
+  <style>
+    .admin-container {
+      display: flex;
+      min-height: 100vh;
+      background: var(--cream-bg);
+    }
+    .admin-sidebar {
+      width: 270px;
+      background: #381E11;
+      color: #fff;
+      padding: 28px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      box-shadow: 4px 0 20px rgba(56, 30, 17, 0.15);
+      border-right: 2px solid var(--border-soft);
+    }
+    .sidebar-brand {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-bottom: 20px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid rgba(234, 216, 199, 0.2);
+    }
+    .nav-btn {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      color: var(--soft-cream);
+      font-family: var(--font-heading);
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .nav-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      transform: translateX(4px);
+    }
+    .nav-btn.active {
+      background: var(--coral);
+      color: #fff;
+      box-shadow: 0 6px 16px rgba(230, 120, 107, 0.4);
+    }
+    .admin-main {
+      flex: 1;
+      padding: 36px 40px;
+      overflow-y: auto;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+      animation: fadeIn 0.3s ease;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    /* Warm Retro Stat Cards (Gambar 2 Screen 4) */
+    .stat-card {
+      border-radius: 22px;
+      padding: 24px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: 0 8px 24px rgba(123, 72, 46, 0.06);
+      background: var(--cream-card);
+      border: 2px solid var(--border-soft);
+    }
+    .stat-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 14px 30px rgba(123, 72, 46, 0.12);
+      border-color: var(--coral);
+    }
+    .stat-icon-circle {
+      width: 64px;
+      height: 64px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="admin-container">
+    <!-- 1. SIDEBAR (Konsep C: Warm Playful Retro dari Gambar 2 Screen 4) -->
+    <div class="admin-sidebar">
+      <div class="sidebar-brand">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <img src="/assets/logo-mafaza.jpg" alt="Mafaza Logo" style="width: 48px; height: 48px; border-radius: 12px; object-fit: cover; border: 1.5px solid #D4A754; box-shadow: 0 4px 12px rgba(0,0,0,0.4);">
+          <div>
+            <h2 style="font-family: var(--font-heading); font-size: 21px; font-weight: 800; color: #fff; letter-spacing: 0.8px;">MAFAZA</h2>
+            <span style="font-size: 10.5px; color: var(--muted-mustard); font-weight: 600; display: block; line-height: 1.3;">Setiap Momen Punya Cerita</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; background: rgba(95, 143, 138, 0.25); border: 1px solid var(--dusty-teal); border-radius: var(--radius-pill); padding: 4px 12px; width: fit-content;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: #48bb78;"></span>
+          <span style="font-size: 11px; font-weight: 700; color: #fff;">Online ➔</span>
+        </div>
+      </div>
+
+      <!-- Menu Items -->
+      <div class="nav-btn active" onclick="switchTab('overview', this)">
+        <span>🏠</span> Beranda
+      </div>
+      <div class="nav-btn" onclick="switchTab('photos', this)">
+        <span>📷</span> Foto
+      </div>
+      <div class="nav-btn" onclick="switchTab('events', this)">
+        <span>🎪</span> Event
+      </div>
+      <div class="nav-btn" onclick="switchTab('templates', this)">
+        <span>🖼️</span> Template
+      </div>
+      <div class="nav-btn" onclick="switchTab('qrpasses', this)">
+        <span>🎟️</span> Smart QR Tamu
+      </div>
+      <div class="nav-btn" onclick="switchTab('prints', this)">
+        <span>🖨️</span> Printer
+      </div>
+      <div class="nav-btn" id="navBtnApps" onclick="switchTab('apps', this)">
+        <span>📲</span> Download Aplikasi
+      </div>
+      <div class="nav-btn" onclick="switchTab('billing', this)">
+        <span>💳</span> Langganan
+      </div>
+
+      <div style="margin-top: auto; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.12);">
+        <a href="/kiosk?fullscreen=1" target="_blank" class="btn btn-coral" style="width: 100%; font-size: 14px; padding: 12px;">
+          🖥️ Buka Kiosk Full-Screen ➔
+        </a>
+        <a href="/" style="display: block; text-align: center; color: var(--soft-cream); font-size: 13px; margin-top: 14px; text-decoration: none; font-weight: 600;">
+          ⬅ Kembali ke Beranda
+        </a>
+      </div>
+    </div>
+
+    <!-- 2. MAIN CONTENT AREA -->
+    <div class="admin-main">
+      <!-- Top Bar -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+        <div>
+          <span class="sticker-badge sticker-purple" style="margin-bottom: 8px;">Event Aktif Saat Ini</span>
+          <h1 id="topActiveEventTitle" style="font-size: 32px; font-weight: 800; color: var(--charcoal); margin-top: 4px;">Memuat Event...</h1>
+        </div>
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <span class="badge-pill badge-active">● Kiosk Online</span>
+          <img src="/assets/logo-mafaza.jpg" alt="Mafaza" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--muted-mustard); box-shadow: 0 4px 12px rgba(123, 72, 46, 0.25);">
+        </div>
+      </div>
+
+      <!-- TAB 1: OVERVIEW (RINGKASAN HARI INI DARI GAMBAR 2 SCREEN 4) -->
+      <div id="tab-overview" class="tab-content active">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+          <h3 style="font-size: 22px; font-weight: 800; color: var(--caramel-brown);">Ringkasan Hari Ini</h3>
+          <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">Event: <strong id="overviewActiveEventName" style="color: var(--coral);">Memuat...</strong></span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; margin-bottom: 36px;">
+          <!-- Card 1: Total Foto (Coral) -->
+          <div class="stat-card" style="background: var(--cream-card); border-color: var(--coral);">
+            <div class="stat-icon-circle" style="background: var(--coral); box-shadow: 0 6px 16px rgba(230, 120, 107, 0.35);">
+              📷
+            </div>
+            <div>
+              <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">Total Foto</span>
+              <h2 style="font-size: 36px; font-weight: 900; color: var(--coral); line-height: 1.1;" id="statTotalSessions">0</h2>
+              <span style="font-size: 12px; color: var(--dusty-teal); font-weight: 700;" id="statSessionRate">Sesi foto acara</span>
+            </div>
+          </div>
+
+          <!-- Card 2: Total Cetak (Muted Mustard) -->
+          <div class="stat-card" style="background: var(--cream-card); border-color: var(--muted-mustard);">
+            <div class="stat-icon-circle" style="background: var(--muted-mustard); box-shadow: 0 6px 16px rgba(212, 167, 84, 0.35);">
+              🖨️
+            </div>
+            <div>
+              <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">Total Cetak</span>
+              <h2 style="font-size: 36px; font-weight: 900; color: #b58832; line-height: 1.1;" id="statTotalPrints">0</h2>
+              <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Epson L8050 Spooler</span>
+            </div>
+          </div>
+
+          <!-- Card 3: Total Gif & QR (Dusty Teal) -->
+          <div class="stat-card" style="background: var(--cream-card); border-color: var(--dusty-teal);">
+            <div class="stat-icon-circle" style="background: var(--dusty-teal); box-shadow: 0 6px 16px rgba(95, 143, 138, 0.35);">
+              🎬
+            </div>
+            <div>
+              <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">Total Gif &amp; QR</span>
+              <h2 style="font-size: 36px; font-weight: 900; color: var(--dusty-teal); line-height: 1.1;" id="statGuestPasses">0</h2>
+              <span style="font-size: 12px; color: var(--dusty-teal); font-weight: 700;">Digital &amp; HP Tamu</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Banner Cepat: Download Aplikasi Kiosk Full-Screen (Windows, MacBook & Android) -->
+        <div class="card-pop" style="margin-bottom: 28px; padding: 22px 26px; background: linear-gradient(135deg, #381E11 0%, #57301C 100%); color: #FFF8EF; border: 2px solid var(--coral); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px;">
+          <div style="max-width: 560px;">
+            <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(230, 120, 107, 0.25); border: 1px solid var(--coral); padding: 4px 12px; border-radius: 99px; font-size: 11.5px; font-weight: 800; color: #FFD2CC; margin-bottom: 8px;">
+              📲 APLIKASI KIOSK FULL-SCREEN &amp; MULTI-PLATFORM PRINT
+            </div>
+            <h3 style="font-size: 20px; font-weight: 800; color: #FFF8EF; margin: 0 0 4px 0;">Download Aplikasi untuk Windows, MacBook &amp; Android</h3>
+            <p style="font-size: 13px; color: #EAD8C7; margin: 0; line-height: 1.5;">
+              Buka Kiosk langsung dalam mode <strong>Layar Penuh (Full-Screen)</strong> tanpa bar browser, lengkap dengan fitur cetak otomatis untuk <strong>Windows, macOS, dan Android</strong>.
+            </p>
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <a id="quickDownloadWinBtn" href="/api/apps/download/windows" class="btn btn-coral" style="padding: 10px 16px; font-size: 13px; text-decoration: none;">
+              🪟 Windows (.zip)
+            </a>
+            <a id="quickDownloadMacBtn" href="/api/apps/download/macos" class="btn btn-secondary" style="padding: 10px 16px; font-size: 13px; text-decoration: none; background: #FFF8EF; color: #381E11;">
+              🍎 MacBook (.app)
+            </a>
+            <button type="button" class="btn btn-secondary" style="padding: 10px 16px; font-size: 13px; background: var(--dusty-teal); color: #fff; border-color: var(--dusty-teal);" onclick="switchTab('apps', document.getElementById('navBtnApps'))">
+              🤖 Android &amp; Pusat Aplikasi ➔
+            </button>
+          </div>
+        </div>
+
+        <!-- Foto Terbaru (Exact Gambar 2 Screen 4: Foto Terbaru dengan grid & Lihat Semua) -->
+        <!-- Foto Terbaru (Dynamic Grid dari Hasil Sesi Tamu) -->
+        <div class="card-retro" style="margin-bottom: 28px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 4px 0;">📸 Foto Terbaru dari Kiosk</h3>
+              <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Foto sesi photobooth terbaru. Klik foto untuk melihat ukuran penuh atau cetak ulang.</p>
+            </div>
+            <a href="javascript:void(0)" onclick="switchTab('photos', document.querySelectorAll('.nav-btn')[1])" style="color: var(--coral); font-size: 14px; font-weight: 700; text-decoration: none;">
+              Buka Semua Galeri Foto ➔
+            </a>
+          </div>
+          <div id="recentPhotosOverviewGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 16px;">
+            <div style="padding: 24px; text-align: center; color: var(--text-muted); grid-column: 1 / -1;">
+              Memuat foto terbaru...
+            </div>
+          </div>
+        </div>
+
+        <!-- Sesi Foto Terbaru -->
+        <div class="card-pop" style="padding: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 style="font-size: 19px; font-weight: 800; color: var(--caramel-brown);">Riwayat Sesi Foto Booth</h3>
+            <span style="font-size: 13px; color: var(--text-muted);">Sesi foto terbaru dari event aktif</span>
+          </div>
+          <div id="recentSessionsTable">
+            <!-- Populated via JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: FOTO & GALERI HASIL PHOTOBOOTH (REPRINT STATION) -->
+      <div id="tab-photos" class="tab-content">
+        <div class="card-pop" style="margin-bottom: 32px; padding: 24px; background: var(--cream-card); border: 2px solid var(--border-soft);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 14px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                <span class="sticker-badge sticker-purple">📸 Galeri Foto Sesi Acara</span>
+                <span id="photoGalleryCountBadge" class="sticker-badge sticker-teal">0 Foto Tersimpan</span>
+              </div>
+              <h2 style="font-size: 26px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 4px 0;">Hasil Foto Tamu &amp; Cetak Ulang (Reprint)</h2>
+              <p style="font-size: 13.5px; color: var(--text-muted); margin: 0;">Lihat semua foto yang telah terlewat / diambil di Kiosk. Jika kertas macet atau cetak gagal, Anda bisa klik foto dan cetak ulang kapan saja.</p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <select id="galleryEventFilter" onchange="filterGalleryByEvent()" style="padding: 10px 14px; background: #fff; border: 2px solid var(--soft-gray); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
+                <option value="">Semua Event</option>
+              </select>
+              <button class="btn btn-secondary" style="font-size: 13px; font-weight: 700; padding: 10px 16px; display: flex; align-items: center; gap: 6px; background: #fff;" onclick="filterGalleryByEvent()">
+                🔄 Segarkan Galeri
+              </button>
+            </div>
+          </div>
+
+          <div id="galleryPhotosGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 18px;">
+            <div style="padding: 32px; text-align: center; color: var(--text-muted); grid-column: 1 / -1;">
+              Memuat galeri foto acara...
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: KELOLA EVENT & DAFTAR ACARA PHOTOBOOTH -->
+      <div id="tab-events" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <h2 style="font-size: 26px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">🎪 Daftar Acara &amp; Pengaturan Kiosk</h2>
+            <p style="color: var(--text-muted); font-size: 14px;">Daftar semua acara photobooth Anda. Buat event baru atau atur konfigurasi layar sentuh kiosk.</p>
+          </div>
+          <button class="btn btn-coral" style="font-size: 14px; padding: 12px 24px;" onclick="openCreateEventModal()">
+            ✨ + Buat Event Baru
+          </button>
+        </div>
+
+        <!-- 1. Daftar Event Tersedia -->
+        <div class="card-pop" style="margin-bottom: 28px; padding: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <h3 style="font-size: 19px; font-weight: 800; color: var(--caramel-brown);">Daftar Semua Event</h3>
+            <span style="font-size: 13px; color: var(--text-muted);">Pilih event untuk mengaktifkannya di Layar Kiosk Booth</span>
+          </div>
+
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--border-soft); color: var(--text-muted); font-size: 13px;">
+                <th style="padding: 12px;">Nama Event</th>
+                <th>Tanggal Acara</th>
+                <th>Jumlah Cekrek</th>
+                <th>Hapus Otomatis (1 Thn)</th>
+                <th>Status</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="eventsTableBody">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- 2. Konfigurasi Event Terpilih -->
+        <div class="card-pop" style="padding: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                <span class="sticker-badge sticker-mustard" style="font-size: 11px;">Konfigurasi Kiosk</span>
+                <span id="cfgRetentionBadge" class="sticker-badge sticker-teal" style="font-size: 11px;">🗑️ Retensi Cloud: 1 Tahun</span>
+              </div>
+              <h3 id="selectedEventConfigTitle" style="font-size: 20px; font-weight: 800; color: var(--caramel-brown);">
+                Konfigurasi Event
+              </h3>
+            </div>
+            <span id="selectedEventActiveBadge" class="badge-pill badge-active">● Sedang Digunakan di Kiosk</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px;">
+            <div>
+              <label style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px; color: var(--caramel-brown);">Berapa Kali Cekrek (Jumlah Pose)</label>
+              <select id="cfgShotsCount" style="width: 100%; padding: 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 14.5px; font-weight: 700; color: var(--caramel-brown);">
+                <option value="3">📸 3 Kali Cekrek (Standar Strip 2x6)</option>
+                <option value="4">📸 4 Kali Cekrek (Collage 4-Pose)</option>
+                <option value="1">📸 1 Kali Cekrek (Single Frame 4x6 / Polaroid)</option>
+                <option value="6">📸 6 Kali Cekrek (Banyak Pilihan Pose)</option>
+              </select>
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px; color: var(--caramel-brown);">Countdown Pemotretan (detik)</label>
+              <input type="number" id="cfgCountdown" value="3" min="1" max="15" style="width: 100%; padding: 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 16px; font-weight: 700; color: var(--dark-roast);">
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px; color: var(--caramel-brown);">Maksimal Cetak per Sesi</label>
+              <input type="number" id="cfgMaxCopies" value="2" min="1" max="10" style="width: 100%; padding: 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 16px; font-weight: 700; color: var(--dark-roast);">
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px; color: var(--caramel-brown);">Sistem Pindai QR (Awal Sesi)</label>
+              <select id="cfgQrRequirement" style="width: 100%; padding: 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 14.5px; font-weight: 700; color: var(--caramel-brown);">
+                <option value="disabled">🚫 Tidak Pakai Pindai QR (Langsung Pilih Frame)</option>
+                <option value="optional">🎟️ Pakai Pindai QR (Opsional / Bisa Lewati)</option>
+                <option value="required">🔒 Wajib Scan QR Terlebih Dahulu</option>
+              </select>
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px; color: var(--caramel-brown);">PIN Kunci Kiosk Operator</label>
+              <input type="text" id="cfgPinLock" value="1234" maxlength="6" style="width: 100%; padding: 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 16px; font-weight: 700; color: var(--dark-roast);">
+            </div>
+          </div>
+
+          <!-- CUSTOM KIOSK BACKGROUND PER EVENT (GAMBAR / YOUTUBE / S3 VIDEO) -->
+          <div style="margin-top: 22px; background: var(--cream-bg); border: 2px solid var(--border-soft); border-radius: 18px; padding: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 14px;">
+              <div>
+                <h4 style="font-size: 16px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 3px;">
+                  🖼️🎬 Background Layar Kiosk (Khusus Event Ini)
+                </h4>
+                <p style="font-size: 12.5px; color: var(--text-muted); margin: 0;">
+                  Setiap event bisa menggunakan background berbeda: Upload Gambar/Video, Link YouTube, atau Link S3 Video/Gambar.
+                </p>
+              </div>
+              <button type="button" class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;" onclick="resetKioskBackgroundToDefault()">
+                ↺ Reset ke Default
+              </button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start;">
+              <!-- Left column: Type & Opacity -->
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                <div>
+                  <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Jenis Background Kiosk</label>
+                  <select id="cfgBgType" onchange="onKioskBgTypeChange()" style="width: 100%; padding: 11px 12px; background: #ffffff; border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
+                    <option value="default">🎨 Default (Warna Krem Hangat)</option>
+                    <option value="image">🖼️ Gambar (Upload / Link Gambar S3)</option>
+                    <option value="video">🎬 Video MP4 / S3 (Link S3 / Upload Video)</option>
+                    <option value="youtube">▶️ Video YouTube (Link YouTube)</option>
+                  </select>
+                </div>
+
+                <div id="cfgBgOpacityGroup" style="display: none; background: #ffffff; border: 1.5px solid var(--border-soft); border-radius: 12px; padding: 10px 12px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <label style="font-size: 12px; font-weight: 700; color: var(--caramel-brown);">Lapisan Gelap (Kontras Teks):</label>
+                    <strong id="cfgBgOpacityLabel" style="font-size: 12px; color: var(--coral);">35%</strong>
+                  </div>
+                  <input type="range" id="cfgBgOverlayOpacity" min="0" max="80" step="5" value="35" oninput="onKioskBgOpacityChange(this.value)" style="width: 100%; accent-color: var(--coral); cursor: pointer;">
+                  <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Agar judul &amp; tombol Kiosk tetap terbaca jelas.</div>
+                </div>
+              </div>
+
+              <!-- Right column: URL / Upload & Live Preview -->
+              <div id="cfgBgSourcePanel" style="display: none; flex-direction: column; gap: 12px;">
+                <div>
+                  <label id="cfgBgUrlLabel" style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+                    Link URL (YouTube / S3 Video / Gambar) atau Upload File
+                  </label>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <input type="text" id="cfgBgUrl" oninput="renderAdminBgPreview()" placeholder="https://www.youtube.com/watch?v=... atau https://s3.../video.mp4" style="flex: 1; min-width: 220px; padding: 11px 14px; background: #ffffff; border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 600; color: var(--dark-roast);">
+                    <button type="button" class="btn btn-secondary" style="padding: 10px 14px; font-size: 12.5px; white-space: nowrap;" onclick="clearKioskBgUrlInput()" title="Kosongkan kolom link">
+                      ✕ Hapus Link
+                    </button>
+                    <input type="file" id="cfgBgFileInput" accept="image/*,video/mp4,video/webm,video/quicktime" style="display: none;" onchange="handleUploadKioskBackground(this, 'edit')">
+                    <button type="button" id="btnUploadBgFile" class="btn btn-teal" style="padding: 10px 16px; font-size: 13px; white-space: nowrap;" onclick="document.getElementById('cfgBgFileInput').click()">
+                      📤 Upload Gambar / Video
+                    </button>
+                  </div>
+                  <div id="cfgBgHelperText" style="font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">
+                    💡 Bisa unggah file gambar (`.jpg`, `.png`, `.webp`) / video (`.mp4`, `.webm`), tempel link video AWS S3, atau link YouTube.
+                  </div>
+                </div>
+
+                <!-- Live Preview Box -->
+                <div id="cfgBgPreviewBox" style="position: relative; width: 100%; height: 165px; border-radius: 14px; overflow: hidden; border: 2px solid var(--border-soft); background: #F9E9D7; display: flex; align-items: center; justify-content: center;">
+                  <div id="cfgBgPreviewMedia" style="position: absolute; inset: 0; width: 100%; height: 100%;"></div>
+                  <div id="cfgBgPreviewOverlay" style="position: absolute; inset: 0; background: rgba(28, 18, 12, 0.35); pointer-events: none;"></div>
+                  <div style="position: relative; z-index: 2; text-align: center; padding: 12px; pointer-events: none;">
+                    <div id="cfgBgPreviewTitle" style="font-family: var(--font-heading); font-size: 18px; font-weight: 800; color: #FFFBF5; text-shadow: 0 2px 10px rgba(0,0,0,0.65); margin-bottom: 6px;">
+                      Abadikan Momen Spesialmu Di Sini! 😊
+                    </div>
+                    <span style="display: inline-block; background: var(--coral); color: #fff; font-size: 11px; font-weight: 700; padding: 5px 14px; border-radius: 999px; box-shadow: 0 4px 10px rgba(0,0,0,0.25);">
+                      Mulai Foto ➔
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="margin-top: 22px;">
+            <label style="display: block; font-size: 14px; font-weight: 800; margin-bottom: 12px; color: var(--caramel-brown);">Mode Foto yang Diaktifkan di Kiosk:</label>
+            <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+              <label style="font-weight: 600; font-size: 13.5px;"><input type="checkbox" id="m_strip" checked> Photo Strip (2x6)</label>
+              <label style="font-weight: 600; font-size: 13.5px;"><input type="checkbox" id="m_single" checked> Single Photo (4x6)</label>
+              <label style="font-weight: 600; font-size: 13.5px;"><input type="checkbox" id="m_collage" checked> Collage 4-Pose</label>
+              <label style="font-weight: 600; font-size: 13.5px;"><input type="checkbox" id="m_gif" checked> Animated GIF</label>
+              <label style="font-weight: 600; font-size: 13.5px;"><input type="checkbox" id="m_boomerang"> Boomerang</label>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 14px; margin-top: 24px; align-items: center;">
+            <button class="btn btn-coral" onclick="saveEventConfig()">
+              💾 Simpan Konfigurasi Event
+            </button>
+            <a href="/kiosk" target="_blank" class="btn btn-secondary" style="font-size: 14px;">
+              🖥️ Buka Kiosk dengan Event Ini ➔
+            </a>
+          </div>
+        </div>
+
+        <!-- 3. PENGATURAN KAMERA SONY A7III / CANON & TRIGGER FLASH STUDIO -->
+        <div class="card-pop" style="margin-top: 28px; padding: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 18px;">
+            <div>
+              <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+                <span class="sticker-badge sticker-coral" style="font-size: 11px;">📸 Hardware Shutter &amp; Hotshoe Flash Sync</span>
+                <span id="cameraSystemStatusBadge" class="sticker-badge sticker-teal" style="font-size: 11px;">🔄 Memeriksa Kamera &amp; Sony Remote...</span>
+              </div>
+              <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">
+                Kamera Sony A7III / Canon EOS &amp; Trigger Flash Eksternal (Godox / Speedlight)
+              </h3>
+              <p style="font-size: 13px; color: var(--text-muted); margin: 0;">
+                Agar lampu Flash / Trigger Godox di atas kamera ikut menyala saat hitungan mundur mencapai 0, sistem akan menembakkan <strong>Shutter Fisik Kamera via USB</strong>.
+              </p>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button type="button" class="btn btn-teal" style="font-size: 13px; padding: 10px 16px;" onclick="launchSonyRemoteFromAdmin()">
+                🚀 Buka Sony Imaging Edge Remote
+              </button>
+              <button type="button" class="btn btn-coral" style="font-size: 13px; padding: 10px 16px;" onclick="testCameraFlashTriggerFromAdmin()">
+                ⚡ Uji Jepret &amp; Nyalakan Flash
+              </button>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 18px;">
+            <div>
+              <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Mode Trigger Kamera &amp; Flash</label>
+              <select id="cfgCameraFlashMode" onchange="saveCameraFlashSettings()" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
+                <option value="sony_canon_flash">⚡ Aktif: Sony A7III / Canon USB Shutter + Flash Hotshoe</option>
+                <option value="webcam_only">💻 Nonaktif: Hanya Webcam / Continuous LED</option>
+              </select>
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Tipe Bodi Kamera Utama</label>
+              <select id="cfgCameraBrand" onchange="saveCameraFlashSettings()" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
+                <option value="sony_a7iii">📷 Sony Alpha (A7III / A7IV / A7C / A6400 — Sony Remote / PTP)</option>
+                <option value="canon_eos">📷 Canon EOS (R / RP / R6 / 5D / 80D — EOS Utility / PTP)</option>
+                <option value="nikon_dslr">📷 Nikon DSLR / Z Series (USB Tether)</option>
+              </select>
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Kamera Live View di Layar Kiosk</label>
+              <select id="cfgVideoDeviceSelect" onchange="saveCameraFlashSettings()" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
+                <option value="">🔍 Otomatis (Prioritaskan Sony / Capture Card HDMI)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Panduan Setting Sony A7III agar Flash Menyala & Live View Terang -->
+          <div style="background: var(--cream-bg); border: 1.5px dashed var(--border-soft); border-radius: 14px; padding: 14px 18px; font-size: 12.5px; color: var(--dark-roast); line-height: 1.6;">
+            <div style="font-weight: 800; color: var(--caramel-brown); font-size: 13.5px; margin-bottom: 6px;">
+              💡 Checklist Wajib di Menu Kamera Sony A7III agar Flash / Godox Menyala:
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px;">
+              <div>
+                <strong>1. Hubungkan Kabel USB-C ke MacBook/PC:</strong><br>
+                Buka <code>Menu ➔ Network1 ➔ PC Remote Function ➔ ON</code> (Method: <code>USB</code>). Lalu klik tombol <strong>"🚀 Buka Sony Imaging Edge Remote"</strong> di atas.
+              </div>
+              <div>
+                <strong>2. Agar Live View Tidak Gelap Saat Pakai Flash Studio:</strong><br>
+                Buka <code>Menu ➔ Camera2 (Ungu) ➔ Live View Display ➔ Setting Effect OFF</code> (Supaya layar tetap terang walau speed 1/160s &amp; f/8).
+              </div>
+              <div>
+                <strong>3. Pengaturan Flash di Sony A7III:</strong><br>
+                Pasang Trigger Godox/Speedlight di Hotshoe, pastikan <code>Flash Mode = Fill-flash (⚡)</code> dan <code>WL (Wireless Flash) = ON</code>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: SMART TEMPLATES & GREEN AREA AUTO DETECTION -->
+      <div id="tab-templates" class="tab-content">
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+          <div>
+            <h2 style="font-size: 28px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">🎨 Smart Template Desain Kiosk</h2>
+            <p style="color: var(--text-muted); font-size: 14px;">
+              Daftar template frame foto untuk event <strong id="templateActiveEventBadge" style="color: var(--coral);">Memuat...</strong>. Unggah file PNG dengan area hijau solid (<code style="background: #00FF00; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: 800;">#00FF00</code>) untuk deteksi slot foto otomatis.
+            </p>
+          </div>
+          <button class="btn btn-coral" style="font-size: 14px; padding: 12px 24px;" onclick="openUploadTemplateModal()">
+            ✨ + Unggah Template Baru
+          </button>
+        </div>
+
+        <!-- 1. Daftar Template untuk Event Ini -->
+        <div class="card-pop" style="margin-bottom: 28px; padding: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <h3 style="font-size: 19px; font-weight: 800; color: var(--caramel-brown);">Daftar Template Tersedia</h3>
+              <span style="font-size: 13px; color: var(--text-muted);">Pilih template di bawah untuk melihat preview atau menyesuaikan slot foto di Canvas Editor</span>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+              <div style="display: flex; background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 999px; padding: 3px; gap: 4px;">
+                <button id="btnFilterEventTemplates" class="btn" style="border-radius: 999px; padding: 5px 14px; font-size: 12px; font-weight: 700; background: var(--coral); color: white;" onclick="setTemplateFilter('event')">📌 Event Ini</button>
+                <button id="btnFilterAllTemplates" class="btn" style="border-radius: 999px; padding: 5px 14px; font-size: 12px; font-weight: 700; background: transparent; color: var(--caramel-brown);" onclick="setTemplateFilter('all')">🌐 Semua Template</button>
+              </div>
+              <button class="btn btn-secondary" style="font-size: 12.5px; padding: 6px 14px;" onclick="loadTemplates()">🔄 Refresh</button>
+            </div>
+          </div>
+
+          <div id="templatesGalleryGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 18px;">
+            <!-- Populated via JS -->
+          </div>
+        </div>
+
+        <!-- 2. Canvas Drag, Resize & Snap Editor -->
+        <div class="card-pop" style="padding: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 4px;">
+                <span class="sticker-badge sticker-mustard" style="font-size: 11px;">Canvas Interactive Editor</span>
+                <span id="currentEditorTypeBadge" class="sticker-badge sticker-purple" style="font-size: 11px;">Strip 2x6</span>
+              </div>
+              <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown);">
+                Editor Slot: <span id="currentEditorTemplateName" style="color: var(--coral);">Pilih Template</span>
+              </h3>
+            </div>
+            <span class="sticker-badge sticker-teal" style="font-size: 12px;">Smart Green Chroma Connected 2D</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 360px 1fr; gap: 24px;">
+            <div style="background: var(--cream-bg); border: 2px solid var(--border-soft); border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+              <div>
+                <h4 style="font-size: 16px; font-weight: 800; margin-bottom: 8px; color: var(--caramel-brown);">Daftar Slot Pose</h4>
+                <div id="detectedSlotsList" style="max-height: 180px; overflow-y: auto;">
+                  <!-- Slot list -->
+                </div>
+              </div>
+
+              <!-- Interactive Slot Dimension & Precision Inspector -->
+              <div id="slotInspectorCard" style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                  <strong id="inspectorSlotTitle" style="color: #ec4899; font-size: 13.5px; font-weight: 800;">📐 Penyesuaian Presisi Slot</strong>
+                  <span id="inspectorSlotBadge" class="sticker-badge sticker-mustard" style="font-size: 10px;">Pilih Slot</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                  <div>
+                    <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Posisi X (px)</label>
+                    <input type="number" id="inpSlotX" class="form-control" style="padding: 6px 8px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
+                  </div>
+                  <div>
+                    <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Posisi Y (px)</label>
+                    <input type="number" id="inpSlotY" class="form-control" style="padding: 6px 8px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
+                  </div>
+                  <div>
+                    <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Lebar / W (px)</label>
+                    <input type="number" id="inpSlotW" class="form-control" style="padding: 6px 8px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
+                  </div>
+                  <div>
+                    <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Tinggi / H (px)</label>
+                    <input type="number" id="inpSlotH" class="form-control" style="padding: 6px 8px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
+                  </div>
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="adjustActiveSlotSize('w', -10)">-10 W</button>
+                  <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="adjustActiveSlotSize('w', 10)">+10 W</button>
+                  <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="adjustActiveSlotSize('h', -10)">-10 H</button>
+                  <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="adjustActiveSlotSize('h', 10)">+10 H</button>
+                  <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="fitActiveSlotWidth()">Penuhkan Lebar</button>
+                </div>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 8px;">
+                <button class="btn btn-teal" style="font-size: 13px; width: 100%;" onclick="runAutoGreenDetection()">🔍 Jalankan Deteksi Hijau Otomatis</button>
+                <button class="btn btn-secondary" style="font-size: 13px; width: 100%;" onclick="addManualSlot()">+ Tambah Slot Pose Manual</button>
+                <button class="btn btn-coral" style="font-size: 13px; width: 100%;" onclick="saveTemplateVersion()">💾 Simpan &amp; Publikasikan untuk Kiosk</button>
+              </div>
+            </div>
+
+            <div style="background: #2E2A3B; border-radius: 18px; padding: 24px; text-align: center; border: 2px solid var(--border-soft); box-shadow: inset 0 2px 10px rgba(0,0,0,0.4);">
+              <div style="margin-bottom: 12px; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 12px;">
+                <span>🖱️ <strong>Klik</strong> slot untuk memilih</span>
+                <span>✋ <strong>Geser</strong> kotak untuk pindah posisi</span>
+                <span>📐 <strong>Tarik titik sudut/sisi</strong> untuk ubah ukuran (resize)</span>
+              </div>
+              <canvas id="templateEditorCanvas" width="600" height="1800" style="max-height: 540px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); cursor: default;"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 4: UNIVERSAL SMART QR -->
+      <div id="tab-qrpasses" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; margin-bottom: 22px;">
+          <div>
+            <h2 style="font-size: 26px; font-weight: 800; margin-bottom: 6px;">🎟️ Universal Smart QR Guest Cards</h2>
+            <p style="color: var(--text-muted); margin-bottom: 0;">1 QR untuk kamera booth dan kamera HP tamu tanpa login (multi-session &amp; simpan semua foto asli + frame).</p>
+          </div>
+          
+          <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 6px; background: var(--cream-white); padding: 5px 12px; border-radius: 12px; border: 1.5px solid var(--border-soft);">
+              <span style="font-size: 13px; font-weight: 700; color: var(--caramel-brown);">Jumlah:</span>
+              <select id="qrBatchCountSelect" style="background: transparent; border: 0; font-weight: 700; font-size: 13px; color: var(--caramel-brown); outline: none;">
+                <option value="6">6 Kartu</option>
+                <option value="12" selected>12 Kartu</option>
+                <option value="24">24 Kartu</option>
+                <option value="50">50 Kartu</option>
+              </select>
+            </div>
+
+            <button class="btn btn-primary" onclick="generateBatchQR()" style="display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; padding: 10px 16px;">
+              <span>✨</span> Generate QR Tamu Baru
+            </button>
+            <button class="btn btn-secondary" onclick="printAllGuestCards()" style="display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; padding: 10px 16px; background: #fff;">
+              <span>🖨️</span> Cetak Lembar Kartu (A4)
+            </button>
+            <button class="btn btn-secondary" onclick="loadQRFleets()" title="Refresh Data" style="padding: 10px 14px; background: #fff;">
+              🔄
+            </button>
+          </div>
+        </div>
+
+        <!-- 3 Summary Stats & How it Works Banner -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 22px;">
+          <div class="card-pop" style="padding: 18px; text-align: center; border-left: 5px solid var(--coral-pink);">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">TOTAL KARTU TERBIT</div>
+            <div id="qrStatTotal" style="font-size: 32px; font-weight: 900; color: var(--coral-pink);">0</div>
+            <div style="font-size: 11px; color: var(--text-muted);">Siap dibagikan ke tamu</div>
+          </div>
+          <div class="card-pop" style="padding: 18px; text-align: center; border-left: 5px solid #27ae60;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">TAMU SUDAH FOTO</div>
+            <div id="qrStatActive" style="font-size: 32px; font-weight: 900; color: #27ae60;">0</div>
+            <div style="font-size: 11px; color: var(--text-muted);">Telah scan &amp; ambil foto</div>
+          </div>
+          <div class="card-pop" style="padding: 18px; text-align: center; border-left: 5px solid #2980b9;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">TOTAL SESI FOTO</div>
+            <div id="qrStatSessions" style="font-size: 32px; font-weight: 900; color: #2980b9;">0</div>
+            <div style="font-size: 11px; color: var(--text-muted);">Tersimpan di galeri tamu</div>
+          </div>
+        </div>
+
+        <!-- How it works banner -->
+        <div class="card-pop" style="background: linear-gradient(135deg, rgba(230, 120, 107, 0.08) 0%, rgba(212, 167, 84, 0.12) 100%); border: 1.5px solid var(--border-soft); margin-bottom: 24px; padding: 18px 24px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+              <span style="font-size: 28px;">💡</span>
+              <div>
+                <strong style="font-size: 15px; color: var(--caramel-brown); display: block; margin-bottom: 2px;">Cara Kerja Universal Smart QR Tamu:</strong>
+                <span style="font-size: 13px; color: var(--charcoal); line-height: 1.5;">
+                  <strong>1.</strong> Cetak &amp; bagikan kartu (Tamu A, Tamu B) saat tiba di acara. &bull; 
+                  <strong>2.</strong> Tamu scan QR saat foto di Kiosk (otomatis terhubung tanpa login). &bull; 
+                  <strong>3.</strong> Tamu scan QR dengan HP kapan saja untuk download foto berbingkai + semua pose asli tanpa frame!
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grid Cards -->
+        <div class="card-pop">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 10px;">
+            <h3 style="font-size: 18px; font-weight: 800; color: var(--caramel-brown); margin: 0;">Daftar Kartu QR Tamu untuk Event Ini</h3>
+            <span style="font-size: 12px; color: var(--text-muted);">Klik "Buka Galeri HP" untuk pratinjau galeri masing-masing tamu</span>
+          </div>
+          <div id="qrPassesList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 18px;">
+            <!-- QR cards rendered here dynamically -->
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 5: PRINT SETTINGS & SPOOLER -->
+      <div id="tab-prints" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 22px;">
+          <div>
+            <h2 style="font-size: 26px; font-weight: 800; margin-bottom: 6px;">🖨️ Pengaturan &amp; Riwayat Cetak Fleksibel</h2>
+            <p style="color: var(--text-muted); margin-bottom: 0;">Mendukung semua printer (Epson, Canon, HP, DNP, Brother, dll) otomatis terbaca dari komputer atau laptop yang terhubung.</p>
+          </div>
+          <button class="btn btn-secondary" style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; padding: 10px 16px; background: #fff;" onclick="loadSystemPrinters(true)">
+            <span id="scanPrinterSpinner">🔄</span> Pindai Ulang Printer Sistem
+          </button>
+        </div>
+
+        <!-- Configuration Card -->
+        <div class="card-pop" style="margin-bottom: 28px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+            <h3 style="font-size: 18px; font-weight: 800; color: var(--coral-pink); margin: 0;">⚙️ Konfigurasi Driver &amp; Kertas Printer</h3>
+            <span id="printerScanStatusBadge" style="font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 99px; background: rgba(39, 174, 96, 0.12); color: #27ae60; border: 1px solid rgba(39, 174, 96, 0.25);">
+              ● Membaca printer perangkat...
+            </span>
+          </div>
+          
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px;">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <label style="font-size: 14px; font-weight: 700;">Model Printer Terpasang</label>
+                <span id="currentDefaultBadge" style="font-size: 11px; color: var(--caramel-brown); font-weight: 700; display: none;">⭐ Default OS</span>
+              </div>
+              <select id="prtModel" onchange="handlePrinterModelChange()" style="width: 100%; padding: 11px; background: var(--cream-white); border: 2px solid var(--soft-gray); border-radius: 10px; font-size: 14px; font-weight: 600;">
+                <option value="">Memindai printer komputer...</option>
+              </select>
+              
+              <!-- Custom printer input if user selects manual custom printer -->
+              <div id="customPrinterInputWrap" style="display: none; margin-top: 10px;">
+                <input type="text" id="customPrinterName" placeholder="Ketik nama printer lain (contoh: Brother DCP-T720W)" style="width: 100%; padding: 9px 12px; background: #fff; border: 2px dashed var(--caramel-brown); border-radius: 8px; font-size: 13px;">
+              </div>
+            </div>
+
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <label style="font-size: 14px; font-weight: 700;">Jenis Kertas (Media Type)</label>
+                <span id="mediaTypeBadge" style="font-size: 11px; color: var(--caramel-brown); font-weight: 700;">Otomatis Driver</span>
+              </div>
+              <select id="prtMediaType" onchange="handleMediaTypeChange()" style="width: 100%; padding: 11px; background: var(--cream-white); border: 2px solid var(--soft-gray); border-radius: 10px; font-size: 14px; font-weight: 600;">
+                <option value="photographic-glossy">Kertas Foto Kilap (Glossy Photo Paper)</option>
+              </select>
+
+              <!-- Custom media type input -->
+              <div id="customMediaTypeInputWrap" style="display: none; margin-top: 10px;">
+                <input type="text" id="customMediaTypeName" placeholder="Ketik jenis kertas khusus (contoh: Silky 260gsm, Canvas, Sticker)" style="width: 100%; padding: 9px 12px; background: #fff; border: 2px dashed var(--caramel-brown); border-radius: 8px; font-size: 13px;">
+              </div>
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px;">Ukuran Kertas Bawaan</label>
+              <select id="prtPaperSize" style="width: 100%; padding: 11px; background: var(--cream-white); border: 2px solid var(--soft-gray); border-radius: 10px; font-size: 15px; font-weight: 600;">
+                <option value="2x6" selected>Photo Strip 2×6 inch (2 strip per lembar)</option>
+                <option value="4x6">Photo 4×6 inch (10×15 cm Postcard)</option>
+                <option value="5x7">Photo 5×7 inch</option>
+                <option value="6x8">Photo 6×8 inch (Square Studio)</option>
+                <option value="A4">A4 Glossy Photo Paper</option>
+              </select>
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px;">Mode Eksekusi Cetak</label>
+              <select id="prtMode" style="width: 100%; padding: 11px; background: var(--cream-white); border: 2px solid var(--soft-gray); border-radius: 10px; font-size: 15px; font-weight: 600;">
+                <option value="manual" selected>Manual (Tamu memilih jumlah cetak di layar)</option>
+                <option value="auto">Otomatis Langsung Cetak saat sesi selesai</option>
+              </select>
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px;">Maksimal Cetak per Sesi</label>
+              <select id="prtMaxCopies" style="width: 100%; padding: 11px; background: var(--cream-white); border: 2px solid var(--soft-gray); border-radius: 10px; font-size: 15px; font-weight: 600;">
+                <option value="1">1 Lembar per Sesi</option>
+                <option value="2" selected>2 Lembar per Sesi</option>
+                <option value="3">3 Lembar per Sesi</option>
+                <option value="4">4 Lembar per Sesi</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 24px; align-items: center; margin-top: 18px; flex-wrap: wrap;">
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">
+              <input type="checkbox" id="prtBorderless" checked> Cetak Tanpa Tepi Putih (Borderless Printing)
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; cursor: pointer;">
+              <input type="checkbox" id="prtHighDpi" checked> Kualitas Tinggi (High Definition 300 DPI)
+            </label>
+          </div>
+
+          <div style="display: flex; gap: 14px; margin-top: 24px; flex-wrap: wrap;">
+            <button class="btn btn-primary" onclick="savePrinterSettings()">💾 Simpan Pengaturan Printer</button>
+            <button class="btn btn-secondary" onclick="testPrintFromAdmin()">🖨️ Kirim Test Print ke Spooler</button>
+          </div>
+        </div>
+
+        <!-- Print Queue Table -->
+        <div class="card-pop">
+          <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 14px; color: var(--charcoal);">Antrean &amp; Riwayat Cetak</h3>
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px;">
+            <thead>
+              <tr style="border-bottom: 2px solid var(--soft-gray); color: var(--text-muted);">
+                <th style="padding: 12px; width: 75px;">Foto</th>
+                <th>Job ID</th>
+                <th>Spooler ID</th>
+                <th>Event</th>
+                <th>Jumlah Copy</th>
+                <th>Status</th>
+                <th>Waktu</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="printJobsTableBody">
+              <!-- Populated via JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TAB 5.5: PUSAT DOWNLOAD APLIKASI KIOSK FULL-SCREEN (WINDOWS, MACBOOK, ANDROID) -->
+      <div id="tab-apps" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; margin-bottom: 24px;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+              <span class="sticker-badge sticker-purple">📲 Multi-Platform Kiosk Suite</span>
+              <span class="sticker-badge sticker-teal" id="appLanStatusBadge">🟢 Jaringan LAN Aktif</span>
+            </div>
+            <h2 style="font-size: 28px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 6px 0;">Download Aplikasi Full-Screen (Windows, MacBook &amp; Android)</h2>
+            <p style="color: var(--text-muted); font-size: 14px; margin: 0; max-width: 760px;">
+              Unduh paket aplikasi Kiosk agar saat dibuka langsung tampil <strong>Full-Screen (Layar Penuh)</strong> yang rapi tanpa URL bar, serta mendukung <strong>fitur cetak otomatis (Print)</strong> di Windows, MacBook, dan Android.
+            </p>
+          </div>
+          <a href="/kiosk?fullscreen=1" target="_blank" class="btn btn-coral" style="padding: 12px 20px; font-size: 14px; text-decoration: none;">
+            ⛶ Uji Buka Kiosk Full-Screen Sekarang ➔
+          </a>
+        </div>
+
+        <!-- Bar Konfigurasi IP Server Lokal (agar perangkat lain / Android / Windows bisa terhubung) -->
+        <div class="card-pop" style="margin-bottom: 24px; padding: 20px 24px; background: var(--cream-card); border: 2px solid var(--border-soft);">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+            <div style="flex: 1; min-width: 280px;">
+              <div style="font-size: 15px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">
+                🌐 Alamat Server Photobooth (Otomatis Terbaca di Wi-Fi / LAN)
+              </div>
+              <div style="font-size: 12.5px; color: var(--text-muted);">
+                Alamat ini otomatis ditanamkan ke dalam aplikasi Windows, MacBook, dan Android yang Anda download di bawah agar langsung terhubung ke server &amp; printer ini.
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <input type="text" id="appServerUrlInput" placeholder="http://192.168.1.x:3000" style="width: 270px; padding: 10px 14px; border-radius: 12px; border: 2px solid var(--border-soft); font-size: 14px; font-weight: 700; color: var(--charcoal); background: #fff;">
+              <button type="button" class="btn btn-secondary" style="padding: 10px 16px; font-size: 13px; background: #fff;" onclick="refreshAppDownloadLinks()">
+                🔄 Perbarui Tautan &amp; QR
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3 Kartu Platform Utama: Windows, MacBook, Android -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 22px; margin-bottom: 28px;">
+          <!-- CARD 1: WINDOWS 10 / 11 -->
+          <div class="card-pop" style="padding: 26px; background: #fff; border: 2.5px solid var(--border-soft); display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                <div style="width: 56px; height: 56px; border-radius: 18px; background: rgba(0, 120, 212, 0.12); display: flex; align-items: center; justify-content: center; font-size: 32px;">
+                  🪟
+                </div>
+                <span class="badge-pill badge-active" style="background: rgba(0, 120, 212, 0.12); color: #0067b8; border: 1px solid rgba(0, 120, 212, 0.25);">Windows 10 &amp; 11</span>
+              </div>
+
+              <h3 style="font-size: 21px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">Aplikasi Windows (PC / Laptop)</h3>
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-bottom: 16px;">
+                Paket aplikasi desktop Windows yang otomatis membuka Kiosk dalam mode <strong>Full-Screen Penuh</strong> tanpa jendela CMD hitam, lengkap dengan pembuat shortcut Desktop otomatis.
+              </p>
+
+              <div style="background: var(--cream-bg); border-radius: 14px; padding: 14px; border: 1.5px solid var(--border-soft); margin-bottom: 20px; font-size: 12.5px; line-height: 1.75; color: var(--charcoal);">
+                <div>✅ <strong>Langsung Full-Screen:</strong> Tanpa URL bar &amp; tanpa tab browser</div>
+                <div>✅ <strong>Shortcut Desktop 1-Klik:</strong> Jalankan <code style="background:#fff;padding:1px 5px;border-radius:4px;">Pasang-Shortcut-di-Desktop.bat</code></div>
+                <div>✅ <strong>Windows Native Print:</strong> Cetak otomatis via <em>Windows Print Spooler (.NET PrintDocument)</em> &amp; <code style="background:#fff;padding:1px 5px;border-radius:4px;">--kiosk-printing</code></div>
+                <div>✅ <strong>Status Print Windows:</strong> Muncul di System Tray kanan bawah Windows</div>
+              </div>
+            </div>
+
+            <div>
+              <a id="btnDownloadWindowsApp" href="/api/apps/download/windows" class="btn btn-coral" style="width: 100%; padding: 14px; font-size: 14.5px; font-weight: 800; text-align: center; text-decoration: none; display: block;">
+                ⬇️ Download Aplikasi Windows (.zip)
+              </a>
+              <div style="font-size: 11.5px; color: var(--text-muted); text-align: center; margin-top: 8px;">
+                Berisi: Peluncur Full-Screen (`.vbs` &amp; `.bat`), Pembuat Shortcut Desktop &amp; Modul Print Windows
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 2: MACBOOK / macOS -->
+          <div class="card-pop" style="padding: 26px; background: #fff; border: 2.5px solid var(--border-soft); display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                <div style="width: 56px; height: 56px; border-radius: 18px; background: rgba(56, 30, 17, 0.1); display: flex; align-items: center; justify-content: center; font-size: 32px;">
+                  🍎
+                </div>
+                <span class="badge-pill badge-active" style="background: rgba(56, 30, 17, 0.1); color: var(--charcoal); border: 1px solid rgba(56, 30, 17, 0.2);">macOS Apple Silicon &amp; Intel</span>
+              </div>
+
+              <h3 style="font-size: 21px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">Aplikasi MacBook / iMac</h3>
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-bottom: 16px;">
+                Bundle aplikasi asli macOS (<strong>Photobooth Kiosk.app</strong> &amp; <strong>Photobooth Admin.app</strong>) yang siap ditaruh di Dock atau Desktop MacBook Anda.
+              </p>
+
+              <div style="background: var(--cream-bg); border-radius: 14px; padding: 14px; border: 1.5px solid var(--border-soft); margin-bottom: 20px; font-size: 12.5px; line-height: 1.75; color: var(--charcoal);">
+                <div>✅ <strong>Bundle Aplikasi `.app` Asli:</strong> Klik 2x langsung buka Full-Screen</div>
+                <div>✅ <strong>Termasuk 2 Aplikasi:</strong> <em>Photobooth Kiosk.app</em> &amp; <em>Photobooth Admin.app</em></div>
+                <div>✅ <strong>Terhubung ke Pusat Cetak macOS:</strong> Ikon printer otomatis tampil di Menu Bar kanan atas MacBook saat mencetak</div>
+                <div>✅ <strong>Silent Print:</strong> Mendukung antrean CUPS &amp; <code style="background:#fff;padding:1px 5px;border-radius:4px;">--kiosk-printing</code></div>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <button type="button" class="btn btn-coral" style="width: 100%; padding: 13px; font-size: 14px; font-weight: 800;" onclick="launchAndInstallMacAppDirectly('kiosk')">
+                🚀 Pasang &amp; Buka Full-Screen di MacBook Ini (1-Klik)
+              </button>
+              <a id="btnDownloadMacApp" href="/api/apps/download/macos" class="btn btn-primary" style="width: 100%; padding: 11px; font-size: 13.5px; font-weight: 800; text-align: center; text-decoration: none; display: block; background: #381E11; color: #fff;">
+                ⬇️ Download Paket MacBook (.zip)
+              </a>
+              <div style="font-size: 11.5px; color: var(--text-muted); text-align: center; margin-top: 2px;">
+                Otomatis memasang <strong>Photobooth Kiosk.app</strong> di Desktop &amp; Applications tanpa blokir Gatekeeper!
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 3: ANDROID (TABLET & SMARTPHONE) -->
+          <div class="card-pop" style="padding: 26px; background: #fff; border: 2.5px solid var(--dusty-teal); display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                <div style="width: 56px; height: 56px; border-radius: 18px; background: rgba(61, 220, 132, 0.16); display: flex; align-items: center; justify-content: center; font-size: 32px;">
+                  🤖
+                </div>
+                <span class="badge-pill badge-active" style="background: rgba(39, 174, 96, 0.14); color: #219653; border: 1px solid rgba(39, 174, 96, 0.3);">Tablet &amp; HP Android</span>
+              </div>
+
+              <h3 style="font-size: 21px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">Aplikasi Android (Full-Screen)</h3>
+              <p style="font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-bottom: 12px;">
+                Gunakan Tablet / HP Android sebagai layar sentuh Photobooth Full-Screen. Mendukung kamera Android &amp; cetak otomatis via Wi-Fi ke Printer Server maupun Mopria Android Print!
+              </p>
+
+              <!-- QR Code Scan untuk Android -->
+              <div style="background: var(--cream-bg); border-radius: 16px; padding: 12px; border: 2px dashed var(--dusty-teal); margin-bottom: 14px; display: flex; align-items: center; gap: 14px;">
+                <div style="width: 96px; height: 96px; background: #fff; border-radius: 12px; padding: 6px; border: 1.5px solid var(--border-soft); flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+                  <img id="androidAppQrImg" src="" alt="QR Aplikasi Android" style="width: 100%; height: 100%; object-fit: contain; display: none;">
+                  <span id="androidAppQrLoading" style="font-size: 10px; color: var(--text-muted); text-align: center;">Memuat QR...</span>
+                </div>
+                <div style="font-size: 12px; line-height: 1.5; color: var(--charcoal);">
+                  <strong style="color: var(--caramel-brown); display: block; margin-bottom: 3px;">📱 Scan dari Tablet/HP Android:</strong>
+                  Buka kamera/Chrome di Android (pastikan 1 Wi-Fi), scan QR ini lalu ketuk <strong>"Install Aplikasi / Tambahkan ke Layar Utama"</strong>.
+                  <div id="androidLanUrlText" style="font-family: monospace; font-size: 11px; color: var(--coral); font-weight: 700; margin-top: 4px; word-break: break-all;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <a id="btnDownloadAndroidZip" href="/api/apps/download/android" class="btn btn-coral" style="width: 100%; padding: 12px; font-size: 14px; font-weight: 800; text-align: center; text-decoration: none; display: block; background: var(--dusty-teal);">
+                ⬇️ Download Paket Aplikasi Android (.zip)
+              </a>
+              <div style="display: flex; gap: 8px;">
+                <a id="btnDownloadAndroidHtml" href="/api/apps/download/android-launcher" class="btn btn-secondary" style="flex: 1; padding: 9px 10px; font-size: 12px; font-weight: 700; text-align: center; text-decoration: none; background: #fff;">
+                  📄 File Peluncur (.html)
+                </a>
+                <button type="button" class="btn btn-secondary" style="flex: 1; padding: 9px 10px; font-size: 12px; font-weight: 700; background: #fff;" onclick="installPwaDirectly()">
+                  📲 Install WebAPK 1-Klik
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Penjelasan Cara Kerja Fitur Print Lintas Perangkat (Windows, Android & MacBook) -->
+        <div class="card-pop" style="padding: 24px; background: var(--cream-card); border: 2px solid var(--border-soft);">
+          <h3 style="font-size: 18px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 12px 0;">
+            🖨️ Bagaimana Cara Kerja Fitur Print di Windows, MacBook &amp; Android?
+          </h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; font-size: 13px; line-height: 1.6; color: var(--charcoal);">
+            <div style="background: #fff; padding: 16px; border-radius: 14px; border: 1.5px solid var(--border-soft);">
+              <strong style="color: var(--coral); font-size: 14px; display: block; margin-bottom: 4px;">1. Di Windows 10 &amp; 11</strong>
+              Menggunakan <strong>Windows Native PrintDocument (.NET)</strong> &amp; flag <code style="background:var(--cream-bg);padding:1px 5px;border-radius:4px;">--kiosk-printing</code>. Saat tombol Cetak ditekan, foto langsung dikirim ke antrean printer Windows (Epson, Canon, DNP, HP) dan memunculkan jendela status antrean cetak Windows secara otomatis.
+            </div>
+            <div style="background: #fff; padding: 16px; border-radius: 14px; border: 1.5px solid var(--border-soft);">
+              <strong style="color: var(--caramel-brown); font-size: 14px; display: block; margin-bottom: 4px;">2. Di Android (Tablet &amp; HP)</strong>
+              Mendukung <strong>Dual-Print Mode</strong>:<br>
+              • <strong>Via Server Wi-Fi:</strong> Ketuk Cetak di Android ➔ otomatis mencetak di printer yang tercolok ke Laptop/PC Server.<br>
+              • <strong>Via Android Langsung:</strong> Ketuk <em>"🖨️ Cetak Perangkat"</em> untuk mencetak langsung dari Android ke printer Wi-Fi Direct / Mopria / Bluetooth.
+            </div>
+            <div style="background: #fff; padding: 16px; border-radius: 14px; border: 1.5px solid var(--border-soft);">
+              <strong style="color: var(--dusty-teal); font-size: 14px; display: block; margin-bottom: 4px;">3. Di MacBook / macOS</strong>
+              Menggunakan <strong>CUPS Direct Spooler (`lp`)</strong> yang memprioritaskan printer berstatus <em>Online</em> dan otomatis memunculkan ikon <strong>Pusat Cetak (Print Center)</strong> di Menu Bar kanan atas MacBook.
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 6: BILLING -->
+      <div id="tab-billing" class="tab-content">
+        <h2 style="font-size: 26px; font-weight: 800; margin-bottom: 6px;">💳 Langganan &amp; Pembayaran Manual</h2>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">Kelola paket langganan dan upload bukti transfer bank.</p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+          <div class="card-pop">
+            <h3 style="font-size: 20px; font-weight: 800; color: var(--coral-pink); margin-bottom: 6px;">Paket Bisnis Bulanan</h3>
+            <span class="badge-pill badge-active" style="margin-bottom: 16px;">Status: Aktif</span>
+            <ul style="color: var(--text-muted); font-size: 14px; line-height: 2; margin-top: 14px;">
+              <li>✓ Hingga 3 Kiosk Device Windows</li>
+              <li>✓ 10 Event Aktif Bersamaan</li>
+              <li>✓ 50 GB Cloud Storage Galeri</li>
+              <li>✓ Deteksi Slot Template Hijau Otomatis</li>
+            </ul>
+          </div>
+
+          <div class="card-pop">
+            <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 12px; color: var(--electric-purple);">Unggah Bukti Transfer</h3>
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+              Rekening Tujuan: <strong>BCA 8720192837 a/n PT Photobooth Indonesia</strong>
+            </p>
+            <input type="file" id="proofFileInput" accept="image/*" style="margin-bottom: 16px; display: block;">
+            <button class="btn btn-primary" onclick="uploadTransferProof()">Unggah Bukti Pembayaran ➔</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  <!-- Modal Buat Event Baru -->
+  <div id="createEventModal" class="photo-modal-overlay" style="display: none;" onclick="closeCreateEventModal(event)">
+    <div class="photo-modal-card" style="max-width: 560px; padding: 28px 26px; text-align: left;" onclick="event.stopPropagation()">
+      <div class="photo-modal-header" style="margin-bottom: 18px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 28px;">🎪</span>
+          <h3 style="font-size: 22px; font-weight: 800; color: var(--caramel-brown);">Buat Event Photobooth Baru</h3>
+        </div>
+        <button class="photo-modal-close" onclick="closeCreateEventModal()">✕</button>
+      </div>
+
+      <form onsubmit="createNewEvent(event)">
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+            Nama Acara / Event <span style="color: var(--coral);">*</span>
+          </label>
+          <input type="text" id="newEventName" required placeholder="Contoh: Arum &amp; Ridwan / Sweet 17 Nadia" style="width: 100%; padding: 12px 14px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 15px; font-weight: 600; color: var(--dark-roast);">
+        </div>
+
+        <!-- Tanggal Acara & Retensi 1 Tahun Otomatis -->
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+            Tanggal Acara <span style="color: var(--coral);">*</span>
+          </label>
+          <input type="date" id="newEventDate" required style="width: 100%; padding: 12px 14px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 15px; font-weight: 600; color: var(--dark-roast);">
+          <div style="margin-top: 8px; background: rgba(95, 143, 138, 0.12); border: 1.5px solid var(--dusty-teal); border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: var(--dark-roast); display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 20px;">🗑️</span>
+            <span><strong>Penghapusan Otomatis (Retensi 1 Tahun):</strong> Semua foto di acara ini otomatis dihapus permanen oleh sistem tepat 1 tahun setelah tanggal acara selesai untuk menjaga privasi &amp; menghemat penyimpanan cloud.</span>
+          </div>
+        </div>
+
+        <!-- Berapa Kali Cekrek Foto & Sistem Pindai QR -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+          <div>
+            <label style="display: block; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+              Berapa Kali Cekrek? <span style="color: var(--coral);">*</span>
+            </label>
+            <select id="newShotsCount" style="width: 100%; padding: 12px 14px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 14px; font-weight: 700; color: var(--caramel-brown);">
+              <option value="3" selected>📸 3 Kali Cekrek (Strip 2x6)</option>
+              <option value="4">📸 4 Kali Cekrek (Collage 4)</option>
+              <option value="1">📸 1 Kali Cekrek (Single 4x6)</option>
+              <option value="6">📸 6 Kali Cekrek (6 Pose)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display: block; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+              Sistem Pindai QR Awal
+            </label>
+            <select id="newQrRequirement" style="width: 100%; padding: 12px 14px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 14px; font-weight: 700; color: var(--caramel-brown);">
+              <option value="disabled" selected>🚫 Tidak Pakai QR (Langsung Frame)</option>
+              <option value="optional">🎟️ Pakai Pindai QR (Opsional)</option>
+              <option value="required">🔒 Wajib Scan QR Tamu</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 18px;">
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Countdown (detik)</label>
+            <input type="number" id="newCountdown" value="3" min="1" max="15" style="width: 100%; padding: 10px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 14px; font-weight: 700;">
+          </div>
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Maks Cetak</label>
+            <input type="number" id="newMaxCopies" value="2" min="1" max="10" style="width: 100%; padding: 10px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 14px; font-weight: 700;">
+          </div>
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">PIN Kiosk</label>
+            <input type="text" id="newPinLock" value="1234" maxlength="6" style="width: 100%; padding: 10px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 14px; font-weight: 700;">
+          </div>
+        </div>
+
+        <!-- Background Layar Kiosk untuk Event Baru -->
+        <div style="margin-bottom: 18px; background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px;">
+          <label style="display: block; font-size: 13.5px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">
+            🖼️🎬 Background Layar Kiosk (Bisa Gambar / YouTube / S3 Video)
+          </label>
+          <div style="display: grid; grid-template-columns: 200px 1fr; gap: 10px; align-items: center;">
+            <select id="newBgType" onchange="onNewEventBgTypeChange()" style="width: 100%; padding: 10px 12px; background: #ffffff; border: 2px solid var(--border-soft); border-radius: 10px; font-size: 13px; font-weight: 700; color: var(--caramel-brown);">
+              <option value="default" selected>🎨 Default Krem</option>
+              <option value="image">🖼️ Gambar</option>
+              <option value="video">🎬 Video S3 / MP4</option>
+              <option value="youtube">▶️ Link YouTube</option>
+            </select>
+            <div id="newBgSourceWrap" style="display: none; gap: 6px; align-items: center;">
+              <input type="text" id="newBgUrl" placeholder="Tempel link YouTube / S3 Video / Gambar..." style="flex: 1; padding: 10px 12px; background: #ffffff; border: 2px solid var(--border-soft); border-radius: 10px; font-size: 13px; font-weight: 600;">
+              <input type="file" id="newBgFileInput" accept="image/*,video/mp4,video/webm,video/quicktime" style="display: none;" onchange="handleUploadKioskBackground(this, 'new')">
+              <button type="button" class="btn btn-teal" style="padding: 9px 12px; font-size: 12px; white-space: nowrap;" onclick="document.getElementById('newBgFileInput').click()">
+                📤 Upload
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 22px;">
+          <label style="display: block; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 8px;">Mode Foto yang Diizinkan:</label>
+          <div style="display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; font-weight: 600;">
+            <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="new_m_strip" checked> Photo Strip (2x6)</label>
+            <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="new_m_single" checked> Single Photo (4x6)</label>
+            <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="new_m_collage" checked> Collage 4-Pose</label>
+            <label style="display: flex; align-items: center; gap: 6px;"><input type="checkbox" id="new_m_gif" checked> GIF Animasi</label>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button type="button" class="btn btn-secondary" onclick="closeCreateEventModal()">Batal</button>
+          <button type="submit" class="btn btn-coral">✨ Simpan &amp; Buat Event Baru</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal Unggah Template Baru -->
+  <div id="uploadTemplateModal" class="photo-modal-overlay" style="display: none;" onclick="closeUploadTemplateModal(event)">
+    <div class="photo-modal-card" style="max-width: 580px; padding: 28px 26px; text-align: left;" onclick="event.stopPropagation()">
+      <div class="photo-modal-header" style="margin-bottom: 18px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 28px;">🖼️</span>
+          <div>
+            <h3 style="font-size: 22px; font-weight: 800; color: var(--caramel-brown);">Unggah Template Desain Baru</h3>
+            <span style="font-size: 13px; color: var(--text-muted);">Format file transparan PNG / SVG dengan area hijau</span>
+          </div>
+        </div>
+        <button class="photo-modal-close" onclick="closeUploadTemplateModal()">✕</button>
+      </div>
+
+      <form id="uploadTemplateForm" onsubmit="submitTemplateUpload(event)">
+        <!-- File Picker & Dropzone -->
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+            File Desain Template (PNG / SVG) <span style="color: var(--coral);">*</span>
+          </label>
+          <div id="uploadDropzone" onclick="document.getElementById('templateModalFileInput').click()" style="border: 2px dashed var(--coral); border-radius: 14px; padding: 24px; text-align: center; background: rgba(230, 120, 107, 0.05); cursor: pointer; transition: all 0.2s;">
+            <div id="uploadPreviewContainer" style="display: none; margin-bottom: 12px;">
+              <img id="uploadPreviewImg" style="max-height: 140px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);" />
+            </div>
+            <div id="uploadPromptText">
+              <span style="font-size: 32px; display: block; margin-bottom: 6px;">📁</span>
+              <strong style="color: var(--coral); font-size: 14px;">Klik untuk pilih file PNG</strong>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Atau seret dan lepas file desain ke kotak ini</div>
+            </div>
+          </div>
+          <input type="file" id="templateModalFileInput" accept="image/png,image/svg+xml" style="display: none;" onchange="onTemplateModalFileSelected(event)">
+        </div>
+
+        <!-- Nama Template -->
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+            Nama Template <span style="color: var(--coral);">*</span>
+          </label>
+          <input type="text" id="tplModalName" required placeholder="Contoh: Strip Retro Lavender 3-Pose" style="width: 100%; padding: 12px 14px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 15px; font-weight: 600; color: var(--dark-roast);">
+        </div>
+
+        <!-- Target Event & Format Grid -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Tautkan ke Event</label>
+            <select id="tplModalEventTarget" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
+              <!-- Populated dynamically with active event as primary choice -->
+            </select>
+          </div>
+          <div>
+            <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Format Ukuran</label>
+            <select id="tplModalFormat" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--dark-roast);">
+              <option value="strip" selected>Photo Strip 2×6 (600×1800 px)</option>
+              <option value="portrait">Single Photo 4×6 (1200×1800 px)</option>
+              <option value="square">Square 4×4 (1200×1200 px)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="background: rgba(95, 143, 138, 0.12); border: 1.5px solid var(--dusty-teal); border-radius: 10px; padding: 12px 14px; font-size: 12.5px; color: var(--dark-roast); margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 22px;">💡</span>
+          <span><strong>Deteksi Hijau Otomatis:</strong> Kotak berwarna hijau solid (<code style="background: #00FF00; color: #000; padding: 2px 5px; border-radius: 4px; font-weight: 800;">#00FF00</code>) akan dideteksi oleh sistem sebagai lubang frame foto secara instan.</span>
+        </div>
+
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+          <button type="button" class="btn btn-secondary" onclick="closeUploadTemplateModal()">Batal</button>
+          <button type="submit" id="btnSubmitUploadTemplate" class="btn btn-coral" style="padding: 11px 24px;">🚀 Unggah &amp; Buka di Canvas</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 3. FULL RESOLUTION PHOTO PREVIEW & REPRINT MODAL -->
+  <div id="photoPreviewModal" style="display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(30, 15, 10, 0.78); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;">
+    <div class="card-pop" style="max-width: 780px; width: 100%; max-height: 90vh; overflow-y: auto; background: #fff; padding: 28px; position: relative; border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.35);">
+      <button onclick="closePhotoPreviewModal()" style="position: absolute; top: 20px; right: 20px; width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--soft-gray); background: var(--cream-white); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">✕</button>
+      
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+        <span class="sticker-badge sticker-purple" id="modalPhotoEventBadge">Event Aktif</span>
+        <span class="badge-pill badge-active" id="modalPhotoPrintStatus">Status Cetak</span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; align-items: center;">
+        <!-- Photo Preview Image Box -->
+        <div style="background: var(--cream-bg); border-radius: 18px; border: 2px solid var(--border-soft); padding: 12px; display: flex; align-items: center; justify-content: center; min-height: 380px;">
+          <img id="modalPreviewImg" src="" alt="Preview Foto" style="max-width: 100%; max-height: 480px; border-radius: 12px; object-fit: contain; box-shadow: 0 8px 24px rgba(0,0,0,0.12);">
+        </div>
+
+        <!-- Details & Actions -->
+        <div>
+          <h3 id="modalPhotoTitle" style="font-size: 22px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 12px 0;">Hasil Foto Tamu</h3>
+          
+          <div style="background: var(--cream-card); border-radius: 14px; padding: 14px 18px; margin-bottom: 20px; border: 1.5px solid var(--border-soft); font-size: 13.5px; line-height: 1.8;">
+            <div><strong>Waktu Foto:</strong> <span id="modalPhotoTime">-</span></div>
+            <div><strong>Format:</strong> <span id="modalPhotoFormat">-</span></div>
+            <div><strong>Session ID:</strong> <span id="modalPhotoSessionId" style="font-family: monospace;">-</span></div>
+            <div><strong>Spooler ID:</strong> <span id="modalPhotoSpoolerId" style="font-family: monospace; color: var(--caramel-brown);">-</span></div>
+          </div>
+
+          <div style="margin-bottom: 18px;">
+            <label style="display: block; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+              Jumlah Lembar Cetak
+            </label>
+            <select id="modalPrintCopies" style="width: 100%; padding: 10px 14px; background: var(--cream-white); border: 2px solid var(--soft-gray); border-radius: 10px; font-size: 14px; font-weight: 700;">
+              <option value="1">1 Lembar Cetak</option>
+              <option value="2" selected>2 Lembar Cetak (Standard Photostrip)</option>
+              <option value="3">3 Lembar Cetak</option>
+              <option value="4">4 Lembar Cetak</option>
+            </select>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <button id="modalBtnReprint" class="btn btn-coral" style="width: 100%; font-size: 15px; padding: 13px; font-weight: 800;" onclick="executeModalReprint()">
+              🖨️ Cetak / Print Ulang Sekarang
+            </button>
+            <button type="button" class="btn btn-secondary" style="width: 100%; padding: 11px; font-weight: 700; font-size: 13.5px; background: var(--cream-bg); color: var(--caramel-brown);" onclick="printModalPhotoViaDevice()">
+              🖨️ Cetak via Perangkat Ini (Windows / Android / Mac Dialog)
+            </button>
+            <a id="modalBtnDownload" href="#" download class="btn btn-secondary" style="width: 100%; text-align: center; text-decoration: none; padding: 11px; font-weight: 700; font-size: 14px; background: #fff;">
+              ⬇️ Unduh File Foto (HD)
+            </a>
+            <a id="modalBtnGallery" href="#" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center; text-decoration: none; padding: 11px; font-weight: 700; font-size: 14px; display: none; background: #fff;">
+              📱 Buka Galeri HP Tamu ➔
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/notify.js?v=warm-retro-v3.4"></script>
+  <script src="/js/admin.js?v=warm-retro-v3.5"></script>
+</body>
+</html>

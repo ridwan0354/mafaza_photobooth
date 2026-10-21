@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Galeri Pribadi — Mafaza</title>
+  <link rel="icon" type="image/jpeg" href="/assets/logo-mafaza.jpg">
+  <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,600;1,9..144,700&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    /* Warm Playful Retro Palette & Overrides */
+    :root {
+      --caramel-brown: #7B482E;
+      --caramel-brown-hover: #673b24;
+      --soft-cream: #F9E9D7;
+      --cream-bg: #FDF7F0;
+      --cream-card: #FFFBF5;
+      --coral: #E6786B;
+      --coral-hover: #d7685b;
+      --muted-mustard: #D4A754;
+      --mustard-hover: #be9342;
+      --dusty-teal: #5F8F8A;
+      --dusty-teal-hover: #507d78;
+      --soft-plum: #886B8F;
+      --dark-roast: #381E11;
+      --text-muted: #8C7569;
+      --border-soft: #EAD8C7;
+      --font-heading: 'Fraunces', 'Recoleta', serif;
+      --font-body: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+      --radius-sm: 12px;
+      --radius-md: 18px;
+      --radius-lg: 26px;
+      --radius-pill: 9999px;
+      --shadow-warm: 0 10px 28px rgba(123, 72, 46, 0.08), 0 2px 6px rgba(123, 72, 46, 0.04);
+      --shadow-btn: 0 8px 20px rgba(230, 120, 107, 0.35);
+      --shadow-hover: 0 14px 32px rgba(123, 72, 46, 0.16);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background: var(--cream-bg);
+      color: var(--dark-roast);
+      font-family: var(--font-body);
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top Navigation Bar */
+    .gallery-top-bar {
+      background: #381E11;
+      color: #fff;
+      padding: 12px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid var(--border-soft);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 4px 16px rgba(56, 30, 17, 0.15);
+    }
+    .gallery-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-heading);
+      font-size: 16px;
+      font-weight: 800;
+      color: #fff;
+      text-decoration: none;
+    }
+
+    /* Hero Header */
+    .gallery-header-pop {
+      background: linear-gradient(135deg, #7B482E 0%, #4a2615 50%, #381E11 100%);
+      padding: 44px 20px 68px 20px;
+      text-align: center;
+      color: #ffffff;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 12px 30px rgba(56, 30, 17, 0.2);
+    }
+    .gallery-header-pop::before {
+      content: '';
+      position: absolute;
+      top: -40px;
+      right: -40px;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(230, 120, 107, 0.28) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .gallery-header-pop::after {
+      content: '';
+      position: absolute;
+      bottom: -60px;
+      left: -60px;
+      width: 260px;
+      height: 260px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(212, 167, 84, 0.22) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .gallery-header-pop h1 {
+      font-family: var(--font-heading);
+      font-size: 36px;
+      font-weight: 800;
+      margin: 12px 0 8px 0;
+      color: #FFFBF5;
+      letter-spacing: -0.5px;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.35);
+    }
+    .gallery-header-pop p {
+      font-size: 15px;
+      color: var(--soft-cream);
+      font-weight: 500;
+      max-width: 540px;
+      margin: 0 auto 16px auto;
+      line-height: 1.5;
+    }
+
+    /* Main Container & Layout */
+    .gallery-main-wrap {
+      max-width: 1080px;
+      margin: -36px auto 60px auto;
+      padding: 0 20px;
+      position: relative;
+      z-index: 10;
+    }
+
+    /* Session Card */
+    .session-card {
+      background: var(--cream-card);
+      border-radius: var(--radius-lg);
+      border: 2px solid var(--border-soft);
+      box-shadow: var(--shadow-warm);
+      margin-bottom: 32px;
+      overflow: hidden;
+      transition: transform 0.25s, box-shadow 0.25s;
+    }
+    .session-card:hover {
+      box-shadow: var(--shadow-hover);
+    }
+    .session-header {
+      padding: 16px 24px;
+      background: #FFF7ED;
+      border-bottom: 2px solid var(--border-soft);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    /* Responsive Session Grid: 2 columns on desktop, 1 on mobile */
+    .session-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+      padding: 24px;
+    }
+    @media (min-width: 860px) {
+      .session-grid {
+        grid-template-columns: minmax(360px, 440px) 1fr;
+        gap: 32px;
+        align-items: start;
+      }
+    }
+
+    /* Left Column: Main Framed Photo */
+    .session-col-main {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .apple-live-container {
+      position: relative;
+      overflow: hidden;
+      border-radius: 20px;
+      background: #ffffff;
+      border: 2px solid var(--border-soft);
+      box-shadow: 0 8px 24px rgba(123, 72, 46, 0.08);
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 240px;
+    }
+    .apple-live-container img {
+      width: 100%;
+      height: auto;
+      max-height: 720px;
+      object-fit: contain;
+      display: block;
+      border-radius: 18px;
+      transition: transform 0.2s;
+    }
+    .apple-live-badge {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      z-index: 10;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: rgba(40, 20, 10, 0.72);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-radius: 99px;
+      border: 1.5px solid rgba(255, 255, 255, 0.35);
+      color: #ffffff;
+      font-size: 11.5px;
+      font-weight: 800;
+      letter-spacing: 0.6px;
+      transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+      cursor: pointer;
+    }
+    .apple-live-badge.playing {
+      background: #ffd60a;
+      color: #111;
+      border-color: #fff;
+      box-shadow: 0 0 18px rgba(255, 214, 10, 0.85);
+      transform: scale(1.05);
+    }
+    .apple-live-badge .live-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.3s;
+    }
+    .apple-live-badge.playing .live-icon {
+      animation: liveSpin 2.5s linear infinite;
+    }
+    @keyframes liveSpin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .apple-live-hint {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      z-index: 9;
+      padding: 5px 12px;
+      background: rgba(40, 20, 10, 0.65);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-radius: 99px;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      pointer-events: none;
+      transition: opacity 0.3s;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .live-anim-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+      z-index: 5;
+    }
+
+    .session-main-actions {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .session-main-actions .btn {
+      flex: 1;
+      min-width: 150px;
+      padding: 13px 18px;
+      font-size: 14px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: var(--radius-pill);
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .session-main-actions .btn:hover {
+      transform: translateY(-2px);
+    }
+
+    /* Right Column: Side Feature Boxes */
+    .session-col-side {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .gallery-feature-box {
+      background: #ffffff;
+      border-radius: 20px;
+      border: 2px solid var(--border-soft);
+      padding: 20px;
+      box-shadow: 0 4px 16px rgba(123, 72, 46, 0.04);
+    }
+    .gallery-feature-box-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 14px;
+      gap: 10px;
+    }
+    .gallery-feature-box-title {
+      font-family: var(--font-heading);
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--caramel-brown);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .gallery-feature-box-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+
+    /* Boomerang Viewport & Controls */
+    .boomerang-viewport {
+      position: relative;
+      background: #1C120C;
+      border-radius: 16px;
+      overflow: hidden;
+      margin-bottom: 14px;
+      border: 2px solid var(--border-soft);
+      box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+    }
+    .speed-btn {
+      background: var(--cream-bg);
+      border: 1.5px solid var(--border-soft);
+      border-radius: 99px;
+      padding: 5px 12px;
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--caramel-brown);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .speed-btn:hover {
+      border-color: var(--coral);
+      color: var(--coral);
+    }
+    .speed-btn.active {
+      background: var(--coral);
+      color: #fff;
+      border-color: var(--coral);
+      box-shadow: 0 4px 12px rgba(230, 120, 107, 0.3);
+    }
+
+    /* Raw Poses 2x2 Grid */
+    .raw-poses-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .pose-card {
+      background: var(--cream-bg);
+      border-radius: 16px;
+      padding: 10px;
+      border: 1.5px solid var(--border-soft);
+      text-align: center;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+    .pose-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--coral);
+    }
+    .apple-live-badge-mini {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      z-index: 10;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: rgba(30, 18, 12, 0.72);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-radius: 99px;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      color: #ffffff;
+      font-size: 9.5px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      cursor: pointer;
+    }
+    .apple-live-badge-mini.playing {
+      background: #ffd60a;
+      color: #111;
+      border-color: #fff;
+      box-shadow: 0 0 12px rgba(255, 214, 10, 0.85);
+      transform: scale(1.06);
+    }
+    .apple-live-badge-mini .live-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .apple-live-badge-mini.playing .live-icon {
+      animation: liveSpin 2.5s linear infinite;
+    }
+    .pose-touch-hint {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      z-index: 5;
+      padding: 2px 8px;
+      background: rgba(30, 18, 12, 0.65);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border-radius: 99px;
+      color: #fff;
+      font-size: 9.5px;
+      font-weight: 600;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+
+    /* Badges & Buttons */
+    .sticker-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: var(--radius-pill);
+    }
+    .sticker-coral  { background: rgba(230, 120, 107, 0.15); color: var(--coral); border: 1.5px solid var(--coral); }
+    .sticker-teal   { background: rgba(95, 143, 138, 0.15); color: var(--dusty-teal); border: 1.5px solid var(--dusty-teal); }
+    .sticker-mustard{ background: rgba(212, 167, 84, 0.18); color: #8f6c24; border: 1.5px solid var(--muted-mustard); }
+    .sticker-yellow { background: rgba(212, 167, 84, 0.2); color: #7a581a; border: 1.5px solid var(--muted-mustard); }
+    .sticker-pink   { background: rgba(230, 120, 107, 0.15); color: var(--coral); border: 1.5px solid var(--coral); }
+    .sticker-blue   { background: rgba(95, 143, 138, 0.18); color: var(--dusty-teal); border: 1.5px solid var(--dusty-teal); }
+    .sticker-purple { background: rgba(136, 107, 143, 0.15); color: var(--soft-plum); border: 1.5px solid var(--soft-plum); }
+
+    .btn-coral {
+      background: var(--coral);
+      color: #fff;
+      border: 2px solid var(--coral);
+      box-shadow: 0 6px 18px rgba(230, 120, 107, 0.35);
+    }
+    .btn-coral:hover {
+      background: var(--coral-hover);
+      border-color: var(--coral-hover);
+    }
+    .btn-teal {
+      background: var(--dusty-teal);
+      color: #fff;
+      border: 2px solid var(--dusty-teal);
+      box-shadow: 0 6px 18px rgba(95, 143, 138, 0.25);
+    }
+    .btn-teal:hover {
+      background: var(--dusty-teal-hover);
+      border-color: var(--dusty-teal-hover);
+    }
+    .btn-secondary {
+      background: var(--soft-cream);
+      color: var(--caramel-brown);
+      border: 2px solid var(--border-soft);
+    }
+    .btn-secondary:hover {
+      background: #fff;
+      border-color: var(--caramel-brown);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 1. Top Brand Navigation Bar -->
+  <div class="gallery-top-bar">
+    <div class="gallery-brand">
+      <img src="/assets/logo-mafaza.jpg" alt="Mafaza Logo" style="width: 34px; height: 34px; border-radius: 8px; object-fit: cover; border: 1.5px solid #D4A754;">
+      <span style="letter-spacing: 0.8px;">MAFAZA</span>
+      <span style="font-size: 11px; color: var(--muted-mustard); font-weight: 600; padding-left: 8px; border-left: 1px solid rgba(255,255,255,0.2);" id="tenantBrandName">Setiap Momen Punya Cerita</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span class="sticker-badge sticker-teal" style="font-size: 11px; padding: 3px 10px; background: rgba(95, 143, 138, 0.3); color: #fff; border-color: rgba(255,255,255,0.3);">
+        🟢 Galeri Siap Diunduh
+      </span>
+    </div>
+  </div>
+
+  <!-- 2. Warm Retro Hero Header -->
+  <div class="gallery-header-pop">
+    <div style="margin-bottom: 12px; display: flex; justify-content: center;">
+      <img src="/assets/logo-mafaza.jpg" alt="Mafaza" style="width: 76px; height: 76px; border-radius: 18px; object-fit: cover; border: 2px solid #D4A754; box-shadow: 0 8px 20px rgba(0,0,0,0.4);">
+    </div>
+    <div style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+      <span class="sticker-badge sticker-mustard" style="font-size: 12px; background: rgba(212, 167, 84, 0.25); color: #FFFBF5; border-color: rgba(255,255,255,0.4);">
+        🎉 Galeri Foto Eksklusif Tamu
+      </span>
+    </div>
+    <h1 id="eventTitle">
+      Memuat Acara...
+    </h1>
+    <p id="eventSubtitle">
+      Terima kasih telah berfoto dan membagikan senyum bahagiamu! 💕
+    </p>
+    <div style="display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center; font-size: 12px; color: var(--soft-cream); background: rgba(0,0,0,0.24); padding: 7px 18px; border-radius: var(--radius-pill); border: 1px solid rgba(255,255,255,0.18);">
+      <span id="eventExpiryText">📅 Berlaku hingga: 1 Tahun</span>
+      <span>•</span>
+      <span>⚡ Akses Bebas Tanpa Login</span>
+    </div>
+  </div>
+
+  <!-- 3. Main Gallery Container -->
+  <div class="gallery-main-wrap">
+    
+    <!-- Gallery Content Container (Populated via JS) -->
+    <div id="galleryContainer">
+      <div style="text-align: center; padding: 60px 20px; color: var(--text-muted); background: #fff; border-radius: 24px; border: 2px dashed var(--border-soft);">
+        <span style="font-size: 38px; display: block; margin-bottom: 12px;">⏳</span>
+        <span style="font-size: 16px; font-weight: 700; color: var(--caramel-brown);">Menyiapkan galeri foto Anda...</span>
+      </div>
+    </div>
+
+    <!-- Multi-Session & Feature Tips Card -->
+    <div class="session-card" style="text-align: center; margin-top: 32px; padding: 28px 24px; background: #fff;">
+      <div style="font-size: 34px; margin-bottom: 8px;">💡</div>
+      <h4 style="font-family: var(--font-heading); font-size: 19px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">
+        Fitur Live Photo &amp; Video Boomerang
+      </h4>
+      <p style="font-size: 13.5px; color: var(--text-muted); line-height: 1.6; max-width: 580px; margin: 0 auto;">
+        Tahan foto untuk melihat gerakan <strong>Live Photo</strong> seperti di iPhone! Anda juga dapat langsung mengunduh <strong>Video Boomerang</strong> untuk dibagikan ke Instagram Story atau TikTok.
+      </p>
+    </div>
+
+    <!-- Privacy & Data Deletion -->
+    <div style="text-align: center; margin-top: 36px; font-size: 12.5px; color: var(--text-muted); line-height: 1.8;">
+      <p style="margin-bottom: 6px;">🔒 Foto Anda dilindungi token unik terenkripsi dan disimpan aman.</p>
+      <a href="#" style="color: var(--coral); font-weight: 700; text-decoration: none;" onclick="alert('Permintaan penghapusan data telah dicatat. Foto Anda akan dihapus dalam waktu 24 jam.')">
+        Minta Penghapusan Foto Saya
+      </a>
+      <div style="margin-top: 14px; font-size: 11.5px; opacity: 0.85;">
+        Powered by <strong>MAFAZA</strong> • Setiap Momen Punya Cerita (By Galipat Story)
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 4. Lightbox Modal -->
+  <div id="galleryLightboxModal" style="display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(30, 18, 12, 0.88); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;" onclick="closeLightbox(event)">
+    <div style="position: relative; max-width: 92vw; max-height: 92vh; display: flex; flex-direction: column; align-items: center;" onclick="event.stopPropagation()">
+      <button onclick="closeLightbox()" style="position: absolute; top: -14px; right: -14px; width: 38px; height: 38px; border-radius: 50%; background: #fff; border: 2px solid var(--border-soft); font-size: 18px; font-weight: 800; color: var(--dark-roast); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,0.3); z-index: 10;">✕</button>
+      <img id="lightboxImg" src="" style="max-width: 90vw; max-height: 78vh; object-fit: contain; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); background: #fff;">
+      <div style="margin-top: 16px; display: flex; gap: 10px;">
+        <a id="lightboxDownloadBtn" href="" download class="btn btn-coral" style="padding: 10px 22px; font-size: 13.5px; font-weight: 700; text-decoration: none; border-radius: var(--radius-pill);">
+          ⬇️ Unduh File Ini
+        </a>
+        <button class="btn btn-secondary" onclick="closeLightbox()" style="padding: 10px 20px; font-size: 13.5px; font-weight: 700; border-radius: var(--radius-pill);">
+          Tutup
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const token = window.location.pathname.split('/gallery/g/')[1];
+    let currentEventName = 'Photobooth Event';
+
+    // Store active players and intervals
+    const liveControllers = {};
+    const boomerangControllers = {};
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      if (!token) return;
+      try {
+        const res = await fetch(`/api/gallery/g/${token}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.guestPass) {
+            if (data.guestPass.eventName) {
+              currentEventName = data.guestPass.eventName;
+              document.getElementById('eventTitle').innerText = data.guestPass.eventName;
+              document.title = `Mafaza — ${data.guestPass.eventName}`;
+            }
+            if (data.guestPass.expiresAt) {
+              const expDate = new Date(data.guestPass.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+              const expEl = document.getElementById('eventExpiryText');
+              if (expEl) expEl.innerText = `📅 Berlaku hingga: ${expDate}`;
+            }
+            const tenantEl = document.getElementById('tenantBrandName');
+            if (tenantEl) {
+              tenantEl.innerText = 'Setiap Momen Punya Cerita • By Galipat Story';
+            }
+          }
+
+          const container = document.getElementById('galleryContainer');
+          if (data.sessions && data.sessions.length > 0) {
+            container.innerHTML = '';
+
+            data.sessions.forEach((s, idx) => {
+              const finalPhoto = (s.media && s.media.find(m => m.type === 'final_photo')) || (s.media && s.media[0]);
+              const rawCaptures = (s.media && s.media.filter(m => m.type === 'raw_capture')) || [];
+              const liveClips = (s.media && s.media.filter(m => m.type === 'live_clip')) || [];
+              const boomerangAsset = s.media && s.media.find(m => m.type === 'boomerang');
+              const livePhotoAsset = s.media && s.media.find(m => m.type === 'live_photo');
+              const finalSrc = finalPhoto ? finalPhoto.filePath : '/assets/templates/strip-green-template.svg';
+
+              // Frame images for live photo & boomerang synthesis
+              const poseImages = rawCaptures.map(r => r.filePath);
+              if (poseImages.length === 0 && finalSrc) {
+                poseImages.push(finalSrc);
+              }
+
+              // 1. RAW PHOTOS SECTION (WITH IPHONE LIVE PHOTO PER POSE)
+              let rawPhotosHtml = '';
+              if (rawCaptures.length > 0) {
+                const rawItems = rawCaptures.map((raw, rIdx) => {
+                  const poseNum = rIdx + 1;
+                  const clip = liveClips.find(c => c.variant === `pose_${poseNum}`);
+                  const clipSrc = clip ? clip.filePath : null;
+
+                  return `
+                    <div class="pose-card">
+                      <!-- Pose Media Container with Live Photo Touch-and-Hold -->
+                      <div class="pose-media-container" id="poseContainer_${s.id}_${rIdx}" style="position: relative; width: 100%; aspect-ratio: 4/3; border-radius: 12px; overflow: hidden; margin-bottom: 8px; cursor: pointer; background: #1C120C; user-select: none; -webkit-user-select: none; border: 1px solid var(--border-soft);">
+                        
+                        <!-- Apple Live Photo Badge Mini -->
+                        <div class="apple-live-badge-mini" id="poseBadge_${s.id}_${rIdx}" onclick="toggleSinglePoseLive('${s.id}', ${rIdx}, event)">
+                          <span class="live-icon">
+                            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                              <circle cx="12" cy="12" r="9" stroke-dasharray="2.5 2.5"/>
+                              <circle cx="12" cy="12" r="5"/>
+                              <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                            </svg>
+                          </span>
+                          <span>LIVE</span>
+                        </div>
+
+                        <img src="${raw.filePath}" id="poseImg_${s.id}_${rIdx}" alt="Pose ${poseNum}" style="width: 100%; height: 100%; object-fit: cover; display: block;" onclick="openLightbox('${raw.filePath}')">
+                        
+                        ${clipSrc ? `
+                          <video id="poseVid_${s.id}_${rIdx}" src="${clipSrc}" playsinline loop muted style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; display: none; z-index: 4;"></video>
+                        ` : `
+                          <canvas id="poseCanvas_${s.id}_${rIdx}" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; display: none; z-index: 4;"></canvas>
+                        `}
+
+                        <div class="pose-touch-hint" id="poseHint_${s.id}_${rIdx}">
+                          👆 Tahan
+                        </div>
+                      </div>
+
+                      <div style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">
+                        Pose #${poseNum}
+                      </div>
+
+                      <div style="display: flex; gap: 6px;">
+                        <a href="${raw.filePath}" download="Pose_${poseNum}_${s.id}.jpg" class="btn btn-secondary" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; text-decoration: none; text-align: center; border-radius: var(--radius-pill);" title="Unduh Foto HD">
+                          📸 Foto
+                        </a>
+                        <button class="btn btn-teal" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; border-radius: var(--radius-pill);" onclick="downloadPoseLiveVideo('${s.id}', ${rIdx}, '${raw.filePath}', '${clipSrc || ''}')" title="Unduh Video Gerak Live Photo">
+                          🎬 Live
+                        </button>
+                      </div>
+                    </div>
+                  `;
+                }).join('');
+
+                rawPhotosHtml = `
+                  <div class="gallery-feature-box">
+                    <div class="gallery-feature-box-header">
+                      <div>
+                        <div class="gallery-feature-box-title">
+                          <span>📸</span> Foto Asli &amp; Live Photo (${rawCaptures.length} Pose)
+                        </div>
+                        <div class="gallery-feature-box-desc">
+                          Tahan foto atau klik <strong>LIVE</strong> untuk melihat video sebelum foto diambil!
+                        </div>
+                      </div>
+                      <span class="sticker-badge sticker-yellow">◎ LIVE</span>
+                    </div>
+
+                    <div class="raw-poses-grid">
+                      ${rawItems}
+                    </div>
+                  </div>
+                `;
+              }
+
+              // 2. BOOMERANG SECTION
+              let boomerangHtml = '';
+              if (poseImages.length >= 2 || boomerangAsset) {
+                boomerangHtml = `
+                  <div class="gallery-feature-box">
+                    <div class="gallery-feature-box-header">
+                      <div>
+                        <div class="gallery-feature-box-title">
+                          <span>🎬</span> Video Boomerang (Looping)
+                        </div>
+                        <div class="gallery-feature-box-desc">Gerak maju-mundur bolak-balik untuk story Instagram &amp; TikTok</div>
+                      </div>
+                      <span class="sticker-badge sticker-pink">BOOMERANG</span>
+                    </div>
+
+                    <div class="boomerang-viewport" id="bmViewport_${s.id}">
+                      ${boomerangAsset ? `
+                        <video id="bmVideo_${s.id}" src="${boomerangAsset.filePath}" playsinline autoplay loop muted style="width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;"></video>
+                      ` : `
+                        <canvas id="bmCanvas_${s.id}" style="width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;"></canvas>
+                      `}
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                      <div style="display: flex; gap: 6px;" id="speedControls_${s.id}">
+                        <button class="speed-btn" onclick="setBoomerangSpeed('${s.id}', 0.6, this)">🐢 Slow</button>
+                        <button class="speed-btn active" onclick="setBoomerangSpeed('${s.id}', 1.0, this)">⚡ 1x</button>
+                        <button class="speed-btn" onclick="setBoomerangSpeed('${s.id}', 1.5, this)">🚀 Cepat</button>
+                      </div>
+                      <button class="speed-btn" id="playToggle_${s.id}" onclick="toggleBoomerangPlay('${s.id}')">
+                        ⏸️ Jeda
+                      </button>
+                    </div>
+
+                    <div style="display: flex; gap: 8px;">
+                      <button class="btn btn-secondary" style="flex: 1; padding: 11px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill);" id="dlBmBtn_${s.id}" onclick="downloadBoomerang('${s.id}')">
+                        ⬇️ Unduh Video Boomerang
+                      </button>
+                      <button class="btn btn-teal" style="padding: 11px 16px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill);" onclick="shareBoomerangToWhatsApp('${s.id}')">
+                        💬 WA
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }
+
+              // 3. MAIN SESSION CARD (ELEGANT WARM RETRO SHOWCASE)
+              const card = document.createElement('div');
+              card.className = 'session-card';
+              card.innerHTML = `
+                <!-- Top Session Header -->
+                <div class="session-header">
+                  <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <span class="sticker-badge sticker-coral" style="font-size: 13px;">Sesi #${data.sessions.length - idx} • ${s.mode.toUpperCase()}</span>
+                    <span style="font-size: 12.5px; font-weight: 700; color: var(--text-muted);">
+                      🕒 ${new Date(s.started_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </span>
+                  </div>
+                  <span class="sticker-badge sticker-teal">🟢 Siap Diunduh</span>
+                </div>
+
+                <!-- Session Grid: 2 Columns on Desktop, 1 Column on Mobile -->
+                <div class="session-grid">
+                  <!-- LEFT COLUMN: Main Framed Photo -->
+                  <div class="session-col-main">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                      <span style="font-size: 13px; font-weight: 800; color: var(--caramel-brown); display: flex; align-items: center; gap: 6px;">
+                        <span>🖼️</span> Foto Jadi (Dengan Frame Acara)
+                      </span>
+                      <span class="sticker-badge sticker-purple" style="font-size: 10.5px;">RESOLUSI CETAK</span>
+                    </div>
+
+                    <!-- Apple Live Photo Container -->
+                    <div class="apple-live-container" id="liveContainer_${s.id}">
+                      <!-- Apple Live Photo Badge -->
+                      <div class="apple-live-badge" id="liveBadge_${s.id}" onclick="toggleLivePhoto('${s.id}', event)">
+                        <span class="live-icon">
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                            <circle cx="12" cy="12" r="9" stroke-dasharray="2.5 2.5"/>
+                            <circle cx="12" cy="12" r="5"/>
+                            <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                          </svg>
+                        </span>
+                        <span>LIVE</span>
+                      </div>
+
+                      <div class="apple-live-hint" id="liveHint_${s.id}">
+                        👆 Tahan foto untuk gerak
+                      </div>
+
+                      <img src="${finalSrc}" id="stillImg_${s.id}" alt="Foto Sesi" onclick="openLightbox('${finalSrc}')" title="Klik untuk memperbesar">
+                      
+                      ${livePhotoAsset ? `
+                        <video id="liveVideo_${s.id}" src="${livePhotoAsset.filePath}" playsinline muted loop style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; display: none; z-index: 5;"></video>
+                      ` : `
+                        <canvas class="live-anim-canvas" id="liveCanvas_${s.id}"></canvas>
+                      `}
+                    </div>
+
+                    <!-- Main Action Buttons -->
+                    <div class="session-main-actions">
+                      <a href="${finalSrc}" download="Photobooth_${s.id}.png" class="btn btn-coral" style="flex: 1.2;">
+                        ⬇️ Unduh Foto HD
+                      </a>
+                      <button class="btn btn-teal" style="flex: 1;" onclick="shareToWhatsApp('${finalSrc}')">
+                        💬 Bagikan WhatsApp
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- RIGHT COLUMN: Side Content (Boomerang & Raw Captures) -->
+                  <div class="session-col-side">
+                    ${boomerangHtml}
+                    ${rawPhotosHtml}
+                  </div>
+                </div>
+              `;
+              container.appendChild(card);
+
+              // Initialize Apple Live Photo and Boomerang Controllers for this session
+              initLivePhoto(s.id, finalSrc, poseImages, livePhotoAsset);
+              if (poseImages.length >= 2 && !boomerangAsset) {
+                initBoomerang(s.id, poseImages);
+              }
+
+              // Initialize Apple Live Photo Controllers for each individual pose
+              rawCaptures.forEach((raw, rIdx) => {
+                const clip = liveClips.find(c => c.variant === `pose_${rIdx + 1}`);
+                initPoseLivePhoto(s.id, rIdx, raw.filePath, clip ? clip.filePath : null);
+              });
+            });
+          } else {
+            // EMPTY STATE JIKA QR INI BELUM PERNAH DIGUNAKAN FOTO
+            container.innerHTML = `
+              <div class="session-card" style="text-align: center; padding: 56px 28px; background: #ffffff;">
+                <div style="font-size: 64px; margin-bottom: 16px;">📸</div>
+                <h3 style="font-family: var(--font-heading); font-size: 24px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 10px;">
+                  Belum Ada Foto Tersimpan
+                </h3>
+                <p style="font-size: 14.5px; color: var(--text-muted); line-height: 1.6; max-width: 440px; margin: 0 auto 24px auto;">
+                  Kartu QR ini belum digunakan di bilik photobooth. Foto berframe, video Live Photo, dan Boomerang Anda akan otomatis muncul di sini begitu sesi foto selesai!
+                </p>
+                <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(230, 120, 107, 0.12); padding: 10px 24px; border-radius: var(--radius-pill); font-size: 14px; font-weight: 700; color: var(--coral); border: 1.5px solid var(--coral);">
+                  <span>🎟️</span> Kartu QR Siap Digunakan di Kiosk Booth
+                </div>
+              </div>
+            `;
+          }
+        }
+      } catch (e) {
+        console.error(e);
+        document.getElementById('galleryContainer').innerHTML = `
+          <div style="text-align: center; padding: 36px; color: var(--coral); background: #fff; border-radius: 20px; border: 2px solid var(--border-soft);">
+            Gagal memuat galeri foto. Silakan periksa koneksi Anda dan coba segarkan halaman.
+          </div>
+        `;
+      }
+    });
+
+    // =========================================================================
+    // 1. APPLE LIVE PHOTO IMPLEMENTATION (TOUCH-AND-HOLD / IPHONE EXPERIENCE)
+    // =========================================================================
+    function initLivePhoto(sessionId, stillSrc, poseFrames, livePhotoAsset) {
+      const container = document.getElementById(`liveContainer_${sessionId}`);
+      const badge = document.getElementById(`liveBadge_${sessionId}`);
+      const hint = document.getElementById(`liveHint_${sessionId}`);
+      const stillImg = document.getElementById(`stillImg_${sessionId}`);
+      const liveCanvas = document.getElementById(`liveCanvas_${sessionId}`);
+      const liveVideo = document.getElementById(`liveVideo_${sessionId}`);
+
+      if (!container) return;
+
+      // Preload images into memory
+      const loadedImages = [];
+      let isReady = false;
+
+      const sourcesToLoad = (poseFrames && poseFrames.length > 0) ? poseFrames : [stillSrc];
+      let loadedCount = 0;
+      sourcesToLoad.forEach(src => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = src;
+        img.onload = () => {
+          loadedCount++;
+          if (loadedCount === sourcesToLoad.length) {
+            isReady = true;
+          }
+        };
+        loadedImages.push(img);
+      });
+
+      const controller = {
+        isPlaying: false,
+        timer: null,
+        frameIdx: 0,
+        direction: 1,
+        stillSrc,
+        loadedImages,
+        poseFrames: sourcesToLoad,
+        startMotion: () => {
+          if (controller.isPlaying) return;
+          controller.isPlaying = true;
+          badge.classList.add('playing');
+          if (hint) hint.style.opacity = '0';
+          if (navigator.vibrate) try { navigator.vibrate(30); } catch(e){}
+
+          if (liveVideo) {
+            liveVideo.style.display = 'block';
+            liveVideo.play().catch(()=>{});
+          } else if (liveCanvas) {
+            liveCanvas.style.display = 'block';
+            const ctx = liveCanvas.getContext('2d');
+            
+            // Set canvas resolution based on still image size
+            liveCanvas.width = stillImg.naturalWidth || 800;
+            liveCanvas.height = stillImg.naturalHeight || 1200;
+
+            const seq = buildPingPongSequence(controller.loadedImages);
+            let seqIdx = 0;
+
+            const render = () => {
+              if (!controller.isPlaying) return;
+              const curImg = seq[seqIdx % seq.length];
+              if (curImg && curImg.complete) {
+                ctx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
+                ctx.drawImage(curImg, 0, 0, liveCanvas.width, liveCanvas.height);
+              }
+              seqIdx++;
+              controller.timer = setTimeout(render, 130);
+            };
+            render();
+          }
+        },
+        stopMotion: () => {
+          controller.isPlaying = false;
+          badge.classList.remove('playing');
+          if (controller.timer) clearTimeout(controller.timer);
+
+          if (liveVideo) {
+            liveVideo.pause();
+            liveVideo.currentTime = 0;
+            liveVideo.style.display = 'none';
+          } else if (liveCanvas) {
+            liveCanvas.style.display = 'none';
+          }
+        }
+      };
+
+      liveControllers[sessionId] = controller;
+
+      // Touch & Mouse Event Handlers for Press-and-Hold
+      let holdTimeout = null;
+
+      const onPressStart = (e) => {
+        if (e.type === 'touchstart') {
+          holdTimeout = setTimeout(() => {
+            controller.startMotion();
+          }, 80);
+        } else {
+          controller.startMotion();
+        }
+      };
+
+      const onPressEnd = () => {
+        if (holdTimeout) clearTimeout(holdTimeout);
+        controller.stopMotion();
+      };
+
+      container.addEventListener('mousedown', onPressStart);
+      container.addEventListener('mouseup', onPressEnd);
+      container.addEventListener('mouseleave', onPressEnd);
+
+      container.addEventListener('touchstart', onPressStart, { passive: true });
+      container.addEventListener('touchend', onPressEnd);
+      container.addEventListener('touchcancel', onPressEnd);
+    }
+
+    function toggleLivePhoto(sessionId, event) {
+      if (event) event.stopPropagation();
+      const ctrl = liveControllers[sessionId];
+      if (!ctrl) return;
+      if (ctrl.isPlaying) {
+        ctrl.stopMotion();
+      } else {
+        ctrl.startMotion();
+      }
+    }
+
+    // =========================================================================
+    // 2. BOOMERANG PLAYER & VIDEO GENERATOR (PING-PONG LOOP)
+    // =========================================================================
+    function initBoomerang(sessionId, poseFrames) {
+      const canvas = document.getElementById(`bmCanvas_${sessionId}`);
+      if (!canvas) return;
+
+      const ctx = canvas.getContext('2d');
+      const loadedImages = [];
+      let loaded = 0;
+
+      poseFrames.forEach(src => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.src = src;
+        img.onload = () => {
+          loaded++;
+          if (loaded === poseFrames.length) {
+            startLoop();
+          }
+        };
+        loadedImages.push(img);
+      });
+
+      const sequence = buildPingPongSequence(loadedImages);
+
+      const controller = {
+        canvas,
+        ctx,
+        images: loadedImages,
+        sequence,
+        speedMultiplier: 1.0,
+        isPlaying: true,
+        timer: null,
+        currentSeqIndex: 0
+      };
+
+      function drawFrame() {
+        if (!controller.isPlaying) return;
+        const curImg = controller.sequence[controller.currentSeqIndex % controller.sequence.length];
+        if (curImg && curImg.complete) {
+          if (canvas.width !== curImg.naturalWidth && curImg.naturalWidth > 0) {
+            canvas.width = curImg.naturalWidth;
+            canvas.height = curImg.naturalHeight;
+          }
+          ctx.drawImage(curImg, 0, 0, canvas.width, canvas.height);
+        }
+        controller.currentSeqIndex++;
+        const interval = Math.round(130 / controller.speedMultiplier);
+        controller.timer = setTimeout(drawFrame, interval);
+      }
+
+      function startLoop() {
+        if (controller.timer) clearTimeout(controller.timer);
+        controller.isPlaying = true;
+        drawFrame();
+      }
+
+      controller.start = startLoop;
+      controller.stop = () => {
+        controller.isPlaying = false;
+        if (controller.timer) clearTimeout(controller.timer);
+      };
+
+      boomerangControllers[sessionId] = controller;
+    }
+
+    function buildPingPongSequence(imgs) {
+      if (!imgs || imgs.length === 0) return [];
+      if (imgs.length === 1) return [imgs[0]];
+      const forward = [...imgs];
+      const backward = [...imgs].slice(1, -1).reverse();
+      return forward.concat(backward);
+    }
+
+    function setBoomerangSpeed(sessionId, speed, btn) {
+      const ctrl = boomerangControllers[sessionId];
+      const video = document.getElementById(`bmVideo_${sessionId}`);
+      
+      if (video) {
+        video.playbackRate = speed;
+      }
+      if (ctrl) {
+        ctrl.speedMultiplier = speed;
+      }
+
+      const container = document.getElementById(`speedControls_${sessionId}`);
+      if (container) {
+        container.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+      }
+    }
+
+    function toggleBoomerangPlay(sessionId) {
+      const ctrl = boomerangControllers[sessionId];
+      const video = document.getElementById(`bmVideo_${sessionId}`);
+      const btn = document.getElementById(`playToggle_${sessionId}`);
+
+      if (video) {
+        if (video.paused) {
+          video.play();
+          if (btn) btn.innerText = '⏸️ Jeda';
+        } else {
+          video.pause();
+          if (btn) btn.innerText = '▶️ Putar';
+        }
+      } else if (ctrl) {
+        if (ctrl.isPlaying) {
+          ctrl.stop();
+          if (btn) btn.innerText = '▶️ Putar';
+        } else {
+          ctrl.start();
+          if (btn) btn.innerText = '⏸️ Jeda';
+        }
+      }
+    }
+
+    // Export Boomerang to real MP4/WebM video file directly in the browser!
+    async function downloadBoomerang(sessionId) {
+      const btn = document.getElementById(`dlBmBtn_${sessionId}`);
+      const originalText = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Merender Video...';
+      }
+
+      const video = document.getElementById(`bmVideo_${sessionId}`);
+      if (video && video.src) {
+        const a = document.createElement('a');
+        a.href = video.src;
+        a.download = `Boomerang_${sessionId}.mp4`;
+        a.click();
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = originalText;
+        }
+        return;
+      }
+
+      const ctrl = boomerangControllers[sessionId];
+      if (!ctrl || !ctrl.sequence || ctrl.sequence.length === 0) {
+        alert('Foto belum siap untuk dibuat boomerang.');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = originalText;
+        }
+        return;
+      }
+
+      try {
+        const exportCanvas = document.createElement('canvas');
+        const firstImg = ctrl.sequence[0];
+        exportCanvas.width = firstImg.naturalWidth || 800;
+        exportCanvas.height = firstImg.naturalHeight || 600;
+        const eCtx = exportCanvas.getContext('2d');
+
+        const mimeTypes = [
+          'video/mp4;codecs=avc1',
+          'video/mp4',
+          'video/webm;codecs=vp9',
+          'video/webm;codecs=vp8',
+          'video/webm'
+        ];
+        const selectedMime = mimeTypes.find(t => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+
+        const stream = exportCanvas.captureStream(30);
+        const recorder = new MediaRecorder(stream, selectedMime ? { mimeType: selectedMime } : {});
+        const chunks = [];
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+
+        const durationPerFrame = 130;
+        const totalLoops = 3;
+        const totalFrames = ctrl.sequence.length * totalLoops;
+
+        recorder.start();
+
+        for (let i = 0; i < totalFrames; i++) {
+          const img = ctrl.sequence[i % ctrl.sequence.length];
+          eCtx.drawImage(img, 0, 0, exportCanvas.width, exportCanvas.height);
+          await new Promise(r => setTimeout(r, durationPerFrame));
+        }
+
+        recorder.onstop = () => {
+          const ext = selectedMime.includes('mp4') ? 'mp4' : 'webm';
+          const blob = new Blob(chunks, { type: selectedMime || 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Boomerang_Sesi_${sessionId}.${ext}`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '✅ Berhasil Diunduh!';
+            setTimeout(() => {
+              btn.innerHTML = originalText;
+            }, 2500);
+          }
+        };
+
+        recorder.stop();
+      } catch (err) {
+        console.error('Error generating boomerang video:', err);
+        alert('Browser Anda belum mendukung perekaman video langsung. Silakan hubungi operator photobooth.');
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = originalText;
+        }
+      }
+    }
+
+    // =========================================================================
+    // 3. APPLE LIVE PHOTO IMPLEMENTATION FOR INDIVIDUAL POSES
+    // =========================================================================
+    const poseLiveControllers = {};
+
+    function initPoseLivePhoto(sessionId, poseIndex, rawSrc, clipSrc) {
+      const key = `${sessionId}_${poseIndex}`;
+      const container = document.getElementById(`poseContainer_${sessionId}_${poseIndex}`);
+      const badge = document.getElementById(`poseBadge_${sessionId}_${poseIndex}`);
+      const hint = document.getElementById(`poseHint_${sessionId}_${poseIndex}`);
+      const img = document.getElementById(`poseImg_${sessionId}_${poseIndex}`);
+      const vid = document.getElementById(`poseVid_${sessionId}_${poseIndex}`);
+      const canvas = document.getElementById(`poseCanvas_${sessionId}_${poseIndex}`);
+
+      if (!container) return;
+
+      const controller = {
+        isPlaying: false,
+        timer: null,
+        startMotion: () => {
+          if (controller.isPlaying) return;
+          controller.isPlaying = true;
+          if (badge) badge.classList.add('playing');
+          if (hint) hint.style.opacity = '0';
+          if (navigator.vibrate) try { navigator.vibrate(25); } catch(e){}
+
+          if (vid) {
+            vid.style.display = 'block';
+            vid.currentTime = 0;
+            vid.play().catch(()=>{});
+          } else if (canvas && img) {
+            canvas.style.display = 'block';
+            const ctx = canvas.getContext('2d');
+            canvas.width = img.naturalWidth || 640;
+            canvas.height = img.naturalHeight || 480;
+
+            let frame = 0;
+            const drawMotion = () => {
+              if (!controller.isPlaying) return;
+              frame++;
+              ctx.clearRect(0, 0, canvas.width, canvas.height);
+              const scale = 1.0 + Math.sin(frame * 0.15) * 0.05;
+              const w = canvas.width * scale;
+              const h = canvas.height * scale;
+              const x = (canvas.width - w) / 2;
+              const y = (canvas.height - h) / 2;
+              ctx.drawImage(img, x, y, w, h);
+              controller.timer = requestAnimationFrame(drawMotion);
+            };
+            drawMotion();
+          }
+        },
+        stopMotion: () => {
+          controller.isPlaying = false;
+          if (badge) badge.classList.remove('playing');
+          if (controller.timer) cancelAnimationFrame(controller.timer);
+
+          if (vid) {
+            vid.pause();
+            vid.style.display = 'none';
+          } else if (canvas) {
+            canvas.style.display = 'none';
+          }
+        }
+      };
+
+      poseLiveControllers[key] = controller;
+
+      let holdTimer = null;
+      const onPressStart = (e) => {
+        if (e.type === 'touchstart') {
+          holdTimer = setTimeout(() => controller.startMotion(), 80);
+        } else {
+          controller.startMotion();
+        }
+      };
+      const onPressEnd = () => {
+        if (holdTimer) clearTimeout(holdTimer);
+        controller.stopMotion();
+      };
+
+      container.addEventListener('mousedown', onPressStart);
+      container.addEventListener('mouseup', onPressEnd);
+      container.addEventListener('mouseleave', onPressEnd);
+
+      container.addEventListener('touchstart', onPressStart, { passive: true });
+      container.addEventListener('touchend', onPressEnd);
+      container.addEventListener('touchcancel', onPressEnd);
+    }
+
+    function toggleSinglePoseLive(sessionId, poseIndex, event) {
+      if (event) event.stopPropagation();
+      const key = `${sessionId}_${poseIndex}`;
+      const ctrl = poseLiveControllers[key];
+      if (!ctrl) return;
+      if (ctrl.isPlaying) {
+        ctrl.stopMotion();
+      } else {
+        ctrl.startMotion();
+      }
+    }
+
+    async function downloadPoseLiveVideo(sessionId, poseIndex, rawSrc, clipSrc) {
+      if (clipSrc) {
+        const a = document.createElement('a');
+        a.href = clipSrc;
+        a.download = `Live_Pose_${poseIndex + 1}_${sessionId}.mp4`;
+        a.click();
+        return;
+      }
+
+      try {
+        const img = document.getElementById(`poseImg_${sessionId}_${poseIndex}`);
+        if (!img) return;
+
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = img.naturalWidth || 640;
+        exportCanvas.height = img.naturalHeight || 480;
+        const ctx = exportCanvas.getContext('2d');
+
+        const mimeTypes = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+        const mime = mimeTypes.find(t => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+
+        const stream = exportCanvas.captureStream(30);
+        const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
+        const chunks = [];
+        recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+
+        recorder.onstop = () => {
+          const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+          const blob = new Blob(chunks, { type: mime || 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Live_Pose_${poseIndex + 1}_${sessionId}.${ext}`;
+          a.click();
+          URL.revokeObjectURL(url);
+        };
+
+        recorder.start();
+        const startTime = Date.now();
+        const durationMs = 2200;
+
+        const animLoop = () => {
+          const elapsed = Date.now() - startTime;
+          if (elapsed >= durationMs) {
+            recorder.stop();
+            return;
+          }
+          ctx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
+          const scale = 1.0 + Math.sin(elapsed * 0.005) * 0.05;
+          const w = exportCanvas.width * scale;
+          const h = exportCanvas.height * scale;
+          const x = (exportCanvas.width - w) / 2;
+          const y = (exportCanvas.height - h) / 2;
+          ctx.drawImage(img, x, y, w, h);
+          requestAnimationFrame(animLoop);
+        };
+        animLoop();
+      } catch (e) {
+        console.error('Error generating pose live video:', e);
+        window.open(rawSrc, '_blank');
+      }
+    }
+
+    function shareBoomerangToWhatsApp(sessionId) {
+      if (token) {
+        fetch(`/api/gallery/g/${token}/share-click`, { method: 'POST' }).catch(() => {});
+      }
+      const pageUrl = window.location.href;
+      const text = encodeURIComponent(`Lihat video Boomerang & foto seru kita di ${currentEventName}! 🎉📸\nBuka galeri & tonton di sini:\n${pageUrl}`);
+      window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+    }
+
+    function shareToWhatsApp(photoUrl) {
+      if (token) {
+        fetch(`/api/gallery/g/${token}/share-click`, { method: 'POST' }).catch(() => {});
+      }
+      const pageUrl = window.location.href;
+      const text = encodeURIComponent(`Lihat foto seru kita di ${currentEventName}! 🎉📸\nBuka galeri pribadi di sini:\n${pageUrl}`);
+      window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+    }
+
+    // Lightbox modal handlers
+    function openLightbox(src) {
+      const modal = document.getElementById('galleryLightboxModal');
+      const img = document.getElementById('lightboxImg');
+      const dl = document.getElementById('lightboxDownloadBtn');
+      if (modal && img) {
+        img.src = src;
+        if (dl) {
+          dl.href = src;
+          dl.download = src.split('/').pop() || 'photo.jpg';
+        }
+        modal.style.display = 'flex';
+      } else {
+        window.open(src, '_blank');
+      }
+    }
+
+    function closeLightbox(event) {
+      const modal = document.getElementById('galleryLightboxModal');
+      if (modal) modal.style.display = 'none';
+    }
+  </script>
+  <script src="/js/notify.js?v=warm-retro-v3.2"></script>
+</body>
+</html>
