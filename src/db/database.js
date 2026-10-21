@@ -8,21 +8,85 @@ const __dirname = path.dirname(__filename);
 
 const DB_PATH = path.join(__dirname, '../../photobooth.db');
 
-// Universal SQLite driver: uses built-in node:sqlite on Node >= 22.5, or better-sqlite3 on Node 18/20
-let DatabaseConstructor;
-try {
-  const nodeSqlite = await import('node:sqlite');
-  if (nodeSqlite && nodeSqlite.DatabaseSync) {
-    DatabaseConstructor = nodeSqlite.DatabaseSync;
-  }
-} catch (e) {}
+// Universal SQLite driver: uses built-in node:sqlite on Node >= 22.5, or pure-WASM sql.js on Node 18/20
+async function createDatabase(dbPath) {
+  try {
+    const nodeSqlite = await import('node:sqlite');
+    if (nodeSqlite && nodeSqlite.DatabaseSync) {
+      return new nodeSqlite.DatabaseSync(dbPath);
+    }
+  } catch (e) {}
 
-if (!DatabaseConstructor) {
-  const betterSqlite = await import('better-sqlite3');
-  DatabaseConstructor = betterSqlite.default || betterSqlite;
+  // Fallback for Node 18 / Node 20 (Zero native C++ dependencies via WebAssembly sql.js)
+  const initSqlJs = (await import('sql.js')).default;
+  const SQL = await initSqlJs();
+  const fileBuffer = fs.existsSync(dbPath) ? fs.readFileSync(dbPath) : null;
+  const wasmDb = fileBuffer && fileBuffer.length > 0 ? new SQL.Database(fileBuffer) : new SQL.Database();
+
+  const saveToDisk = () => {
+    try {
+      const data = wasmDb.export();
+      fs.writeFileSync(dbPath, Buffer.from(data));
+    } catch (err) {
+      console.error('SQLite WASM disk sync error:', err.message);
+    }
+  };
+
+  const normalizeParams = (params) => {
+    if (!params || params.length === 0) return [];
+    if (params.length === 1 && Array.isArray(params[0])) {
+      return params[0].map(p => (p === undefined ? null : p));
+    }
+    return params.map(p => (p === undefined ? null : p));
+  };
+
+  return {
+    exec(sql) {
+      wasmDb.exec(sql);
+      saveToDisk();
+    },
+    prepare(sql) {
+      return {
+        get(...params) {
+          const stmt = wasmDb.prepare(sql);
+          try {
+            const bound = normalizeParams(params);
+            if (bound.length > 0) stmt.bind(bound);
+            if (stmt.step()) {
+              return stmt.getAsObject();
+            }
+            return undefined;
+          } finally {
+            stmt.free();
+          }
+        },
+        all(...params) {
+          const stmt = wasmDb.prepare(sql);
+          const rows = [];
+          try {
+            const bound = normalizeParams(params);
+            if (bound.length > 0) stmt.bind(bound);
+            while (stmt.step()) {
+              rows.push(stmt.getAsObject());
+            }
+            return rows;
+          } finally {
+            stmt.free();
+          }
+        },
+        run(...params) {
+          const bound = normalizeParams(params);
+          wasmDb.run(sql, bound);
+          const changes = wasmDb.getRowsModified();
+          saveToDisk();
+          return { changes };
+        }
+      };
+    }
+  };
 }
 
-export const db = new DatabaseConstructor(DB_PATH);
+export const db = await createDatabase(DB_PATH);
 
 // Simple password hashing using SHA256 with salt for standalone zero-dep security
 export function hashPassword(password) {

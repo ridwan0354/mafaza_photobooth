@@ -86,6 +86,14 @@ pm2 delete "$PM2_NAME" 2>/dev/null || true
 PORT=$APP_PORT pm2 start src/server.js --name "$PM2_NAME"
 pm2 save
 
+sleep 2
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$APP_PORT/kiosk" || echo "000")
+echo "🩺 Cek status internal port $APP_PORT: HTTP $HTTP_STATUS"
+if [ "$HTTP_STATUS" != "200" ]; then
+  echo "⚠️ Log aplikasi:"
+  pm2 logs "$PM2_NAME" --lines 20 --nostream
+fi
+
 # 9. Konfigurasi Nginx Terisolasi (Aman untuk Cloudflare Flexible & Projek Lain)
 echo "🌐 Menyiapkan konfigurasi Nginx untuk $DOMAIN..."
 NGINX_CONF="/etc/nginx/sites-available/$DOMAIN"
