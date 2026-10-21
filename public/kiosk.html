@@ -312,6 +312,31 @@
       max-width: 680px;
       width: 100%;
     }
+
+    @media print {
+      body.pb-printing > *:not(#pbPrintPortal) {
+        display: none !important;
+      }
+      body.pb-printing #pbPrintPortal {
+        display: block !important;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+        background: #fff;
+        z-index: 99999999;
+      }
+      @page {
+        margin: 0;
+        size: auto;
+      }
+    }
+    #pbPrintPortal {
+      display: none;
+    }
   </style>
 </head>
 <body style="overflow: hidden;">
@@ -903,6 +928,6 @@
   </div>
 
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v3.5"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v3.6"></script>
 </body>
 </html>

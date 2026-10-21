@@ -2289,6 +2289,49 @@ async function savePrinterSettings() {
   }
 }
 
+function printImageUniversally(imageUrl, copies = 1) {
+  let portal = document.getElementById('pbPrintPortal');
+  if (!portal) {
+    portal = document.createElement('div');
+    portal.id = 'pbPrintPortal';
+    document.body.appendChild(portal);
+  }
+
+  const numCopies = Math.max(1, parseInt(copies, 10) || 1);
+  const pagesHtml = Array.from({ length: numCopies }).map(() => `
+    <div class="pb-print-page" style="width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; page-break-after: always; overflow: hidden; background: #fff;">
+      <img src="${imageUrl}" style="max-width: 100%; max-height: 100%; object-fit: contain; display: block;" />
+    </div>
+  `).join('');
+
+  portal.innerHTML = pagesHtml;
+  document.body.classList.add('pb-printing');
+
+  const img = portal.querySelector('img');
+  const doPrint = () => {
+    setTimeout(() => {
+      window.focus();
+      window.print();
+      setTimeout(() => {
+        document.body.classList.remove('pb-printing');
+        if (portal) portal.innerHTML = '';
+      }, 1200);
+    }, 200);
+  };
+
+  if (img && img.complete) {
+    doPrint();
+  } else if (img) {
+    img.onload = doPrint;
+    img.onerror = () => {
+      document.body.classList.remove('pb-printing');
+      alert('Gagal memuat gambar untuk dicetak');
+    };
+  } else {
+    doPrint();
+  }
+}
+
 async function testPrintFromAdmin() {
   const modelSelect = document.getElementById('prtModel');
   const customInput = document.getElementById('customPrinterName');
@@ -2298,17 +2341,14 @@ async function testPrintFromAdmin() {
   }
 
   try {
-    const res = await fetch('/api/printers/test-print', {
+    fetch('/api/printers/test-print', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: chosenModel })
-    });
+    }).then(() => loadPrintJobs()).catch(() => {});
 
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal mengirim test print');
-
-    alert(`🖨️ Test Print Uji Spooler Berhasil Dikirim!\n\n• Target Printer: ${chosenModel}\n• Job ID: ${data.printJob.printJobId}\n• Spooler ID: ${data.printJob.spoolerJobId}\n• Antrean: Siap dicetak ke perangkat.`);
-    await loadPrintJobs();
+    // Langsung buka dialog cetak browser / AirPrint dengan lembar uji resolusi tinggi!
+    printImageUniversally('/uploads/test_print.png', 1);
   } catch (err) {
     alert(`Gagal mengirim test print: ${err.message}`);
   }
@@ -2562,34 +2602,31 @@ async function executeModalReprint() {
   if (!activeModalPhoto) return;
   const copies = parseInt(document.getElementById('modalPrintCopies')?.value) || 1;
   const btn = document.getElementById('modalBtnReprint');
-  if (btn) btn.textContent = '⏳ Mengirim ke Spooler...';
+  if (btn) btn.textContent = '⏳ Menyiapkan Cetak...';
+
+  const imgSrc = activeModalPhoto.file_path || activeModalPhoto.media_url;
 
   try {
     if (activeModalPhoto.print_job_id) {
-      const res = await fetch(`/api/print-jobs/${activeModalPhoto.print_job_id}/reprint`, {
+      fetch(`/api/print-jobs/${activeModalPhoto.print_job_id}/reprint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ copies })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal mengirim reprint');
-      alert(`🖨️ Print Ulang Berhasil Dikirim!\n\n• Job ID Baru: ${data.printJobId}\n• Spooler ID: ${data.spoolerJobId}\n• Target Printer: ${data.printerName || 'Driver Printer Siap Cetak'}\n• Status OS: ${data.dispatchedToOs ? 'Terkirim ke Pusat Cetak macOS / Spooler' : 'Mode Simulasi'}`);
+      }).then(() => loadPrintJobs()).catch(() => {});
     } else if (activeModalPhoto.asset_id) {
-      const res = await fetch(`/api/photos/${activeModalPhoto.asset_id}/print`, {
+      fetch(`/api/photos/${activeModalPhoto.asset_id}/print`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ copies })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Gagal mengirim print');
-      alert(`🖨️ Cetak Berhasil Dikirim!\n\n• Job ID: ${data.printJob.printJobId}\n• Spooler ID: ${data.printJob.spoolerJobId}\n• Target Printer: ${data.printJob.printerName || 'Driver Printer'}\n• Status OS: ${data.printJob.dispatchedToOs ? 'Terkirim ke Pusat Cetak macOS / Spooler' : 'Mode Simulasi'}`);
-    } else {
-      alert('Informasi aset foto tidak lengkap untuk dicetak');
+      }).then(() => loadPrintJobs()).catch(() => {});
     }
 
     closePhotoPreviewModal();
-    await loadPrintJobs();
     await loadRecentPhotos();
+
+    if (imgSrc) {
+      printImageUniversally(imgSrc, copies);
+    }
   } catch (err) {
     alert(`Error cetak: ${err.message}`);
   } finally {
@@ -2662,9 +2699,9 @@ async function loadPrintJobs() {
           <td><span class="badge-pill ${stateBadge}">${job.state ? job.state.toUpperCase() : 'COMPLETED'}</span></td>
           <td>${timeStr}</td>
           <td>
-            <div style="display: flex; gap: 6px;">
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
               <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewFromJob('${job.id}')">👁️ Lihat</button>
-              <button class="btn btn-coral" style="padding: 4px 8px; font-size: 12px; font-weight: 700;" onclick="reprintJobById('${job.id}')">🖨️ Reprint</button>
+              <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})">🖨️ Cetak</button>
             </div>
           </td>
         </tr>
@@ -2675,20 +2712,23 @@ async function loadPrintJobs() {
   }
 }
 
-async function reprintJobById(jobId) {
-  try {
-    const res = await fetch(`/api/print-jobs/${jobId}/reprint`, { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) {
-      alert(`🖨️ Perintah Cetak Ulang (Reprint) Berhasil Dikirim!\n\n• Job Baru: ${data.printJobId}\n• Spooler ID: ${data.spoolerJobId}\n• Status: Antrean Terkirim ke Driver`);
-      await loadPrintJobs();
-      await loadRecentPhotos();
-    } else {
-      alert(`Gagal reprint: ${data.error}`);
-    }
-  } catch (err) {
-    alert(`Error reprint: ${err.message}`);
+function directPrintJob(jobId, imageUrl, copies = 1) {
+  fetch(`/api/print-jobs/${jobId}/reprint`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ copies })
+  }).then(() => loadPrintJobs()).catch(() => {});
+
+  if (imageUrl) {
+    printImageUniversally(imageUrl, copies);
   }
+}
+
+async function reprintJobById(jobId) {
+  const job = cachedPrintJobs.find(j => j.id === jobId);
+  const copies = (job && job.copies) || 1;
+  const thumbUrl = (job && job.media_url) || '/assets/templates/strip-green-template.svg';
+  directPrintJob(jobId, thumbUrl, copies);
 }
 
 async function uploadTransferProof() {
@@ -2802,63 +2842,7 @@ function printModalPhotoViaDevice() {
     return;
   }
   const copies = parseInt(document.getElementById('modalPrintCopies')?.value || '1', 10);
-
-  let iframe = document.getElementById('adminDevicePrintFrame');
-  if (!iframe) {
-    iframe = document.createElement('iframe');
-    iframe.id = 'adminDevicePrintFrame';
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
-  }
-
-  const pagesHtml = Array.from({ length: copies }).map(() => `
-    <div class="print-page">
-      <img src="${imgSrc}" />
-    </div>
-  `).join('');
-
-  const doc = iframe.contentWindow.document;
-  doc.open();
-  doc.write(`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Cetak Foto Photobooth</title>
-      <style>
-        @page { margin: 0; }
-        html, body { margin: 0; padding: 0; background: #fff; }
-        .print-page {
-          width: 100vw;
-          height: 100vh;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          page-break-after: always;
-          overflow: hidden;
-        }
-        .print-page:last-child { page-break-after: auto; }
-        img {
-          max-width: 100%;
-          max-height: 100%;
-          object-fit: contain;
-          display: block;
-        }
-      </style>
-    </head>
-    <body>${pagesHtml}</body>
-    </html>
-  `);
-  doc.close();
-
-  setTimeout(() => {
-    iframe.contentWindow.focus();
-    iframe.contentWindow.print();
-  }, 400);
+  printImageUniversally(imgSrc, copies);
 }
 
 // ==============================================================

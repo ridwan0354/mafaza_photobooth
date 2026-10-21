@@ -2285,63 +2285,46 @@ class KioskEngine {
 
     const dataUrl = finalCanvas.toDataURL('image/png');
     const copies = parseInt(document.getElementById('printCopiesSelect')?.value || '1', 10);
+    const numCopies = Math.max(1, copies);
 
-    let iframe = document.getElementById('kioskChromePrintFrame');
-    if (!iframe) {
-      iframe = document.createElement('iframe');
-      iframe.id = 'kioskChromePrintFrame';
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
-      document.body.appendChild(iframe);
+    let portal = document.getElementById('pbPrintPortal');
+    if (!portal) {
+      portal = document.createElement('div');
+      portal.id = 'pbPrintPortal';
+      document.body.appendChild(portal);
     }
 
-    const pagesHtml = Array.from({ length: copies }).map(() => `
-      <div class="print-page">
-        <img src="${dataUrl}" />
+    const pagesHtml = Array.from({ length: numCopies }).map(() => `
+      <div class="pb-print-page" style="width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; page-break-after: always; overflow: hidden; background: #fff;">
+        <img src="${dataUrl}" style="max-width: 100%; max-height: 100%; object-fit: contain; display: block;" />
       </div>
     `).join('');
 
-    const doc = iframe.contentWindow.document;
-    doc.open();
-    doc.write(`
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Cetak Foto Photobooth</title>
-        <style>
-          @page { margin: 0; }
-          html, body { margin: 0; padding: 0; background: #fff; }
-          .print-page {
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            page-break-after: always;
-            overflow: hidden;
-          }
-          .print-page:last-child { page-break-after: auto; }
-          img {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-            display: block;
-          }
-        </style>
-      </head>
-      <body>${pagesHtml}</body>
-      </html>
-    `);
-    doc.close();
+    portal.innerHTML = pagesHtml;
+    document.body.classList.add('pb-printing');
 
-    setTimeout(() => {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
-    }, 350);
+    const img = portal.querySelector('img');
+    const doPrint = () => {
+      setTimeout(() => {
+        window.focus();
+        window.print();
+        setTimeout(() => {
+          document.body.classList.remove('pb-printing');
+          if (portal) portal.innerHTML = '';
+        }, 1200);
+      }, 150);
+    };
+
+    if (img && img.complete) {
+      doPrint();
+    } else if (img) {
+      img.onload = doPrint;
+      img.onerror = () => {
+        document.body.classList.remove('pb-printing');
+      };
+    } else {
+      doPrint();
+    }
   }
 
   startAutoReturnTimer(seconds = 20) {

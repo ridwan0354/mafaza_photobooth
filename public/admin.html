@@ -61,6 +61,31 @@
       padding: 36px 40px;
       overflow-y: auto;
     }
+
+    @media print {
+      body.pb-printing > *:not(#pbPrintPortal) {
+        display: none !important;
+      }
+      body.pb-printing #pbPrintPortal {
+        display: block !important;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+        background: #fff;
+        z-index: 99999999;
+      }
+      @page {
+        margin: 0;
+        size: auto;
+      }
+    }
+    #pbPrintPortal {
+      display: none;
+    }
     .tab-content {
       display: none;
     }
@@ -761,6 +786,14 @@
           </button>
         </div>
 
+        <!-- VPS Cloud Connection Banner -->
+        <div style="background: rgba(212, 167, 84, 0.12); border: 1.5px solid #D4A754; border-radius: 12px; padding: 14px 18px; margin-bottom: 22px; font-size: 13.5px; color: #5a3825; display: flex; align-items: center; gap: 14px; line-height: 1.6;">
+          <span style="font-size: 26px;">💡</span>
+          <div>
+            <strong>Koneksi Printer Cloud VPS:</strong> Website berjalan di Cloud VPS. Untuk mencetak langsung ke printer fisik (Epson L8050, Canon, dll), perintah cetak dikirim melalui <strong>Layanan Cetak Perangkat (AirPrint di iPad / Print Dialog di Laptop / Komputer)</strong> yang terhubung ke printer via Wi-Fi atau kabel USB.
+          </div>
+        </div>
+
         <!-- Configuration Card -->
         <div class="card-pop" style="margin-bottom: 28px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
@@ -842,7 +875,7 @@
 
           <div style="display: flex; gap: 14px; margin-top: 24px; flex-wrap: wrap;">
             <button class="btn btn-primary" onclick="savePrinterSettings()">💾 Simpan Pengaturan Printer</button>
-            <button class="btn btn-secondary" onclick="testPrintFromAdmin()">🖨️ Kirim Test Print ke Spooler</button>
+            <button class="btn btn-coral" style="font-weight: 800; padding: 11px 20px;" onclick="testPrintFromAdmin()">🖨️ Cetak Lembar Uji (Langsung ke Printer)</button>
           </div>
         </div>
 
@@ -1317,6 +1350,6 @@
   </div>
 
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
-  <script src="/js/admin.js?v=warm-retro-v3.5"></script>
+  <script src="/js/admin.js?v=warm-retro-v3.6"></script>
 </body>
 </html>
