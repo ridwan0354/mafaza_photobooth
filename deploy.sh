@@ -82,13 +82,8 @@ echo "PORT=$APP_PORT" > "$APP_DIR/.env"
 
 # 8. Start / Restart Process via PM2
 echo "⚡ Menjalankan server aplikasi via PM2..."
-if pm2 list | grep -qw "$PM2_NAME"; then
-  echo "🔄 Me-restart proses PM2 ($PM2_NAME)..."
-  PORT=$APP_PORT pm2 restart "$PM2_NAME" --update-env
-else
-  echo "▶️ Memulai proses PM2 baru ($PM2_NAME)..."
-  PORT=$APP_PORT pm2 start src/server.js --name "$PM2_NAME" --node-args="--experimental-sqlite"
-fi
+pm2 delete "$PM2_NAME" 2>/dev/null || true
+PORT=$APP_PORT pm2 start src/server.js --name "$PM2_NAME"
 pm2 save
 
 # 9. Konfigurasi Nginx Terisolasi (Aman untuk Cloudflare Flexible & Projek Lain)

@@ -1,4 +1,3 @@
-import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,7 +8,21 @@ const __dirname = path.dirname(__filename);
 
 const DB_PATH = path.join(__dirname, '../../photobooth.db');
 
-export const db = new DatabaseSync(DB_PATH);
+// Universal SQLite driver: uses built-in node:sqlite on Node >= 22.5, or better-sqlite3 on Node 18/20
+let DatabaseConstructor;
+try {
+  const nodeSqlite = await import('node:sqlite');
+  if (nodeSqlite && nodeSqlite.DatabaseSync) {
+    DatabaseConstructor = nodeSqlite.DatabaseSync;
+  }
+} catch (e) {}
+
+if (!DatabaseConstructor) {
+  const betterSqlite = await import('better-sqlite3');
+  DatabaseConstructor = betterSqlite.default || betterSqlite;
+}
+
+export const db = new DatabaseConstructor(DB_PATH);
 
 // Simple password hashing using SHA256 with salt for standalone zero-dep security
 export function hashPassword(password) {
