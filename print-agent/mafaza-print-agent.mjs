@@ -284,6 +284,12 @@ async function printUnix(file, job, printer) {
 
   args.push(file);
   log(`   lp ${args.join(' ')}`);
+
+  // Di macOS, buka Print Center di background agar icon printer di pojok kanan atas Menu Bar langsung muncul
+  if (PLATFORM === 'darwin') {
+    run('open', ['-g', '-a', '/System/Applications/Utilities/Print Center.app']).catch(() => {});
+  }
+
   if (DRY_RUN) return { spoolerId: 'DRY-RUN', notes };
 
   const { stdout } = await run('lp', args);
