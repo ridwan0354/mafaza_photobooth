@@ -251,33 +251,42 @@ async function printUnix(file, job, printer) {
     const mt = pickMediaType(lpOpts.MediaType, o.mediaType);
     if (mt) {
       args.push('-o', `MediaType=${mt}`);
+      if (lpOpts.EPIJ_Medi) args.push('-o', `EPIJ_Medi=${mt}`);
       notes.push(`jenis=${mt}`);
     }
   }
 
-  // 3) Borderless: bila tidak ada varian ukuran tanpa tepi, nyalakan opsi Borderless driver
-  if (o.borderless && !(pageSize && BORDERLESS_RE.test(pageSize))) {
+  // 3) Borderless:
+  if (o.borderless) {
+    if (lpOpts.EPIJ_Bdls) args.push('-o', 'EPIJ_Bdls=1');
+    if (lpOpts.EPIJ_exmg) args.push('-o', 'EPIJ_exmg=2');
     const found = findOptionByLabel(lpOpts, /borderless|tanpa\s*tepi/i);
-    if (found) {
+    if (found && found[0] !== 'EPIJ_Bdls') {
       const on = found[1].choices.find((c) => /^(true|on|yes|1)$/i.test(c.key) || /^on$/i.test(c.label));
       if (on) args.push('-o', `${found[0]}=${on.key}`);
     }
+    notes.push('borderless=on');
   }
 
   // 4) Kualitas tinggi
   if (o.highDpi) {
-    const found = findOptionByLabel(lpOpts, /print\s*quality|^quality$|qual$/i);
-    if (found) {
-      const best = found[1].choices.find((c) => /high\s*quality|highest|best|photo/i.test(c.label));
-      if (best) {
-        args.push('-o', `${found[0]}=${best.key}`);
-        notes.push(`kualitas=${best.label}`);
+    if (lpOpts.EPIJ_Qual) {
+      args.push('-o', 'EPIJ_Qual=306');
+      notes.push('kualitas=Tinggi (306)');
+    } else {
+      const found = findOptionByLabel(lpOpts, /print\s*quality|^quality$|qual$/i);
+      if (found) {
+        const best = found[1].choices.find((c) => /high\s*quality|highest|best|photo|tinggi/i.test(c.label));
+        if (best) {
+          args.push('-o', `${found[0]}=${best.key}`);
+          notes.push(`kualitas=${best.label}`);
+        }
+      } else if (lpOpts.Resolution) {
+        const dpi = lpOpts.Resolution.choices
+          .map((c) => ({ c, n: parseInt(c.key, 10) || 0 }))
+          .sort((x, y) => y.n - x.n)[0];
+        if (dpi && dpi.n) args.push('-o', `Resolution=${dpi.c.key}`);
       }
-    } else if (lpOpts.Resolution) {
-      const dpi = lpOpts.Resolution.choices
-        .map((c) => ({ c, n: parseInt(c.key, 10) || 0 }))
-        .sort((x, y) => y.n - x.n)[0];
-      if (dpi && dpi.n) args.push('-o', `Resolution=${dpi.c.key}`);
     }
     args.push('-o', 'print-quality=5');
   }
@@ -315,13 +324,25 @@ try {
 
   $wIn = [double]$env:PB_W_IN
   $hIn = [double]$env:PB_H_IN
-  $paper = $null
+  $borderless = ($env:PB_BORDERLESS -eq '1')
+
+  $matchingPapers = @()
   foreach ($ps in $doc.PrinterSettings.PaperSizes) {
-    $okNormal = ([math]::Abs($ps.Width - $wIn * 100) -le 10) -and ([math]::Abs($ps.Height - $hIn * 100) -le 10)
-    $okSwap = ([math]::Abs($ps.Width - $hIn * 100) -le 10) -and ([math]::Abs($ps.Height - $wIn * 100) -le 10)
-    if ($okNormal) { $paper = $ps; break }
-    if ($okSwap -and -not $paper) { $paper = $ps }
+    $okNormal = ([math]::Abs($ps.Width - $wIn * 100) -le 15) -and ([math]::Abs($ps.Height - $hIn * 100) -le 15)
+    $okSwap   = ([math]::Abs($ps.Width - $hIn * 100) -le 15) -and ([math]::Abs($ps.Height - $wIn * 100) -le 15)
+    if ($okNormal -or $okSwap) { $matchingPapers += $ps }
   }
+
+  $paper = $null
+  if ($borderless -and $matchingPapers.Count -gt 0) {
+    foreach ($ps in $matchingPapers) {
+      if ($ps.PaperName -match 'borderless|tanpa\s*tepi|no\s*margin|bleed|nmgn') {
+        $paper = $ps
+        break
+      }
+    }
+  }
+  if (-not $paper -and $matchingPapers.Count -gt 0) { $paper = $matchingPapers[0] }
   if (-not $paper) { $paper = New-Object System.Drawing.Printing.PaperSize('MafazaCustom', [int]($wIn * 100), [int]($hIn * 100)) }
   $doc.DefaultPageSettings.PaperSize = $paper
 
@@ -335,24 +356,36 @@ try {
     } catch {}
   }
 
-  $borderless = ($env:PB_BORDERLESS -eq '1')
   $doc.add_PrintPage({
     param($sender, $e)
     $g = $e.Graphics
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $pw = $e.PageBounds.Width
-    $ph = $e.PageBounds.Height
+    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+    $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+
+    $pw = [double]$e.PageBounds.Width
+    $ph = [double]$e.PageBounds.Height
+    $hmx = [double]$e.PageSettings.HardMarginX
+    $hmy = [double]$e.PageSettings.HardMarginY
+
     if ($borderless) {
-      $ratio = [Math]::Max($pw / $img.Width, $ph / $img.Height)
+      # Bleed 2% untuk memastikan full bleed tanpa celah putih di pinggir kertas
+      $bleed = 1.025
+      $ratio = [Math]::Max(($pw * $bleed) / $img.Width, ($ph * $bleed) / $img.Height)
+      $w = $img.Width * $ratio
+      $h = $img.Height * $ratio
+      $x = (($pw - $w) / 2.0) - $hmx
+      $y = (($ph - $h) / 2.0) - $hmy
+      $g.DrawImage($img, [single]$x, [single]$y, [single]$w, [single]$h)
     } else {
       $ratio = [Math]::Min(($pw * 0.96) / $img.Width, ($ph * 0.96) / $img.Height)
+      $w = $img.Width * $ratio
+      $h = $img.Height * $ratio
+      $x = ($pw - $w) / 2.0
+      $y = (($ph - $h) / 2.0)
+      $g.DrawImage($img, [single]$x, [single]$y, [single]$w, [single]$h)
     }
-    $w = $img.Width * $ratio
-    $h = $img.Height * $ratio
-    $x = ($pw - $w) / 2
-    $y = ($ph - $h) / 2
-    $g.DrawImage($img, [single]$x, [single]$y, [single]$w, [single]$h)
     $e.HasMorePages = $false
   })
   $doc.Print()
