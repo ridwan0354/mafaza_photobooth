@@ -326,6 +326,28 @@ try {
   $hIn = [double]$env:PB_H_IN
   $borderless = ($env:PB_BORDERLESS -eq '1')
 
+  # Coba sinkronisasi PrintTicket via System.Printing agar driver Epson menerima Glossy & Borderless
+  try {
+    Add-Type -AssemblyName System.Printing -ErrorAction SilentlyContinue
+    $pserver = New-Object System.Printing.LocalPrintServer
+    $pqueue = $pserver.GetPrintQueue($doc.PrinterSettings.PrinterName)
+    if ($pqueue) {
+      $pticket = $pqueue.UserPrintTicket
+      if (-not $pticket) { $pticket = $pqueue.DefaultPrintTicket }
+      if ($pticket) {
+        if ($env:PB_HIGH -eq '1') {
+          $pticket.PageMediaType = [System.Printing.PageMediaType]::PhotographicGlossy
+          $pticket.OutputQuality = [System.Printing.OutputQuality]::High
+        }
+        if ($borderless) {
+          $pticket.PageBorderless = [System.Printing.PageBorderless]::Borderless
+        }
+        $pqueue.UserPrintTicket = $pticket
+        $pqueue.Commit()
+      }
+    }
+  } catch {}
+
   $matchingPapers = @()
   foreach ($ps in $doc.PrinterSettings.PaperSizes) {
     $okNormal = ([math]::Abs($ps.Width - $wIn * 100) -le 18) -and ([math]::Abs($ps.Height - $hIn * 100) -le 18)
@@ -365,30 +387,14 @@ try {
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
     $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
 
-    $pw = [double]$e.PageBounds.Width
-    $ph = [double]$e.PageBounds.Height
-    $hmx = [double]$e.PageSettings.HardMarginX
-    $hmy = [double]$e.PageSettings.HardMarginY
+    # Gambar tepat memenuhi seluruh area halaman (0, 0 sampai $pw, $ph)
+    # Jangan geser negatif agar teks kiri ('FAS 2025') dan kartun bawah tidak terpotong!
+    $pw = [single]$e.PageBounds.Width
+    $ph = [single]$e.PageBounds.Height
 
     $srcRect = New-Object System.Drawing.Rectangle(0, 0, $img.Width, $img.Height)
-    if ($borderless) {
-      $bleed = 1.01
-      $ratio = [Math]::Max(($pw * $bleed) / $img.Width, ($ph * $bleed) / $img.Height)
-      $w = $img.Width * $ratio
-      $h = $img.Height * $ratio
-      $x = (($pw - $w) / 2.0) - $hmx
-      $y = (($ph - $h) / 2.0) - $hmy
-      $destRect = New-Object System.Drawing.RectangleF([single]$x, [single]$y, [single]$w, [single]$h)
-      $g.DrawImage($img, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
-    } else {
-      $ratio = [Math]::Min(($pw * 0.96) / $img.Width, ($ph * 0.96) / $img.Height)
-      $w = $img.Width * $ratio
-      $h = $img.Height * $ratio
-      $x = ($pw - $w) / 2.0
-      $y = (($ph - $h) / 2.0)
-      $destRect = New-Object System.Drawing.RectangleF([single]$x, [single]$y, [single]$w, [single]$h)
-      $g.DrawImage($img, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
-    }
+    $destRect = New-Object System.Drawing.RectangleF(0, 0, $pw, $ph)
+    $g.DrawImage($img, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
     $e.HasMorePages = $false
   })
   $doc.Print()
