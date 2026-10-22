@@ -96,6 +96,22 @@ class KioskEngine {
           const shortName = profile.name.replace(/\s*series.*$/i, '').slice(0, 18);
           const badge = document.getElementById('printerReadyBadge');
           if (badge) badge.innerText = `● ${shortName} Ready`;
+
+          // Ikuti pengaturan dari menu Printer admin: maksimal lembar & mode cetak otomatis
+          const st = profile.settings || {};
+          const select = document.getElementById('printCopiesSelect');
+          const maxCopies = parseInt(st.maxCopies, 10);
+          if (select && maxCopies >= 1) {
+            const prev = parseInt(select.value, 10) || 2;
+            select.innerHTML = Array.from({ length: maxCopies }, (_, i) =>
+              `<option value="${i + 1}">${i + 1} Lembar</option>`).join('');
+            select.value = String(Math.min(prev, maxCopies));
+          }
+          if (st.mode === 'auto') {
+            this.autoPrintEnabled = true;
+            const autoToggle = document.getElementById('autoPrintToggle');
+            if (autoToggle) autoToggle.checked = true;
+          }
         }
       }
     } catch (e) {}
@@ -2237,17 +2253,20 @@ class KioskEngine {
           const dispatchedToOs = !!(data.printJob && data.printJob.dispatchedToOs);
           const isAndroid = /Android/i.test(navigator.userAgent);
 
+          const awaitingAgent = !!(data.printJob && data.printJob.awaitingAgent);
+
           if (btn) btn.innerHTML = `✅ ${copies} Lembar Dicetak!`;
           if (banner) {
             banner.style.display = 'block';
-            banner.innerHTML = dispatchedToOs
+            banner.innerHTML = (dispatchedToOs || awaitingAgent)
               ? `✅ <strong>${copies} lembar</strong> langsung dikirim otomatis ke <strong>${pName}</strong>!`
               : `✅ <strong>${copies} lembar</strong> siap dicetak! Membuka layanan cetak perangkat...`;
           }
 
-          // If server did not dispatch to a local OS printer (or user is on Android in direct print mode), trigger device print dialog/kiosk-printing
-          if (!dispatchedToOs || (isAndroid && localStorage.getItem('pb_android_direct_print') === 'true')) {
-            setTimeout(() => this.printViaChromeDialog(), 250);
+          // Print Agent / printer lokal: sudah dicetak otomatis sesuai pengaturan (tanpa popup).
+          // Cadangan: dialog cetak browser dengan ukuran kertas sesuai pengaturan.
+          if (!dispatchedToOs && !awaitingAgent) {
+            setTimeout(() => this.printViaChromeDialog(data.printJob), 250);
           }
           setTimeout(() => {
             if (btn) {
@@ -2278,53 +2297,14 @@ class KioskEngine {
     }, 'image/png');
   }
 
-  printViaChromeDialog() {
+  printViaChromeDialog(job = null) {
     const finalCanvas = document.getElementById('finalCanvas');
     if (!finalCanvas) return;
     this.resetAutoReturnTimer(60);
 
     const dataUrl = finalCanvas.toDataURL('image/png');
     const copies = parseInt(document.getElementById('printCopiesSelect')?.value || '1', 10);
-    const numCopies = Math.max(1, copies);
-
-    let portal = document.getElementById('pbPrintPortal');
-    if (!portal) {
-      portal = document.createElement('div');
-      portal.id = 'pbPrintPortal';
-      document.body.appendChild(portal);
-    }
-
-    const pagesHtml = Array.from({ length: numCopies }).map(() => `
-      <div class="pb-print-page" style="width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; page-break-after: always; overflow: hidden; background: #fff;">
-        <img src="${dataUrl}" style="max-width: 100%; max-height: 100%; object-fit: contain; display: block;" />
-      </div>
-    `).join('');
-
-    portal.innerHTML = pagesHtml;
-    document.body.classList.add('pb-printing');
-
-    const img = portal.querySelector('img');
-    const doPrint = () => {
-      setTimeout(() => {
-        window.focus();
-        window.print();
-        setTimeout(() => {
-          document.body.classList.remove('pb-printing');
-          if (portal) portal.innerHTML = '';
-        }, 1200);
-      }, 150);
-    };
-
-    if (img && img.complete) {
-      doPrint();
-    } else if (img) {
-      img.onload = doPrint;
-      img.onerror = () => {
-        document.body.classList.remove('pb-printing');
-      };
-    } else {
-      doPrint();
-    }
+    window.pbPrintViaBrowser({ imageUrl: dataUrl, copies, job });
   }
 
   startAutoReturnTimer(seconds = 20) {

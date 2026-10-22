@@ -97,8 +97,26 @@ export function initDatabase() {
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schemaSql = fs.readFileSync(schemaPath, 'utf8');
   db.exec(schemaSql);
+  runMigrations();
   seedDatabase();
   console.log('✅ Database initialized and verified at:', DB_PATH);
+}
+
+// Menambah kolom baru pada database lama (aman dijalankan berulang kali, data tidak hilang)
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some(c => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+function runMigrations() {
+  // Seluruh pengaturan cetak (ukuran kertas, borderless, kualitas, mode, maks cetak)
+  ensureColumn('printer_profiles', 'settings_json', "TEXT DEFAULT '{}'");
+  // Snapshot pengaturan yang dipakai saat job dibuat, dibaca oleh Print Agent
+  ensureColumn('print_jobs', 'options_json', "TEXT DEFAULT '{}'");
+  // Kunci rahasia Print Agent (aplikasi cetak otomatis di komputer studio)
+  ensureColumn('tenants', 'agent_key', 'TEXT');
 }
 
 function seedDatabase() {

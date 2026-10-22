@@ -61,11 +61,28 @@ if ! command -v pm2 &> /dev/null; then
 fi
 
 # 5. Clone atau Update Repository
+DB_BACKUP=""
 if [ -d "$APP_DIR/.git" ]; then
   echo "🔄 Mengupdate aplikasi dari GitHub ($APP_DIR)..."
   cd "$APP_DIR"
+
+  # Hentikan aplikasi & amankan database (data sesi, foto, pengaturan printer) sebelum update
+  pm2 stop "$PM2_NAME" 2>/dev/null || true
+  if [ -f "$APP_DIR/photobooth.db" ]; then
+    mkdir -p /var/backups
+    DB_BACKUP="/var/backups/mafaza_photobooth.db.$(date +%Y%m%d_%H%M%S)"
+    cp "$APP_DIR/photobooth.db" "$DB_BACKUP"
+    echo "💾 Backup database: $DB_BACKUP"
+  fi
+
   git reset --hard
   git pull origin main
+
+  # Kembalikan database terbaru milik VPS (jangan tertimpa database bawaan repo)
+  if [ -n "$DB_BACKUP" ] && [ -f "$DB_BACKUP" ]; then
+    cp "$DB_BACKUP" "$APP_DIR/photobooth.db"
+    echo "♻️  Database VPS dipulihkan."
+  fi
 else
   echo "📥 Mengkloning repositori ke $APP_DIR..."
   mkdir -p /var/www

@@ -36,6 +36,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadQRFleets();
   await loadPrintJobs();
   await loadSystemPrinters();
+  await loadPrintAgentStatus();
+  setInterval(loadPrintAgentStatus, 10000);
   await loadRecentPhotos(activeKioskEventId);
   await loadAppDownloadInfo();
   await loadCameraFlashSettings();
@@ -1995,7 +1997,8 @@ async function loadSystemPrinters(isUserTriggered = false) {
     const presets = sysData.photoboothPresets || [];
     const defaultPrinter = sysData.defaultPrinter;
 
-    const localSettings = JSON.parse(localStorage.getItem('pb_printer_settings') || '{}');
+    // Pengaturan tersimpan di server (berlaku sama di Windows, Mac, Android & iPad); localStorage hanya cadangan
+    const localSettings = { ...JSON.parse(localStorage.getItem('pb_printer_settings') || '{}'), ...(savedProfile?.settings || {}) };
     const activeModel = savedProfile?.model || localSettings.model || defaultPrinter || '';
 
     if (modelSelect) {
@@ -2268,9 +2271,20 @@ async function savePrinterSettings() {
         model: chosenModel,
         driverName: chosenDriver,
         paperSizes: [paper],
-        mediaType: chosenMediaType
+        mediaType: chosenMediaType,
+        settings: {
+          paperSize: paper,
+          mode: mode,
+          maxCopies: parseInt(maxCopies, 10) || 2,
+          borderless: borderless,
+          highDpi: highDpi
+        }
       })
     });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Server menolak pengaturan printer');
+    }
 
     localStorage.setItem('pb_printer_settings', JSON.stringify({
       model: chosenModel,
@@ -2289,46 +2303,41 @@ async function savePrinterSettings() {
   }
 }
 
-function printImageUniversally(imageUrl, copies = 1) {
-  let portal = document.getElementById('pbPrintPortal');
-  if (!portal) {
-    portal = document.createElement('div');
-    portal.id = 'pbPrintPortal';
-    document.body.appendChild(portal);
-  }
+async function loadPrintAgentStatus(isUserTriggered = false) {
+  const badge = document.getElementById('agentStatusBadge');
+  if (!badge) return;
+  const text = document.getElementById('agentStatusText');
+  const macLink = document.getElementById('agentDownloadMac');
+  const winLink = document.getElementById('agentDownloadWin');
+  const origin = encodeURIComponent(window.location.origin);
+  if (macLink) macLink.href = `/api/print-agent/download/macos?serverUrl=${origin}`;
+  if (winLink) winLink.href = `/api/print-agent/download/windows?serverUrl=${origin}`;
 
-  const numCopies = Math.max(1, parseInt(copies, 10) || 1);
-  const pagesHtml = Array.from({ length: numCopies }).map(() => `
-    <div class="pb-print-page" style="width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; page-break-after: always; overflow: hidden; background: #fff;">
-      <img src="${imageUrl}" style="max-width: 100%; max-height: 100%; object-fit: contain; display: block;" />
-    </div>
-  `).join('');
-
-  portal.innerHTML = pagesHtml;
-  document.body.classList.add('pb-printing');
-
-  const img = portal.querySelector('img');
-  const doPrint = () => {
-    setTimeout(() => {
-      window.focus();
-      window.print();
-      setTimeout(() => {
-        document.body.classList.remove('pb-printing');
-        if (portal) portal.innerHTML = '';
-      }, 1200);
-    }, 200);
-  };
-
-  if (img && img.complete) {
-    doPrint();
-  } else if (img) {
-    img.onload = doPrint;
-    img.onerror = () => {
-      document.body.classList.remove('pb-printing');
-      alert('Gagal memuat gambar untuk dicetak');
-    };
-  } else {
-    doPrint();
+  try {
+    const res = await fetch('/api/print-agent/status');
+    if (!res.ok) throw new Error('status');
+    const st = await res.json();
+    if (st.online) {
+      badge.textContent = '🟢 Print Agent Online';
+      badge.style.background = 'rgba(39, 174, 96, 0.14)';
+      badge.style.color = '#1e8449';
+      badge.style.borderColor = 'rgba(39, 174, 96, 0.35)';
+      const pCount = (st.printers || []).length;
+      if (text) text.textContent = `Komputer: ${st.host || '-'} (${st.platform === 'win32' ? 'Windows' : 'macOS'}) • ${pCount} printer terbaca • cetak otomatis tanpa popup`;
+    } else {
+      badge.textContent = '⚪ Print Agent Belum Aktif';
+      badge.style.background = 'rgba(230, 120, 107, 0.12)';
+      badge.style.color = '#b3402f';
+      badge.style.borderColor = 'rgba(230, 120, 107, 0.35)';
+      if (text) text.textContent = 'Unduh & jalankan di komputer studio. Sementara itu cetak memakai dialog browser (cadangan).';
+    }
+    if (isUserTriggered) window.pbToast(st.online ? '🟢 Print Agent online & siap mencetak' : '⚪ Print Agent belum aktif', st.online ? 'ok' : 'warn');
+    if (st.online && typeof loadSystemPrinters === 'function' && !window.__agentPrintersLoaded) {
+      window.__agentPrintersLoaded = true;
+      loadSystemPrinters();
+    }
+  } catch (e) {
+    badge.textContent = '⚪ Status tidak diketahui';
   }
 }
 
@@ -2341,16 +2350,19 @@ async function testPrintFromAdmin() {
   }
 
   try {
-    fetch('/api/printers/test-print', {
+    const res = await fetch('/api/printers/test-print', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: chosenModel })
-    }).then(() => loadPrintJobs()).catch(() => {});
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal mengirim test print');
 
-    // Langsung buka dialog cetak browser / AirPrint dengan lembar uji resolusi tinggi!
-    printImageUniversally('/uploads/test_print.png', 1);
+    // Dicetak sesuai pengaturan tersimpan (ukuran kertas, borderless, kualitas) tanpa popup bila Print Agent aktif
+    await window.pbSmartPrint(data.printJob, '/uploads/test_print.png');
+    await loadPrintJobs();
   } catch (err) {
-    alert(`Gagal mengirim test print: ${err.message}`);
+    window.pbToast(`Gagal mengirim test print: ${err.message}`, 'error');
   }
 }
 
@@ -2602,33 +2614,40 @@ async function executeModalReprint() {
   if (!activeModalPhoto) return;
   const copies = parseInt(document.getElementById('modalPrintCopies')?.value) || 1;
   const btn = document.getElementById('modalBtnReprint');
-  if (btn) btn.textContent = '⏳ Menyiapkan Cetak...';
+  if (btn) btn.textContent = '⏳ Mengirim ke Printer...';
 
   const imgSrc = activeModalPhoto.file_path || activeModalPhoto.media_url;
 
   try {
+    let printJob = null;
     if (activeModalPhoto.print_job_id) {
-      fetch(`/api/print-jobs/${activeModalPhoto.print_job_id}/reprint`, {
+      const res = await fetch(`/api/print-jobs/${activeModalPhoto.print_job_id}/reprint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ copies })
-      }).then(() => loadPrintJobs()).catch(() => {});
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal mengirim reprint');
+      printJob = data;
     } else if (activeModalPhoto.asset_id) {
-      fetch(`/api/photos/${activeModalPhoto.asset_id}/print`, {
+      const res = await fetch(`/api/photos/${activeModalPhoto.asset_id}/print`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ copies })
-      }).then(() => loadPrintJobs()).catch(() => {});
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal mengirim print');
+      printJob = data.printJob;
+    } else {
+      throw new Error('Informasi aset foto tidak lengkap untuk dicetak');
     }
 
     closePhotoPreviewModal();
+    await window.pbSmartPrint(printJob, imgSrc, copies);
+    await loadPrintJobs();
     await loadRecentPhotos();
-
-    if (imgSrc) {
-      printImageUniversally(imgSrc, copies);
-    }
   } catch (err) {
-    alert(`Error cetak: ${err.message}`);
+    window.pbToast(`Error cetak: ${err.message}`, 'error');
   } finally {
     if (btn) btn.textContent = '🖨️ Cetak / Print Ulang Sekarang';
   }
@@ -2646,11 +2665,11 @@ async function quickPrintPhoto(assetId, existingJobId) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal mencetak');
-      alert(`🖨️ Cetak Cepat Berhasil Dikirim ke Antrean!\n\n• Spooler ID: ${data.printJob.spoolerJobId}`);
+      await window.pbSmartPrint(data.printJob, null);
       await loadPrintJobs();
       await loadRecentPhotos();
     } catch (err) {
-      alert(`Error cetak: ${err.message}`);
+      window.pbToast(`Error cetak: ${err.message}`, 'error');
     }
   }
 }
@@ -2669,7 +2688,7 @@ async function loadPrintJobs() {
       tbody.innerHTML = `
         <tr style="border-bottom: 1px solid var(--border-soft);">
           <td colspan="8" style="padding: 24px; text-align: center; color: var(--text-muted);">
-            Belum ada antrean cetak. Klik <strong>"Kirim Test Print ke Spooler"</strong> di atas untuk uji cetak ke driver printer.
+            Belum ada antrean cetak. Klik <strong>"Cetak Lembar Uji"</strong> di atas untuk uji cetak sesuai pengaturan printer.
           </td>
         </tr>
       `;
@@ -2712,15 +2731,19 @@ async function loadPrintJobs() {
   }
 }
 
-function directPrintJob(jobId, imageUrl, copies = 1) {
-  fetch(`/api/print-jobs/${jobId}/reprint`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ copies })
-  }).then(() => loadPrintJobs()).catch(() => {});
-
-  if (imageUrl) {
-    printImageUniversally(imageUrl, copies);
+async function directPrintJob(jobId, imageUrl, copies = 1) {
+  try {
+    const res = await fetch(`/api/print-jobs/${jobId}/reprint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ copies })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal mencetak ulang');
+    await window.pbSmartPrint(data, imageUrl, copies);
+    await loadPrintJobs();
+  } catch (err) {
+    window.pbToast(`Error cetak: ${err.message}`, 'error');
   }
 }
 
@@ -2728,7 +2751,7 @@ async function reprintJobById(jobId) {
   const job = cachedPrintJobs.find(j => j.id === jobId);
   const copies = (job && job.copies) || 1;
   const thumbUrl = (job && job.media_url) || '/assets/templates/strip-green-template.svg';
-  directPrintJob(jobId, thumbUrl, copies);
+  await directPrintJob(jobId, thumbUrl, copies);
 }
 
 async function uploadTransferProof() {
@@ -2838,11 +2861,11 @@ function printModalPhotoViaDevice() {
   if (!activeModalPhoto) return;
   const imgSrc = activeModalPhoto.file_path || activeModalPhoto.media_url;
   if (!imgSrc) {
-    alert('File gambar tidak ditemukan untuk dicetak.');
+    window.pbToast('File gambar tidak ditemukan untuk dicetak.', 'error');
     return;
   }
   const copies = parseInt(document.getElementById('modalPrintCopies')?.value || '1', 10);
-  printImageUniversally(imgSrc, copies);
+  window.pbPrintViaBrowser({ imageUrl: imgSrc, copies });
 }
 
 // ==============================================================

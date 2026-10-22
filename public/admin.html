@@ -786,11 +786,29 @@
           </button>
         </div>
 
-        <!-- VPS Cloud Connection Banner -->
-        <div style="background: rgba(212, 167, 84, 0.12); border: 1.5px solid #D4A754; border-radius: 12px; padding: 14px 18px; margin-bottom: 22px; font-size: 13.5px; color: #5a3825; display: flex; align-items: center; gap: 14px; line-height: 1.6;">
-          <span style="font-size: 26px;">💡</span>
-          <div>
-            <strong>Koneksi Printer Cloud VPS:</strong> Website berjalan di Cloud VPS. Untuk mencetak langsung ke printer fisik (Epson L8050, Canon, dll), perintah cetak dikirim melalui <strong>Layanan Cetak Perangkat (AirPrint di iPad / Print Dialog di Laptop / Komputer)</strong> yang terhubung ke printer via Wi-Fi atau kabel USB.
+        <!-- Print Agent: cetak otomatis tanpa popup -->
+        <div class="card-pop" style="margin-bottom: 22px; border: 2px solid #D4A754; background: linear-gradient(135deg, #FFFBF5 0%, #FBF1DE 100%);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 260px;">
+              <h3 style="font-size: 18px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 6px 0;">⚡ Mafaza Print Agent — Cetak Otomatis Tanpa Popup</h3>
+              <p style="font-size: 13.5px; line-height: 1.65; color: #5a3825; margin: 0 0 12px 0;">
+                Pasang sekali di komputer studio (Windows / MacBook) yang tersambung ke printer. Setelah itu tombol <strong>Cetak</strong> dari
+                <strong>Windows, MacBook, Android maupun iPad</strong> langsung keluar di printer sesuai pengaturan di bawah
+                (ukuran kertas, jenis kertas, borderless, kualitas, jumlah lembar) — <strong>tanpa dialog/popup</strong>.
+              </p>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <a id="agentDownloadMac" class="btn btn-coral" style="text-decoration: none; padding: 9px 16px; font-size: 13px; font-weight: 800;" href="#">🍎 Unduh untuk MacBook</a>
+                <a id="agentDownloadWin" class="btn btn-coral" style="text-decoration: none; padding: 9px 16px; font-size: 13px; font-weight: 800;" href="#">🪟 Unduh untuk Windows</a>
+                <button class="btn btn-secondary" style="padding: 9px 14px; font-size: 12.5px; font-weight: 700; background: #fff;" onclick="loadPrintAgentStatus(true)">🔄 Cek Status</button>
+              </div>
+            </div>
+            <div style="min-width: 220px; text-align: right;">
+              <span id="agentStatusBadge" style="display: inline-block; font-size: 12.5px; font-weight: 800; padding: 6px 14px; border-radius: 99px; background: rgba(120,120,120,0.12); color: #777; border: 1px solid rgba(120,120,120,0.25);">⚪ Mengecek Print Agent...</span>
+              <div id="agentStatusText" style="font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.5;"></div>
+            </div>
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-top: 12px; line-height: 1.6;">
+            Belum terpasang? Cetak tetap bisa lewat dialog cetak browser (cadangan) dengan ukuran kertas yang sudah mengikuti pengaturan.
           </div>
         </div>
 
@@ -875,7 +893,7 @@
 
           <div style="display: flex; gap: 14px; margin-top: 24px; flex-wrap: wrap;">
             <button class="btn btn-primary" onclick="savePrinterSettings()">💾 Simpan Pengaturan Printer</button>
-            <button class="btn btn-coral" style="font-weight: 800; padding: 11px 20px;" onclick="testPrintFromAdmin()">🖨️ Cetak Lembar Uji (Langsung ke Printer)</button>
+            <button class="btn btn-coral" style="font-weight: 800; padding: 11px 20px;" onclick="testPrintFromAdmin()">🖨️ Cetak Lembar Uji (Sesuai Pengaturan)</button>
           </div>
         </div>
 
@@ -1335,7 +1353,7 @@
               🖨️ Cetak / Print Ulang Sekarang
             </button>
             <button type="button" class="btn btn-secondary" style="width: 100%; padding: 11px; font-weight: 700; font-size: 13.5px; background: var(--cream-bg); color: var(--caramel-brown);" onclick="printModalPhotoViaDevice()">
-              🖨️ Cetak via Perangkat Ini (Windows / Android / Mac Dialog)
+              🖨️ Cetak via Dialog Browser (Cadangan)
             </button>
             <a id="modalBtnDownload" href="#" download class="btn btn-secondary" style="width: 100%; text-align: center; text-decoration: none; padding: 11px; font-weight: 700; font-size: 14px; background: #fff;">
               ⬇️ Unduh File Foto (HD)
@@ -1350,6 +1368,7 @@
   </div>
 
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
-  <script src="/js/admin.js?v=warm-retro-v3.6"></script>
+  <script src="/js/print-client.js?v=1.0"></script>
+  <script src="/js/admin.js?v=warm-retro-v3.7"></script>
 </body>
 </html>

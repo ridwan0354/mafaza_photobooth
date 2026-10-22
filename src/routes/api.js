@@ -630,6 +630,15 @@ apiRouter.post('/gallery/g/:token/share-click', (req, res) => {
 apiRouter.get('/printers/system', authMiddleware(), (req, res) => {
   try {
     const data = printService.getSystemPrinters();
+    // Server cloud tidak punya printer: pakai daftar printer dari komputer studio (Print Agent)
+    const agent = printService.getAgentStatus(req.user.tenantId);
+    if ((!data.detectedPrinters || data.detectedPrinters.length === 0) && agent.online && agent.printers.length > 0) {
+      data.detectedPrinters = agent.printers;
+      data.defaultPrinter = (agent.printers.find(p => p.isDefault) || {}).name || data.defaultPrinter;
+      data.platform = agent.platform || data.platform;
+      data.viaAgent = true;
+    }
+    data.agent = { online: agent.online, host: agent.host };
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -639,6 +648,16 @@ apiRouter.get('/printers/system', authMiddleware(), (req, res) => {
 apiRouter.get('/printers/media-types', authMiddleware(), (req, res) => {
   try {
     const printer = req.query.printer || '';
+    // Jika printer berada di komputer studio (Print Agent), pakai jenis kertas asli dari driver-nya
+    const agent = printService.getAgentStatus(req.user.tenantId);
+    if (agent.online) {
+      const n = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const wanted = n(printer);
+      const match = agent.printers.find(p => wanted && (n(p.name) === wanted || n(p.id) === wanted));
+      if (match && Array.isArray(match.mediaTypes) && match.mediaTypes.length > 0) {
+        return res.json(match.mediaTypes);
+      }
+    }
     const mediaTypes = printService.getPrinterMediaTypes(printer);
     res.json(mediaTypes);
   } catch (err) {
@@ -702,6 +721,92 @@ apiRouter.post('/printers/test-print', authMiddleware(), (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// ==========================================
+// PRINT AGENT: cetak otomatis sesuai pengaturan tanpa dialog (Windows / macOS)
+// ==========================================
+function agentAuth(req, res, next) {
+  const key = req.headers['x-agent-key'] || req.query.key;
+  const tenantId = printService.findTenantByAgentKey(String(key || ''));
+  if (!tenantId) return res.status(401).json({ error: 'Kunci Print Agent tidak valid' });
+  req.agentTenantId = tenantId;
+  next();
+}
+
+apiRouter.get('/print-agent/info', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    res.json({
+      key: printService.getOrCreateAgentKey(tenantId),
+      status: printService.getAgentStatus(tenantId)
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/print-agent/status', authMiddleware(), (req, res) => {
+  res.json(printService.getAgentStatus(req.user.tenantId));
+});
+
+apiRouter.post('/print-agent/regenerate', authMiddleware(), (req, res) => {
+  try {
+    res.json({ key: printService.regenerateAgentKey(req.user.tenantId) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Agent memanggil endpoint ini tiap ~2 detik: sekaligus tanda "online" dan pengambilan job baru
+apiRouter.post('/print-agent/poll', agentAuth, (req, res) => {
+  try {
+    const body = req.body || {};
+    printService.touchAgent(req.agentTenantId, {
+      host: String(body.host || '').slice(0, 80),
+      platform: String(body.platform || '').slice(0, 20),
+      printers: Array.isArray(body.printers) ? body.printers.slice(0, 40) : undefined
+    });
+    res.json({ jobs: printService.claimAgentJobs(req.agentTenantId) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/print-agent/jobs/:id/result', agentAuth, (req, res) => {
+  try {
+    res.json(printService.finishAgentJob(req.agentTenantId, req.params.id, req.body || {}));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/print-agent/download/:os', async (req, res) => {
+  try {
+    const os = req.params.os === 'windows' ? 'windows' : 'macos';
+    const tenantId = req.query.token ? (verifyToken(String(req.query.token))?.tenantId || 'tenant_studiokeren_01') : 'tenant_studiokeren_01';
+    const serverUrl = (req.query.serverUrl && String(req.query.serverUrl).trim())
+      || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers.host}`;
+    const key = printService.getOrCreateAgentKey(tenantId);
+    const zipBuf = appBuilder.buildPrintAgentZip(os, serverUrl.replace(/\/+$/, ''), key);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="Mafaza-Print-Agent-${os === 'windows' ? 'Windows' : 'macOS'}.zip"`);
+    res.send(zipBuf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Gambar lembar siap cetak (2 strip per lembar bila diatur). ID job acak sehingga aman dipakai publik.
+apiRouter.get('/print-jobs/:id/sheet', (req, res) => {
+  const sheet = printService.getPrintSheetForJob(req.params.id);
+  if (!sheet) return res.status(404).json({ error: 'Lembar cetak tidak ditemukan' });
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(sheet.path);
+});
+
+apiRouter.post('/print-jobs/:id/browser-printed', (req, res) => {
+  res.json({ success: printService.markJobPrintedByBrowser(req.params.id) });
 });
 
 apiRouter.get('/print-jobs', authMiddleware(), (req, res) => {

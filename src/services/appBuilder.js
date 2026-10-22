@@ -674,3 +674,155 @@ CARA KERJA FITUR PRINT DI ANDROID:
     { name: 'PANDUAN-ANDROID.txt', content: readmeAndroid, executable: false }
   ]);
 }
+
+/**
+ * Paket "Mafaza Print Agent" untuk komputer studio (Windows / macOS).
+ * Sudah berisi alamat server & kunci rahasia, tinggal ekstrak lalu klik 2x.
+ */
+export function buildPrintAgentZip(targetOs = 'macos', serverUrl = 'http://localhost:3000', agentKey = '') {
+  const agentScript = fs.readFileSync(path.join(__dirname, '../../print-agent/mafaza-print-agent.mjs'), 'utf8');
+  const configJson = JSON.stringify({ server: serverUrl, key: agentKey, intervalMs: 2000 }, null, 2);
+
+  if (targetOs === 'windows') {
+    const startBat = `@echo off
+chcp 65001 >nul
+title Mafaza Print Agent
+cd /d "%~dp0"
+
+where node >nul 2>nul
+if errorlevel 1 (
+  echo Node.js belum terpasang. Mencoba memasang otomatis lewat winget...
+  winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+  echo.
+  echo Setelah instalasi selesai, TUTUP jendela ini lalu klik 2x file ini lagi.
+  echo Jika gagal, pasang manual dari https://nodejs.org lalu ulangi.
+  pause
+  exit /b
+)
+
+:loop
+node mafaza-print-agent.mjs
+echo.
+echo Print Agent berhenti. Memulai ulang dalam 5 detik... (tutup jendela ini untuk keluar)
+timeout /t 5 >nul
+goto loop
+`.replace(/\n/g, '\r\n');
+
+    const autostartBat = `@echo off
+chcp 65001 >nul
+set "STARTUP=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+set "VBS=%STARTUP%\\Mafaza-Print-Agent.vbs"
+echo Set WshShell = CreateObject("WScript.Shell") > "%VBS%"
+echo WshShell.CurrentDirectory = "%~dp0" >> "%VBS%"
+echo WshShell.Run """%~dp0Mafaza-Print-Agent.bat""", 7, False >> "%VBS%"
+echo.
+echo Berhasil! Print Agent akan otomatis menyala setiap Windows dinyalakan.
+pause
+`.replace(/\n/g, '\r\n');
+
+    const readme = `MAFAZA PRINT AGENT - WINDOWS
+==============================
+Fungsi: mencetak OTOMATIS ke printer (Epson L8050, Canon, HP, dll) sesuai pengaturan
+di menu Printer dashboard admin - TANPA dialog/popup. Cetak bisa dikirim dari
+Windows, MacBook, Android maupun iPad.
+
+CARA PAKAI
+1. Ekstrak (unzip) folder ini di komputer Windows yang tersambung ke printer.
+2. Klik 2x  Mafaza-Print-Agent.bat   (biarkan jendelanya terbuka / minimize).
+3. (Opsional) Klik 2x  Pasang-Autostart-Windows.bat  agar menyala otomatis saat PC hidup.
+4. Buka dashboard admin > menu Printer. Status akan berubah menjadi "Print Agent Online".
+
+CATATAN
+- Printer harus sudah terpasang (driver) di Windows dan jadi printer yang dipilih di menu Printer.
+- Jenis kertas (glossy / matte) mengikuti pengaturan bawaan driver printer di Windows
+  (Printer Preferences). Atur sekali ke "Photo Paper / Glossy" lalu simpan sebagai default.
+`.replace(/\n/g, '\r\n');
+
+    return createZipArchive([
+      { name: 'Mafaza-Print-Agent.bat', content: startBat, executable: true },
+      { name: 'Pasang-Autostart-Windows.bat', content: autostartBat, executable: true },
+      { name: 'mafaza-print-agent.mjs', content: agentScript, executable: false },
+      { name: 'config.json', content: configJson, executable: false },
+      { name: 'BACA-SAYA.txt', content: readme, executable: false }
+    ]);
+  }
+
+  const startCommand = `#!/bin/bash
+cd "$(dirname "$0")"
+xattr -dr com.apple.quarantine . 2>/dev/null
+
+if ! command -v node >/dev/null 2>&1; then
+  osascript -e 'display dialog "Node.js belum terpasang. Halaman unduhan akan dibuka. Pasang Node.js (LTS) lalu buka kembali aplikasi ini." buttons {"OK"} default button 1' >/dev/null 2>&1
+  open "https://nodejs.org"
+  exit 1
+fi
+
+while true; do
+  node mafaza-print-agent.mjs
+  echo ""
+  echo "Print Agent berhenti. Memulai ulang dalam 5 detik... (tutup jendela ini untuk keluar)"
+  sleep 5
+done
+`;
+
+  const autostartCommand = `#!/bin/bash
+cd "$(dirname "$0")"
+DIR="$(pwd)"
+NODE_BIN="$(command -v node)"
+if [ -z "$NODE_BIN" ]; then
+  echo "Node.js belum terpasang. Pasang dari https://nodejs.org lalu ulangi."
+  exit 1
+fi
+PLIST="$HOME/Library/LaunchAgents/com.mafaza.printagent.plist"
+mkdir -p "$HOME/Library/LaunchAgents"
+cat > "$PLIST" <<PLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.mafaza.printagent</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$NODE_BIN</string>
+    <string>$DIR/mafaza-print-agent.mjs</string>
+  </array>
+  <key>WorkingDirectory</key><string>$DIR</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/mafaza-print-agent.log</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/mafaza-print-agent.log</string>
+</dict>
+</plist>
+PLISTEOF
+launchctl unload "$PLIST" 2>/dev/null
+launchctl load "$PLIST"
+echo ""
+echo "Berhasil! Print Agent akan otomatis menyala di latar belakang setiap Mac dinyalakan."
+echo "Log: ~/Library/Logs/mafaza-print-agent.log"
+`;
+
+  const readmeMac = `MAFAZA PRINT AGENT - MACBOOK / macOS
+=====================================
+Fungsi: mencetak OTOMATIS ke printer (Epson L8050, Canon, HP, dll) sesuai pengaturan
+di menu Printer dashboard admin - TANPA dialog/popup. Cetak bisa dikirim dari
+Windows, MacBook, Android maupun iPad.
+
+CARA PAKAI
+1. Ekstrak (unzip) folder ini di MacBook yang tersambung ke printer.
+2. Klik kanan  Mafaza-Print-Agent.command  > Open (pertama kali saja). Biarkan jendela Terminal terbuka.
+3. (Opsional) Buka  Pasang-Autostart-Mac.command  agar menyala otomatis di latar belakang.
+4. Buka dashboard admin > menu Printer. Status akan berubah menjadi "Print Agent Online".
+
+CATATAN
+- Printer harus sudah terpasang di System Settings > Printers & Scanners.
+- Butuh Node.js (LTS) dari https://nodejs.org
+`;
+
+  return createZipArchive([
+    { name: 'Mafaza-Print-Agent.command', content: startCommand, executable: true },
+    { name: 'Pasang-Autostart-Mac.command', content: autostartCommand, executable: true },
+    { name: 'mafaza-print-agent.mjs', content: agentScript, executable: false },
+    { name: 'config.json', content: configJson, executable: false },
+    { name: 'BACA-SAYA.txt', content: readmeMac, executable: false }
+  ]);
+}

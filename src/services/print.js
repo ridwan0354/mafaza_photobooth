@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from '../db/database.js';
+import { resolvePaper, buildPrintSheetFile } from './sheet.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -247,10 +248,46 @@ export function getPrinterMediaTypes(printerIdOrModel) {
   return result;
 }
 
+const DEFAULT_PRINT_SETTINGS = {
+  paperSize: '2x6',
+  mode: 'manual',
+  maxCopies: 2,
+  borderless: true,
+  highDpi: true
+};
+
+function parseJson(text, fallback) {
+  try {
+    const v = JSON.parse(text);
+    return v && typeof v === 'object' ? v : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
+export function normalizePrintSettings(input = {}) {
+  const merged = { ...DEFAULT_PRINT_SETTINGS, ...(input || {}) };
+  return {
+    paperSize: String(merged.paperSize || DEFAULT_PRINT_SETTINGS.paperSize),
+    mode: merged.mode === 'auto' ? 'auto' : 'manual',
+    maxCopies: Math.min(10, Math.max(1, parseInt(merged.maxCopies, 10) || DEFAULT_PRINT_SETTINGS.maxCopies)),
+    borderless: merged.borderless !== false && merged.borderless !== 'false',
+    highDpi: merged.highDpi !== false && merged.highDpi !== 'false'
+  };
+}
+
 export function savePrinterProfile(tenantId, data) {
-  const { name, model, driverName, paperSizes, mediaType } = data;
+  const { name, model, driverName, paperSizes, mediaType, settings } = data;
   const existing = db.prepare('SELECT * FROM printer_profiles WHERE tenant_id = ? AND is_default = 1').get(tenantId);
-  const paperSizesJson = JSON.stringify(paperSizes || ['2x6', '4x6', '5x7', 'A4']);
+
+  // Ukuran kertas utama diambil dari settings.paperSize, atau elemen pertama paperSizes (kompatibel versi lama)
+  const normalized = normalizePrintSettings({
+    ...(existing ? parseJson(existing.settings_json, {}) : {}),
+    ...(settings || {}),
+    ...(!settings?.paperSize && Array.isArray(paperSizes) && paperSizes[0] ? { paperSize: paperSizes[0] } : {})
+  });
+  const settingsJson = JSON.stringify(normalized);
+  const paperSizesJson = JSON.stringify(paperSizes || [normalized.paperSize]);
 
   const finalName = name || model || 'Photobooth Printer';
   const finalModel = model || name || 'Photobooth Printer';
@@ -260,7 +297,7 @@ export function savePrinterProfile(tenantId, data) {
   if (existing) {
     db.prepare(`
       UPDATE printer_profiles
-      SET name = ?, model = ?, driver_name = ?, paper_sizes_json = ?, media_type = ?
+      SET name = ?, model = ?, driver_name = ?, paper_sizes_json = ?, media_type = ?, settings_json = ?
       WHERE id = ?
     `).run(
       finalName,
@@ -268,14 +305,15 @@ export function savePrinterProfile(tenantId, data) {
       finalDriver,
       paperSizesJson,
       finalMediaType,
+      settingsJson,
       existing.id
     );
-    return { ...existing, name: finalName, model: finalModel, driver_name: finalDriver, paperSizes, media_type: finalMediaType };
+    return { ...existing, name: finalName, model: finalModel, driver_name: finalDriver, paperSizes, media_type: finalMediaType, settings: normalized };
   } else {
     const id = 'printer_' + crypto.randomBytes(6).toString('hex');
     db.prepare(`
-      INSERT INTO printer_profiles (id, tenant_id, name, model, driver_name, paper_sizes_json, media_type, is_default)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO printer_profiles (id, tenant_id, name, model, driver_name, paper_sizes_json, media_type, is_default, settings_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
     `).run(
       id,
       tenantId,
@@ -283,35 +321,181 @@ export function savePrinterProfile(tenantId, data) {
       finalModel,
       finalDriver,
       paperSizesJson,
-      finalMediaType
+      finalMediaType,
+      settingsJson
     );
-    return { id, tenantId, name: finalName, model: finalModel, driver_name: finalDriver, paperSizes, media_type: finalMediaType, is_default: 1 };
+    return { id, tenantId, name: finalName, model: finalModel, driver_name: finalDriver, paperSizes, media_type: finalMediaType, is_default: 1, settings: normalized };
   }
 }
 
 export function getPrinterProfiles(tenantId) {
-  return db.prepare('SELECT * FROM printer_profiles WHERE tenant_id = ?').all(tenantId).map(p => ({
-    ...p,
-    paperSizes: JSON.parse(p.paper_sizes_json)
-  }));
+  return db.prepare('SELECT * FROM printer_profiles WHERE tenant_id = ?').all(tenantId).map(p => {
+    const paperSizes = parseJson(p.paper_sizes_json, []);
+    const stored = parseJson(p.settings_json || '{}', {});
+    return {
+      ...p,
+      paperSizes: Array.isArray(paperSizes) ? paperSizes : [],
+      settings: normalizePrintSettings({
+        ...(Array.isArray(paperSizes) && paperSizes[0] ? { paperSize: paperSizes[0] } : {}),
+        ...stored
+      })
+    };
+  });
+}
+
+export function getActivePrintProfile(tenantId) {
+  const profiles = getPrinterProfiles(tenantId);
+  return profiles.find(p => p.is_default === 1) || profiles[0] || null;
+}
+
+// Opsi lengkap yang dipakai mencetak (disimpan di job agar cetak ulang tetap konsisten)
+export function buildPrintOptions(tenantId, copies = 1) {
+  const profile = getActivePrintProfile(tenantId);
+  const settings = normalizePrintSettings(profile?.settings || {});
+  const paper = resolvePaper(settings.paperSize);
+  const printerName = profile ? profile.name : 'Epson L8050 Series';
+  return {
+    printerName,
+    driverName: profile ? (profile.driver_name || profile.name) : printerName,
+    mediaType: profile ? (profile.media_type || 'photographic-glossy') : 'photographic-glossy',
+    paperSize: settings.paperSize,
+    paperWidthIn: paper.widthIn,
+    paperHeightIn: paper.heightIn,
+    layout: paper.layout,
+    borderless: settings.borderless,
+    highDpi: settings.highDpi,
+    copies
+  };
+}
+
+// ==========================================
+// PRINT AGENT (aplikasi cetak otomatis di komputer studio)
+// ==========================================
+const AGENT_ONLINE_WINDOW_MS = 25000;
+const AGENT_JOB_MAX_AGE_MIN = 15;
+const agentSeen = new Map(); // tenantId -> { at, host, platform, printers }
+
+export function getOrCreateAgentKey(tenantId) {
+  const row = db.prepare('SELECT agent_key FROM tenants WHERE id = ?').get(tenantId);
+  if (!row) throw new Error('Tenant tidak ditemukan');
+  if (row.agent_key) return row.agent_key;
+  const key = 'pa_' + crypto.randomBytes(18).toString('hex');
+  db.prepare('UPDATE tenants SET agent_key = ? WHERE id = ?').run(key, tenantId);
+  return key;
+}
+
+export function regenerateAgentKey(tenantId) {
+  const key = 'pa_' + crypto.randomBytes(18).toString('hex');
+  db.prepare('UPDATE tenants SET agent_key = ? WHERE id = ?').run(key, tenantId);
+  agentSeen.delete(tenantId);
+  return key;
+}
+
+export function findTenantByAgentKey(key) {
+  if (!key || typeof key !== 'string') return null;
+  const row = db.prepare('SELECT id FROM tenants WHERE agent_key = ?').get(key);
+  return row ? row.id : null;
+}
+
+export function touchAgent(tenantId, info = {}) {
+  agentSeen.set(tenantId, {
+    at: Date.now(),
+    host: info.host || '',
+    platform: info.platform || '',
+    printers: info.printers ?? agentSeen.get(tenantId)?.printers ?? []
+  });
+}
+
+export function getAgentStatus(tenantId) {
+  const seen = agentSeen.get(tenantId);
+  const online = !!seen && Date.now() - seen.at < AGENT_ONLINE_WINDOW_MS;
+  return {
+    online,
+    host: seen?.host || null,
+    platform: seen?.platform || null,
+    printers: seen?.printers || [],
+    lastSeenSecondsAgo: seen ? Math.round((Date.now() - seen.at) / 1000) : null
+  };
+}
+
+export function isAgentOnline(tenantId) {
+  return getAgentStatus(tenantId).online;
+}
+
+export function claimAgentJobs(tenantId) {
+  const jobs = db.prepare(`
+    SELECT id, copies, options_json FROM print_jobs
+    WHERE tenant_id = ? AND state = 'queued' AND created_at >= datetime('now', ?)
+    ORDER BY created_at ASC LIMIT 5
+  `).all(tenantId, `-${AGENT_JOB_MAX_AGE_MIN} minutes`);
+
+  const claimed = [];
+  for (const job of jobs) {
+    const res = db.prepare("UPDATE print_jobs SET state = 'processing', updated_at = datetime('now') WHERE id = ? AND state = 'queued'").run(job.id);
+    if (res.changes > 0) {
+      claimed.push({
+        id: job.id,
+        copies: job.copies || 1,
+        options: parseJson(job.options_json || '{}', {})
+      });
+    }
+  }
+  return claimed;
+}
+
+export function finishAgentJob(tenantId, jobId, { ok, error, spoolerId }) {
+  const job = db.prepare('SELECT id FROM print_jobs WHERE id = ? AND tenant_id = ?').get(jobId, tenantId);
+  if (!job) throw new Error('Job tidak ditemukan');
+  if (ok) {
+    db.prepare("UPDATE print_jobs SET state = 'completed', spooler_job_id = COALESCE(?, spooler_job_id), error_message = NULL, updated_at = datetime('now') WHERE id = ?")
+      .run(spoolerId || null, jobId);
+  } else {
+    db.prepare("UPDATE print_jobs SET state = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(String(error || 'Gagal mencetak').slice(0, 300), jobId);
+  }
+  return { success: true };
+}
+
+// Tandai job sudah dicetak lewat dialog browser (fallback tanpa Print Agent)
+export function markJobPrintedByBrowser(jobId, tenantId = null) {
+  const job = tenantId
+    ? db.prepare('SELECT id, state FROM print_jobs WHERE id = ? AND tenant_id = ?').get(jobId, tenantId)
+    : db.prepare('SELECT id, state FROM print_jobs WHERE id = ?').get(jobId);
+  if (!job) return false;
+  if (job.state === 'queued' || job.state === 'processing') {
+    db.prepare("UPDATE print_jobs SET state = 'completed', updated_at = datetime('now') WHERE id = ?").run(jobId);
+  }
+  return true;
+}
+
+// Lokasi file lembar siap cetak untuk sebuah job (sudah termasuk susunan 2 strip per lembar)
+export function getPrintSheetForJob(jobId) {
+  const job = db.prepare(`
+    SELECT pj.id, pj.options_json, ma.file_path
+    FROM print_jobs pj JOIN media_assets ma ON pj.media_asset_id = ma.id
+    WHERE pj.id = ?
+  `).get(jobId);
+  if (!job || !job.file_path) return null;
+  const abs = path.join(publicDir, job.file_path.replace(/^\//, ''));
+  if (!fs.existsSync(abs)) return null;
+  const options = parseJson(job.options_json || '{}', {});
+  return { path: buildPrintSheetFile(abs, options, job.id), options };
 }
 
 export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, mediaAssetId, copies = 1) {
   const printJobId = 'pjob_' + crypto.randomBytes(8).toString('hex');
   const idempotencyKey = `print_${photoSessionId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
-  // Fetch active printer profile for tenant
-  const profile = db.prepare('SELECT * FROM printer_profiles WHERE tenant_id = ? AND is_default = 1').get(tenantId)
-    || db.prepare('SELECT * FROM printer_profiles WHERE tenant_id = ? LIMIT 1').get(tenantId);
-
-  const printerName = profile ? profile.name : 'Epson L8050 Series';
-  const driverName = profile ? (profile.driver_name || profile.name) : printerName;
-  const mediaType = profile ? (profile.media_type || 'photographic-glossy') : 'photographic-glossy';
+  // Ambil seluruh pengaturan cetak aktif (printer, jenis kertas, ukuran kertas, borderless, kualitas)
+  const options = buildPrintOptions(tenantId, copies);
+  const printerName = options.printerName;
+  const driverName = options.driverName;
+  const mediaType = options.mediaType;
   const spoolerJobId = 'EPSON_SPOOL_' + Math.floor(100000 + Math.random() * 900000);
 
   db.prepare(`
-    INSERT INTO print_jobs (id, tenant_id, event_id, device_id, photo_session_id, media_asset_id, copies, state, spooler_job_id, idempotency_key)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)
+    INSERT INTO print_jobs (id, tenant_id, event_id, device_id, photo_session_id, media_asset_id, copies, state, spooler_job_id, idempotency_key, options_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
   `).run(
     printJobId,
     tenantId,
@@ -321,7 +505,8 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
     mediaAssetId,
     copies,
     spoolerJobId,
-    idempotencyKey
+    idempotencyKey,
+    JSON.stringify(options)
   );
 
   // Check if we have a real image file on disk and a non-simulator printer
@@ -337,12 +522,18 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
     }
   }
 
+  // File lembar siap cetak (mis. 2 strip 2x6 disusun berdampingan di kertas 4x6)
+  const printFilePath = absFilePath ? buildPrintSheetFile(absFilePath, options, printJobId) : null;
+
   const platform = os.platform();
   let dispatchedToOs = false;
   let resolvedQueueId = null;
   let resolvedPrinterName = printerName;
 
-  if (absFilePath && !isUnitTestSession && !isSimulator) {
+  // PRINT_MODE=agent: paksa semua cetak lewat Print Agent (tidak mencetak langsung dari mesin server)
+  const localDispatchAllowed = process.env.PRINT_MODE !== 'agent';
+
+  if (absFilePath && !isUnitTestSession && !isSimulator && localDispatchAllowed) {
     if (platform === 'darwin' || platform === 'linux') {
       try {
         const { cupsQueueId, printerObj } = resolveCupsQueueId(printerName, driverName);
@@ -356,7 +547,7 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
           if (mediaType && mediaType !== 'auto' && mediaType !== 'any') {
             lpArgs.push('-o', `MediaType=${mediaType}`);
           }
-          lpArgs.push(absFilePath);
+          lpArgs.push(printFilePath);
 
           // On macOS, launch Print Center.app in background (-g) so the top-right Menu Bar printer status icon appears
           if (platform === 'darwin') {
@@ -435,7 +626,7 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
           timeout: 15000,
           env: {
             ...process.env,
-            PB_FILE: absFilePath,
+            PB_FILE: printFilePath,
             PB_PRINTER: targetWinPrinter || '',
             PB_COPIES: String(copies || 1)
           }
@@ -455,7 +646,11 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
     }
   }
 
-  if (!dispatchedToOs) {
+  // Server ada di cloud (tanpa printer). Jika Print Agent aktif di komputer studio,
+  // biarkan job berstatus 'queued' agar diambil & dicetak otomatis sesuai pengaturan.
+  const awaitingAgent = !dispatchedToOs && !!absFilePath && !isUnitTestSession && !isSimulator && isAgentOnline(tenantId);
+
+  if (!dispatchedToOs && !awaitingAgent) {
     // Simulate print spooling progression asynchronously
     setTimeout(() => {
       try {
@@ -481,6 +676,13 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
     cupsQueueId: resolvedQueueId,
     mediaType,
     dispatchedToOs,
+    awaitingAgent,
+    paperSize: options.paperSize,
+    paperWidthIn: options.paperWidthIn,
+    paperHeightIn: options.paperHeightIn,
+    layout: options.layout,
+    borderless: options.borderless,
+    sheetUrl: `/api/print-jobs/${printJobId}/sheet`,
     state: 'queued',
     copies
   };
