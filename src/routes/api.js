@@ -1014,6 +1014,16 @@ apiRouter.delete('/print-jobs/:id', authMiddleware(), (req, res) => {
   }
 });
 
+apiRouter.post('/print-jobs/clear-completed', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const result = db.prepare("DELETE FROM print_jobs WHERE tenant_id = ? AND state IN ('completed', 'cancelled', 'failed')").run(tenantId);
+    res.json({ success: true, count: result.changes, message: `${result.changes} riwayat antrean selesai/batal berhasil dibersihkan` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Preflight hardware test
 apiRouter.get('/operator/preflight', authMiddleware(), (req, res) => {
   const profile = db.prepare('SELECT * FROM printer_profiles WHERE tenant_id = ? AND is_default = 1').get(req.user.tenantId);

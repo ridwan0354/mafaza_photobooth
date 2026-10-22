@@ -124,6 +124,68 @@
       font-size: 28px;
       color: #fff;
     }
+    /* Print Queue & Real-time Monitor Styling */
+    @keyframes pqPulse {
+      0% { transform: scale(0.95); opacity: 0.75; }
+      50% { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.75; }
+    }
+    .pq-pulse-dot {
+      animation: pqPulse 1.8s infinite ease-in-out;
+    }
+    @keyframes pqTrackShimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .pq-track-shimmer {
+      background: linear-gradient(90deg, var(--coral) 0%, #D4A754 50%, var(--coral) 100%);
+      background-size: 200% 100%;
+      animation: pqTrackShimmer 2s linear infinite;
+    }
+    .pq-step-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px;
+      text-align: center;
+      position: relative;
+      flex: 1;
+      z-index: 2;
+    }
+    .pq-step-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 14px;
+      border: 2px solid var(--border-soft);
+      background: #fff;
+      color: var(--text-muted);
+      transition: all 0.3s ease;
+    }
+    .pq-step-item.active .pq-step-icon {
+      border-color: var(--coral);
+      background: var(--coral);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(230, 120, 107, 0.45);
+    }
+    .pq-step-item.completed .pq-step-icon {
+      border-color: #27ae60;
+      background: #27ae60;
+      color: #fff;
+    }
+    .pq-step-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--charcoal);
+    }
+    .pq-step-sub {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
   </style>
 </head>
 <body>
@@ -160,8 +222,12 @@
       <div class="nav-btn" onclick="switchTab('qrpasses', this)">
         <span>🎟️</span> Smart QR Tamu
       </div>
+      <div class="nav-btn" id="navBtnPrintQueue" onclick="switchTab('printqueue', this)" style="position: relative;">
+        <span>⏳</span> Progres Print
+        <span id="navPrintBadge" style="display: none; margin-left: auto; background: var(--coral); color: #fff; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 99px; box-shadow: 0 2px 6px rgba(0,0,0,0.2);">0</span>
+      </div>
       <div class="nav-btn" onclick="switchTab('prints', this)">
-        <span>🖨️</span> Printer
+        <span>🖨️</span> Printer &amp; Kertas
       </div>
       <div class="nav-btn" id="navBtnApps" onclick="switchTab('apps', this)">
         <span>📲</span> Download Aplikasi
@@ -215,14 +281,14 @@
           </div>
 
           <!-- Card 2: Total Cetak (Muted Mustard) -->
-          <div class="stat-card" style="background: var(--cream-card); border-color: var(--muted-mustard);">
+          <div class="stat-card" style="background: var(--cream-card); border-color: var(--muted-mustard); cursor: pointer;" onclick="switchTab('printqueue', document.getElementById('navBtnPrintQueue'))" title="Klik untuk membuka Progres & Antrean Print">
             <div class="stat-icon-circle" style="background: var(--muted-mustard); box-shadow: 0 6px 16px rgba(212, 167, 84, 0.35);">
               🖨️
             </div>
             <div>
               <span style="font-size: 14px; color: var(--text-muted); font-weight: 600;">Total Cetak</span>
               <h2 style="font-size: 36px; font-weight: 900; color: #b58832; line-height: 1.1;" id="statTotalPrints">0</h2>
-              <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Epson L8050 Spooler</span>
+              <span style="font-size: 12px; color: var(--dusty-teal); font-weight: 700;">Pantau Progres Cetak ➔</span>
             </div>
           </div>
 
@@ -777,8 +843,156 @@
         </div>
       </div>
 
+      <!-- TAB 4.8: PROGRES & STATUS CETAK (REALTIME MONITORING) -->
+      <div id="tab-printqueue" class="tab-content">
+        <!-- Header -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 22px;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+              <h2 style="font-size: 26px; font-weight: 800; margin: 0; color: var(--charcoal);">⏳ Progres &amp; Status Antrean Cetak</h2>
+              <span id="pqLiveIndicator" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 800; padding: 4px 11px; border-radius: 99px; background: rgba(39, 174, 96, 0.12); color: #27ae60; border: 1px solid rgba(39, 174, 96, 0.3);">
+                <span class="pq-pulse-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #27ae60;"></span>
+                LIVE REAL-TIME
+              </span>
+            </div>
+            <p style="color: var(--text-muted); margin: 0; font-size: 14px;">Pantau status printer studio, antrean cetak otomatis dari Kiosk, dan progres lembar cetak secara langsung.</p>
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <button class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; padding: 9px 14px; background: #fff;" onclick="loadPrintJobs(true)">
+              <span id="pqRefreshIcon">🔄</span> Segarkan Data
+            </button>
+            <button class="btn btn-secondary" style="display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; padding: 9px 14px; background: #fff;" onclick="switchTab('prints')">
+              ⚙️ Pengaturan Printer
+            </button>
+            <button class="btn btn-coral" style="display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; padding: 9px 16px;" onclick="testPrintFromAdmin()">
+              🖨️ Cetak Lembar Uji
+            </button>
+          </div>
+        </div>
+
+        <!-- 4 Metric & Status Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; margin-bottom: 24px;">
+          <!-- Card 1: Print Agent & Printer Status -->
+          <div class="stat-card" style="background: var(--cream-card); border-color: var(--border-soft); padding: 18px 20px;">
+            <div class="stat-icon-circle" style="background: var(--dusty-teal); box-shadow: 0 6px 16px rgba(74, 124, 122, 0.35); width: 52px; height: 52px; font-size: 24px;">
+              🖨️
+            </div>
+            <div style="flex: 1; min-width: 0;">
+              <span style="font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Status Perangkat</span>
+              <div style="margin-top: 4px;">
+                <span id="pqAgentBadge" style="display: inline-block; font-size: 12px; font-weight: 800; padding: 3px 10px; border-radius: 99px; background: rgba(39, 174, 96, 0.12); color: #27ae60; border: 1px solid rgba(39, 174, 96, 0.25);">🟢 Print Agent Siaga</span>
+              </div>
+              <div id="pqAgentDevice" style="font-size: 12px; color: var(--caramel-brown); font-weight: 600; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                Mengecek printer aktif...
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: Antrean Berjalan (Queued/Spooling) -->
+          <div class="stat-card" style="background: var(--cream-card); border-color: var(--muted-mustard); padding: 18px 20px;">
+            <div class="stat-icon-circle" style="background: var(--muted-mustard); box-shadow: 0 6px 16px rgba(212, 167, 84, 0.35); width: 52px; height: 52px; font-size: 24px;">
+              ⏳
+            </div>
+            <div>
+              <span style="font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Sedang Diproses</span>
+              <h2 id="pqStatQueued" style="font-size: 32px; font-weight: 900; color: #b58832; line-height: 1.1; margin: 2px 0 0 0;">0</h2>
+              <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Antre / Mengirim ke Tray</span>
+            </div>
+          </div>
+
+          <!-- Card 3: Berhasil Hari Ini -->
+          <div class="stat-card" style="background: var(--cream-card); border-color: #27ae60; padding: 18px 20px;">
+            <div class="stat-icon-circle" style="background: #27ae60; box-shadow: 0 6px 16px rgba(39, 174, 96, 0.35); width: 52px; height: 52px; font-size: 24px;">
+              ✅
+            </div>
+            <div>
+              <span style="font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Selesai Dicetak</span>
+              <h2 id="pqStatCompleted" style="font-size: 32px; font-weight: 900; color: #27ae60; line-height: 1.1; margin: 2px 0 0 0;">0</h2>
+              <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Lembar foto sukses keluar</span>
+            </div>
+          </div>
+
+          <!-- Card 4: Total Job Riwayat -->
+          <div class="stat-card" style="background: var(--cream-card); border-color: var(--coral); padding: 18px 20px;">
+            <div class="stat-icon-circle" style="background: var(--coral); box-shadow: 0 6px 16px rgba(230, 120, 107, 0.35); width: 52px; height: 52px; font-size: 24px;">
+              📊
+            </div>
+            <div>
+              <span style="font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Total Sesi Cetak</span>
+              <h2 id="pqStatTotal" style="font-size: 32px; font-weight: 900; color: var(--coral); line-height: 1.1; margin: 2px 0 0 0;">0</h2>
+              <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">Semua riwayat Kiosk</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Active Print Monitor Banner (Real-time tracking of current job) -->
+        <div id="pqActiveJobBanner" style="margin-bottom: 24px;">
+          <!-- Dynamically filled: either active printing state or ready state -->
+        </div>
+
+        <!-- Print Queue Table Card with Filters -->
+        <div class="card-pop" style="padding: 24px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 14px;">
+            <div>
+              <h3 style="font-size: 18px; font-weight: 800; color: var(--charcoal); margin: 0 0 4px 0;">📋 Riwayat &amp; Status Detail Antrean Cetak</h3>
+              <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Daftar job cetak yang dikirim dari Kiosk Photobooth atau cetak ulang oleh operator.</p>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+              <select id="pqFilterStatus" onchange="renderPrintQueueTable()" style="padding: 8px 12px; background: #fff; border: 2px solid var(--border-soft); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--charcoal);">
+                <option value="all">Semua Status</option>
+                <option value="active">⏳ Sedang Antre / Memproses</option>
+                <option value="completed">✅ Selesai Dicetak</option>
+                <option value="failed">❌ Gagal / Dibatalkan</option>
+              </select>
+              <select id="pqFilterEvent" onchange="renderPrintQueueTable()" style="padding: 8px 12px; background: #fff; border: 2px solid var(--border-soft); border-radius: 8px; font-size: 13px; font-weight: 600; color: var(--charcoal); max-width: 180px;">
+                <option value="">Semua Event</option>
+              </select>
+              <input type="text" id="pqSearchInput" oninput="renderPrintQueueTable()" placeholder="🔍 Cari ID / Spooler..." style="padding: 8px 12px; background: #fff; border: 2px solid var(--border-soft); border-radius: 8px; font-size: 13px; width: 170px;">
+              <button class="btn btn-secondary" onclick="clearCompletedPrintJobs()" style="padding: 8px 12px; font-size: 12.5px; font-weight: 700; background: #fff;" title="Bersihkan riwayat job yang sudah selesai dicetak">
+                🧹 Bersihkan Selesai
+              </button>
+            </div>
+          </div>
+
+          <!-- Table -->
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px;">
+              <thead>
+                <tr style="border-bottom: 2px solid var(--border-soft); color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                  <th style="padding: 12px 14px; width: 75px;">Foto</th>
+                  <th style="padding: 12px 14px;">Job ID</th>
+                  <th style="padding: 12px 14px;">Spooler OS</th>
+                  <th style="padding: 12px 14px;">Event</th>
+                  <th style="padding: 12px 14px;">Lembar</th>
+                  <th style="padding: 12px 14px;">Status Cetak &amp; Progres</th>
+                  <th style="padding: 12px 14px;">Waktu</th>
+                  <th style="padding: 12px 14px; text-align: right;">Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="pqJobsTableBody">
+                <!-- Dynamically filled via admin.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- TAB 5: PRINT SETTINGS & SPOOLER -->
       <div id="tab-prints" class="tab-content">
+        <!-- Quick Link Banner to Progres Print -->
+        <div style="margin-bottom: 20px; padding: 14px 20px; background: rgba(230, 120, 107, 0.08); border: 1.5px solid rgba(230, 120, 107, 0.25); border-radius: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="font-size: 22px;">⏳</span>
+            <div>
+              <strong style="color: var(--charcoal); font-size: 14px;">Ingin melihat antrean &amp; progres cetak real-time?</strong>
+              <p style="font-size: 12.5px; color: var(--text-muted); margin: 0;">Pantau status printer, antrean Kiosk yang sedang berjalan, dan riwayat cetak di menu Progres Print.</p>
+            </div>
+          </div>
+          <button class="btn btn-coral" style="padding: 8px 16px; font-size: 13px; font-weight: 800;" onclick="switchTab('printqueue', document.getElementById('navBtnPrintQueue'))">
+            Buka Menu Progres Print ➔
+          </button>
+        </div>
+
         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 22px;">
           <div>
             <h2 style="font-size: 26px; font-weight: 800; margin-bottom: 6px;">🖨️ Pengaturan &amp; Riwayat Cetak Fleksibel</h2>
@@ -1375,6 +1589,6 @@
 
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/print-client.js?v=1.1"></script>
-  <script src="/js/admin.js?v=warm-retro-v3.8"></script>
+  <script src="/js/admin.js?v=warm-retro-v3.9"></script>
 </body>
 </html>

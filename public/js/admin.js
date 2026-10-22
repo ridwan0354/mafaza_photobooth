@@ -104,6 +104,18 @@ function switchTab(tabId, element) {
     if (matchedNav) matchedNav.classList.add('active');
   }
 
+  if (tabId === 'printqueue') {
+    if (typeof loadPrintQueueTab === 'function') loadPrintQueueTab();
+    if (!printQueuePollInterval && typeof refreshPrintQueueSilently === 'function') {
+      printQueuePollInterval = setInterval(refreshPrintQueueSilently, 3500);
+    }
+  } else {
+    if (printQueuePollInterval) {
+      clearInterval(printQueuePollInterval);
+      printQueuePollInterval = null;
+    }
+  }
+
   if (tabId === 'templates') {
     loadTemplates();
     setTimeout(renderEditorCanvas, 150);
@@ -113,6 +125,8 @@ function switchTab(tabId, element) {
     const filterSelect = document.getElementById('galleryEventFilter');
     const curVal = (filterSelect && filterSelect.value !== '') ? filterSelect.value : activeKioskEventId;
     loadRecentPhotos(curVal);
+  } else if (tabId === 'printqueue') {
+    if (typeof loadPrintQueueTab === 'function') loadPrintQueueTab();
   } else if (tabId === 'prints') {
     loadPrintJobs();
     loadSystemPrinters();
@@ -224,6 +238,7 @@ async function loadEvents() {
       }
       renderEventsTable();
       populateSelectedEventConfig();
+      if (typeof populatePrintQueueEventFilter === 'function') populatePrintQueueEventFilter();
     }
   } catch (e) {
     console.error('Failed to load events:', e);
@@ -333,6 +348,7 @@ async function setActiveKioskEvent(eventId) {
       updateActiveEventUI(activeEvent);
       renderEventsTable();
       populateSelectedEventConfig();
+      if (typeof populatePrintQueueEventFilter === 'function') populatePrintQueueEventFilter();
       await loadOverview();
       await loadPrintJobs();
       populateGalleryEventFilter(eventId);
@@ -2305,8 +2321,9 @@ async function savePrinterSettings() {
 
 async function loadPrintAgentStatus(isUserTriggered = false) {
   const badge = document.getElementById('agentStatusBadge');
-  if (!badge) return;
   const text = document.getElementById('agentStatusText');
+  const pqBadge = document.getElementById('pqAgentBadge');
+  const pqDevice = document.getElementById('pqAgentDevice');
   const macLink = document.getElementById('agentDownloadMac');
   const winLink = document.getElementById('agentDownloadWin');
   const origin = encodeURIComponent(window.location.origin);
@@ -2317,27 +2334,62 @@ async function loadPrintAgentStatus(isUserTriggered = false) {
     const res = await fetch('/api/print-agent/status');
     if (!res.ok) throw new Error('status');
     const st = await res.json();
+    cachedPrintAgentStatus = st;
+
+    const savedSettings = (() => {
+      try { return JSON.parse(localStorage.getItem('pb_printer_settings') || '{}'); } catch (e) { return {}; }
+    })();
+    const printerModel = savedSettings.model || 'Epson L8050 Series';
+    const paperName = savedSettings.paperSize === '2x6' ? '4R (2 Strip 2×6")' : (savedSettings.paperSize || '4R 102×152mm');
+
     if (st.online) {
-      badge.textContent = '🟢 Print Agent Online';
-      badge.style.background = 'rgba(39, 174, 96, 0.14)';
-      badge.style.color = '#1e8449';
-      badge.style.borderColor = 'rgba(39, 174, 96, 0.35)';
+      if (badge) {
+        badge.textContent = '🟢 Print Agent Online';
+        badge.style.background = 'rgba(39, 174, 96, 0.14)';
+        badge.style.color = '#1e8449';
+        badge.style.borderColor = 'rgba(39, 174, 96, 0.35)';
+      }
       const pCount = (st.printers || []).length;
-      if (text) text.textContent = `Komputer: ${st.host || '-'} (${st.platform === 'win32' ? 'Windows' : 'macOS'}) • ${pCount} printer terbaca • cetak otomatis tanpa popup`;
+      const hostName = st.host || (st.platform === 'win32' ? 'PC Windows' : 'MacBook');
+      if (text) text.textContent = `Komputer: ${hostName} (${st.platform === 'win32' ? 'Windows' : 'macOS'}) • ${pCount} printer terbaca • cetak otomatis tanpa popup`;
+
+      if (pqBadge) {
+        pqBadge.textContent = '🟢 Print Agent Terhubung';
+        pqBadge.style.background = 'rgba(39, 174, 96, 0.14)';
+        pqBadge.style.color = '#1e8449';
+        pqBadge.style.borderColor = 'rgba(39, 174, 96, 0.35)';
+      }
+      if (pqDevice) {
+        pqDevice.textContent = `${printerModel} • ${hostName} (${pCount} printer terbaca)`;
+      }
     } else {
-      badge.textContent = '⚪ Print Agent Belum Aktif';
-      badge.style.background = 'rgba(230, 120, 107, 0.12)';
-      badge.style.color = '#b3402f';
-      badge.style.borderColor = 'rgba(230, 120, 107, 0.35)';
+      if (badge) {
+        badge.textContent = '⚪ Print Agent Belum Aktif';
+        badge.style.background = 'rgba(230, 120, 107, 0.12)';
+        badge.style.color = '#b3402f';
+        badge.style.borderColor = 'rgba(230, 120, 107, 0.35)';
+      }
       if (text) text.textContent = 'Unduh & jalankan di komputer studio. Sementara itu cetak memakai dialog browser (cadangan).';
+
+      if (pqBadge) {
+        pqBadge.textContent = '⚪ Mode Dialog Browser';
+        pqBadge.style.background = 'rgba(230, 120, 107, 0.12)';
+        pqBadge.style.color = '#b3402f';
+        pqBadge.style.borderColor = 'rgba(230, 120, 107, 0.35)';
+      }
+      if (pqDevice) {
+        pqDevice.textContent = `${printerModel} • ${paperName}`;
+      }
     }
+
     if (isUserTriggered) window.pbToast(st.online ? '🟢 Print Agent online & siap mencetak' : '⚪ Print Agent belum aktif', st.online ? 'ok' : 'warn');
     if (st.online && typeof loadSystemPrinters === 'function' && !window.__agentPrintersLoaded) {
       window.__agentPrintersLoaded = true;
       loadSystemPrinters();
     }
   } catch (e) {
-    badge.textContent = '⚪ Status tidak diketahui';
+    if (badge) badge.textContent = '⚪ Status tidak diketahui';
+    if (pqBadge) pqBadge.textContent = '⚪ Status tidak diketahui';
   }
 }
 
@@ -2677,9 +2729,363 @@ async function quickPrintPhoto(assetId, existingJobId) {
   }
 }
 
-async function loadPrintJobs() {
+// ==============================================================
+// PROGRES PRINT & REAL-TIME QUEUE MONITORING
+// ==============================================================
+let printQueuePollInterval = null;
+let cachedPrintAgentStatus = null;
+
+function populatePrintQueueEventFilter() {
+  const filterSelect = document.getElementById('pqFilterEvent');
+  if (!filterSelect) return;
+  const currentVal = filterSelect.value || '';
+  filterSelect.innerHTML = '<option value="">Semua Event</option>';
+  if (eventsList && eventsList.length > 0) {
+    eventsList.forEach(ev => {
+      const opt = document.createElement('option');
+      opt.value = ev.id;
+      opt.textContent = ev.name + (ev.id === activeKioskEventId ? ' ⭐ (Aktif)' : '');
+      filterSelect.appendChild(opt);
+    });
+  }
+  if (currentVal) filterSelect.value = currentVal;
+}
+
+async function loadPrintQueueTab() {
+  populatePrintQueueEventFilter();
+  await loadPrintAgentStatus();
+  await loadPrintJobs();
+}
+
+async function refreshPrintQueueSilently() {
+  const tabEl = document.getElementById('tab-printqueue');
+  if (!tabEl || !tabEl.classList.contains('active')) {
+    if (printQueuePollInterval) {
+      clearInterval(printQueuePollInterval);
+      printQueuePollInterval = null;
+    }
+    return;
+  }
+  try {
+    const res = await fetch('/api/print-jobs');
+    if (res.ok) {
+      const jobs = await res.json();
+      cachedPrintJobs = jobs || [];
+      updatePrintQueueStats(cachedPrintJobs);
+      renderPrintQueueTable();
+      renderActivePrintBanner(cachedPrintJobs);
+      updateTabPrintsTable(cachedPrintJobs);
+    }
+  } catch (err) {
+    console.debug('refreshPrintQueueSilently error:', err);
+  }
+}
+
+function updatePrintQueueStats(jobs) {
+  const queuedCount = (jobs || []).filter(j => j.state === 'queued' || j.state === 'processing' || j.state === 'spooled').length;
+  const completedJobs = (jobs || []).filter(j => j.state === 'completed');
+  const completedCopies = completedJobs.reduce((sum, j) => sum + (parseInt(j.copies) || 1), 0);
+  const totalCount = (jobs || []).length;
+
+  const elQueued = document.getElementById('pqStatQueued');
+  const elCompleted = document.getElementById('pqStatCompleted');
+  const elTotal = document.getElementById('pqStatTotal');
+  const badgeNav = document.getElementById('navPrintBadge');
+
+  if (elQueued) elQueued.textContent = queuedCount;
+  if (elCompleted) elCompleted.textContent = completedCopies;
+  if (elTotal) elTotal.textContent = totalCount;
+
+  if (badgeNav) {
+    if (queuedCount > 0) {
+      badgeNav.textContent = queuedCount;
+      badgeNav.style.display = 'inline-block';
+      badgeNav.classList.add('pq-pulse-dot');
+    } else {
+      badgeNav.style.display = 'none';
+      badgeNav.classList.remove('pq-pulse-dot');
+    }
+  }
+}
+
+function renderActivePrintBanner(jobs) {
+  const bannerContainer = document.getElementById('pqActiveJobBanner');
+  if (!bannerContainer) return;
+
+  const activeJob = (jobs || []).find(j => j.state === 'processing' || j.state === 'queued' || j.state === 'spooled');
+
+  if (!activeJob) {
+    bannerContainer.innerHTML = `
+      <div class="card-pop" style="border: 2px dashed #D4A754; background: linear-gradient(135deg, #FFFDF9 0%, #FAF4E8 100%); padding: 20px 24px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <div style="width: 52px; height: 52px; border-radius: 16px; background: #fff; border: 2px solid #D4A754; display: flex; align-items: center; justify-content: center; font-size: 26px; box-shadow: 0 4px 12px rgba(212,167,84,0.2);">
+            ✨
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="display: inline-block; font-size: 11.5px; font-weight: 800; padding: 3px 10px; border-radius: 99px; background: rgba(39, 174, 96, 0.14); color: #27ae60; border: 1px solid rgba(39, 174, 96, 0.25);">
+                ● PRINTER SIAGA (IDLE)
+              </span>
+              <span style="font-size: 12.5px; color: var(--text-muted); font-weight: 600;">Semua Antrean Selesai</span>
+            </div>
+            <h4 style="font-size: 16.5px; font-weight: 800; color: var(--caramel-brown); margin: 4px 0 2px 0;">Printer siap menerima sesi foto berikutnya</h4>
+            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Ketika tamu selesai berfoto di Kiosk, foto akan otomatis dikirim dan status prosesnya muncul di sini.</p>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-coral" style="font-size: 13px; font-weight: 800; padding: 10px 18px;" onclick="testPrintFromAdmin()">
+            🖨️ Cetak Lembar Uji
+          </button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  const thumbUrl = activeJob.media_url || '/assets/templates/strip-green-template.svg';
+  const timeStr = activeJob.created_at ? new Date(activeJob.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Baru saja';
+  const isSpooled = activeJob.state === 'spooled';
+
+  bannerContainer.innerHTML = `
+    <div class="card-pop" style="border: 2px solid var(--coral); background: linear-gradient(135deg, #FFF9F5 0%, #FFF2EC 100%); padding: 22px 26px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 18px;">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <div style="width: 58px; height: 76px; background: #fff; border-radius: 10px; overflow: hidden; border: 2px solid var(--coral); box-shadow: 0 4px 12px rgba(230,120,107,0.25); display: flex; align-items: center; justify-content: center; cursor: pointer;" onclick="openPhotoPreviewFromJob('${activeJob.id}')" title="Klik untuk lihat foto penuh">
+            <img src="${thumbUrl}" onerror="this.src='/assets/templates/strip-green-template.svg'" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+          </div>
+          <div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 800; padding: 4px 12px; border-radius: 99px; background: var(--coral); color: #fff;">
+                <span class="pq-pulse-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #fff;"></span>
+                SEDANG MENCETAK
+              </span>
+              <span style="font-family: monospace; font-size: 13px; font-weight: 700; color: var(--caramel-brown);">${activeJob.id}</span>
+            </div>
+            <h4 style="font-size: 17px; font-weight: 800; color: var(--charcoal); margin: 6px 0 2px 0;">${escapeHtml(activeJob.event_name || 'Event Aktif')} — ${activeJob.copies || 1} Lembar Kertas 4R</h4>
+            <div style="font-size: 12.5px; color: var(--text-muted);">
+              Spooler OS: <strong>${activeJob.spooler_job_id || 'Menyiapkan spooler...'}</strong> • Masuk antrean: ${timeStr}
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary" style="font-size: 12.5px; font-weight: 700; padding: 8px 14px; background: #fff;" onclick="openPhotoPreviewFromJob('${activeJob.id}')">👁️ Lihat Foto Penuh</button>
+          <button class="btn btn-coral" style="font-size: 12.5px; font-weight: 800; padding: 8px 14px;" onclick="reprintJobById('${activeJob.id}')">🖨️ Cetak Tambahan</button>
+        </div>
+      </div>
+
+      <!-- 4-Step Progress Track -->
+      <div style="background: #fff; padding: 18px 20px; border-radius: 14px; border: 1.5px solid var(--border-soft);">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; position: relative;">
+          <!-- Step 1 -->
+          <div class="pq-step-item completed">
+            <div class="pq-step-icon">✓</div>
+            <div class="pq-step-label">Foto Diterima</div>
+            <div class="pq-step-sub">Sesi Kiosk Selesai</div>
+          </div>
+          <div style="flex: 1; height: 3px; background: #27ae60; margin: 0 -8px; margin-top: -24px;"></div>
+          <!-- Step 2 -->
+          <div class="pq-step-item completed">
+            <div class="pq-step-icon">✓</div>
+            <div class="pq-step-label">Komposisi 4R</div>
+            <div class="pq-step-sub">300 DPI Borderless</div>
+          </div>
+          <div style="flex: 1; height: 3px; background: ${isSpooled ? '#27ae60' : 'var(--coral)'}; margin: 0 -8px; margin-top: -24px;"></div>
+          <!-- Step 3 -->
+          <div class="pq-step-item ${isSpooled ? 'completed' : 'active'}">
+            <div class="pq-step-icon">${isSpooled ? '✓' : '⏳'}</div>
+            <div class="pq-step-label">Kirim ke Printer</div>
+            <div class="pq-step-sub">${isSpooled ? 'Terkirim ke Tray' : 'Spooling Driver'}</div>
+          </div>
+          <div style="flex: 1; height: 3px; background: ${isSpooled ? 'var(--coral)' : 'var(--border-soft)'}; margin: 0 -8px; margin-top: -24px;"></div>
+          <!-- Step 4 -->
+          <div class="pq-step-item ${isSpooled ? 'active' : ''}">
+            <div class="pq-step-icon">🖨️</div>
+            <div class="pq-step-label">Hasil Cetak</div>
+            <div class="pq-step-sub">Kertas Keluar di Tray</div>
+          </div>
+        </div>
+        <!-- Shimmer Bar -->
+        <div style="width: 100%; height: 6px; background: #f0e6dc; border-radius: 99px; overflow: hidden; margin-top: 14px;">
+          <div class="pq-track-shimmer" style="width: 100%; height: 100%;"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderPrintQueueTable() {
+  const tbody = document.getElementById('pqJobsTableBody');
+  if (!tbody) return;
+
+  const statusFilter = document.getElementById('pqFilterStatus')?.value || 'all';
+  const eventFilter = document.getElementById('pqFilterEvent')?.value || '';
+  const searchFilter = (document.getElementById('pqSearchInput')?.value || '').trim().toLowerCase();
+
+  let filtered = [...(cachedPrintJobs || [])];
+
+  if (statusFilter === 'active') {
+    filtered = filtered.filter(j => j.state === 'queued' || j.state === 'processing' || j.state === 'spooled');
+  } else if (statusFilter === 'completed') {
+    filtered = filtered.filter(j => j.state === 'completed');
+  } else if (statusFilter === 'failed') {
+    filtered = filtered.filter(j => j.state === 'failed' || j.state === 'cancelled');
+  }
+
+  if (eventFilter) {
+    filtered = filtered.filter(j => j.event_id === eventFilter);
+  }
+
+  if (searchFilter) {
+    filtered = filtered.filter(j => 
+      (j.id && j.id.toLowerCase().includes(searchFilter)) ||
+      (j.spooler_job_id && String(j.spooler_job_id).toLowerCase().includes(searchFilter)) ||
+      (j.event_name && j.event_name.toLowerCase().includes(searchFilter))
+    );
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr style="border-bottom: 1px solid var(--border-soft);">
+        <td colspan="8" style="padding: 32px; text-align: center; color: var(--text-muted);">
+          Tidak ada item antrean cetak yang sesuai kriteria filter.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(job => {
+    const timeStr = job.created_at ? new Date(job.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Baru saja';
+    let stateBadge = '';
+    const st = (job.state || 'completed').toLowerCase();
+
+    if (st === 'queued') {
+      stateBadge = `<span class="badge-pill" style="background: rgba(212, 167, 84, 0.15); color: #B58832; border: 1px solid rgba(212, 167, 84, 0.35); font-size: 11px; font-weight: 800;">🟡 ANTRE DI SERVER</span>`;
+    } else if (st === 'processing') {
+      stateBadge = `<span class="badge-pill" style="background: rgba(230, 120, 107, 0.15); color: var(--coral); border: 1px solid rgba(230, 120, 107, 0.35); font-size: 11px; font-weight: 800;"><span class="pq-pulse-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--coral);margin-right:4px;"></span>⏳ SEDANG DICETAK</span>`;
+    } else if (st === 'spooled') {
+      stateBadge = `<span class="badge-pill" style="background: rgba(74, 124, 122, 0.15); color: var(--dusty-teal); border: 1px solid rgba(74, 124, 122, 0.35); font-size: 11px; font-weight: 800;">🟢 SPOOLER PRINTER</span>`;
+    } else if (st === 'completed') {
+      stateBadge = `<span class="badge-pill" style="background: rgba(39, 174, 96, 0.15); color: #27ae60; border: 1px solid rgba(39, 174, 96, 0.35); font-size: 11px; font-weight: 800;">✅ SELESAI</span>`;
+    } else if (st === 'failed') {
+      stateBadge = `<span class="badge-pill" style="background: rgba(179, 64, 47, 0.15); color: #B3402F; border: 1px solid rgba(179, 64, 47, 0.35); font-size: 11px; font-weight: 800;" title="${escapeHtml(job.error_message || 'Gagal mengirim ke driver printer')}">❌ GAGAL</span>`;
+    } else if (st === 'cancelled') {
+      stateBadge = `<span class="badge-pill" style="background: rgba(120, 120, 120, 0.15); color: #777; border: 1px solid rgba(120, 120, 120, 0.35); font-size: 11px; font-weight: 800;">⚪ DIBATALKAN</span>`;
+    } else {
+      stateBadge = `<span class="badge-pill badge-active" style="font-size: 11px; font-weight: 800;">${st.toUpperCase()}</span>`;
+    }
+
+    const thumbUrl = job.media_url || '/assets/templates/strip-green-template.svg';
+
+    return `
+      <tr style="border-bottom: 1px solid var(--border-soft); transition: background 0.15s ease;" onmouseenter="this.style.background='rgba(230,120,107,0.03)'" onmouseleave="this.style.background='transparent'">
+        <td style="padding: 8px 14px; width: 75px;">
+          <div style="width: 44px; height: 58px; background: var(--cream-bg); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1.5px solid var(--border-soft); box-shadow: 0 2px 6px rgba(0,0,0,0.06); transition: transform 0.2s;" 
+               onmouseenter="this.style.transform='scale(1.08)'" onmouseleave="this.style.transform='scale(1)'"
+               onclick="openPhotoPreviewFromJob('${job.id}')" title="Klik untuk pratinjau foto ukuran penuh">
+            <img src="${thumbUrl}" onerror="this.src='/assets/templates/strip-green-template.svg'" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+          </div>
+        </td>
+        <td style="padding: 12px 14px;">
+          <code style="font-family: monospace; font-weight: 700; font-size: 12.5px; background: rgba(109,76,61,0.07); color: var(--caramel-brown); padding: 3px 6px; border-radius: 6px;">${job.id}</code>
+        </td>
+        <td style="padding: 12px 14px; font-family: monospace; font-size: 13px; color: var(--charcoal); font-weight: 600;">
+          ${job.spooler_job_id || '-'}
+        </td>
+        <td style="padding: 12px 14px; font-weight: 700; color: var(--caramel-brown); font-size: 13.5px;">
+          ${escapeHtml(job.event_name || 'Event Aktif')}
+        </td>
+        <td style="padding: 12px 14px; font-weight: 700; font-size: 13px;">
+          ${job.copies || 1} Lembar
+        </td>
+        <td style="padding: 12px 14px;">
+          ${stateBadge}
+        </td>
+        <td style="padding: 12px 14px; font-size: 12.5px; color: var(--text-muted); font-weight: 600;">
+          ${timeStr}
+        </td>
+        <td style="padding: 12px 14px; text-align: right;">
+          <div style="display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap;">
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewFromJob('${job.id}')" title="Pratinjau foto">👁️ Lihat</button>
+            <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})" title="Cetak ulang lembar ini">🖨️ Cetak</button>
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25);" onclick="deletePrintJob('${job.id}', event)" title="Hapus dari antrean">🗑️</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function updateTabPrintsTable(jobs) {
   const tbody = document.getElementById('printJobsTableBody');
   if (!tbody) return;
+
+  if (!jobs || jobs.length === 0) {
+    tbody.innerHTML = `
+      <tr style="border-bottom: 1px solid var(--border-soft);">
+        <td colspan="8" style="padding: 24px; text-align: center; color: var(--text-muted);">
+          Belum ada antrean cetak. Klik <strong>"Cetak Lembar Uji"</strong> di atas untuk uji cetak sesuai pengaturan printer.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = jobs.map(job => {
+    const timeStr = job.created_at ? new Date(job.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Baru saja';
+    let stateBadge = 'badge-active';
+    if (job.state === 'queued') stateBadge = 'badge-pending';
+    if (job.state === 'cancelled') stateBadge = 'badge-inactive';
+
+    const thumbUrl = job.media_url || '/assets/templates/strip-green-template.svg';
+
+    return `
+      <tr style="border-bottom: 1px solid var(--border-soft);">
+        <td style="padding: 8px 12px; width: 75px;">
+          <div style="width: 44px; height: 58px; background: var(--cream-bg); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1.5px solid var(--border-soft); box-shadow: 0 2px 6px rgba(0,0,0,0.06);" 
+               onclick="openPhotoPreviewFromJob('${job.id}')" title="Klik untuk melihat foto ukuran penuh & opsi cetak ulang">
+            <img src="${thumbUrl}" onerror="this.src='/assets/templates/strip-green-template.svg'" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+          </div>
+        </td>
+        <td style="padding: 12px; font-family: monospace; font-weight: 700; font-size: 13px;">${job.id}</td>
+        <td style="font-family: monospace; font-size: 13px; color: var(--charcoal); font-weight: 600;">${job.spooler_job_id || '-'}</td>
+        <td style="font-weight: 700; color: var(--caramel-brown);">${escapeHtml(job.event_name || 'Event Aktif')}</td>
+        <td>${job.copies || 1} Lembar</td>
+        <td><span class="badge-pill ${stateBadge}">${job.state ? job.state.toUpperCase() : 'COMPLETED'}</span></td>
+        <td>${timeStr}</td>
+        <td>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewFromJob('${job.id}')">👁️ Lihat</button>
+            <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})">🖨️ Cetak</button>
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25);" onclick="deletePrintJob('${job.id}', event)" title="Hapus dari antrean cetak">🗑️</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function clearCompletedPrintJobs() {
+  const confirmed = confirm('Bersihkan riwayat job yang berstatus SELESAI, GAGAL, atau DIBATALKAN?\n\nJob yang sedang antre atau diproses tidak akan dihapus.');
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch('/api/print-jobs/clear-completed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal membersihkan riwayat');
+    window.pbToast(`✅ ${data.message || 'Riwayat antrean cetak berhasil dibersihkan'}`, 'ok');
+    await loadPrintJobs();
+  } catch (err) {
+    window.pbToast(`Gagal: ${err.message}`, 'error');
+  }
+}
+
+async function loadPrintJobs(isUserTriggered = false) {
+  const refreshIcon = document.getElementById('pqRefreshIcon');
+  if (refreshIcon) refreshIcon.style.transform = 'rotate(360deg)';
 
   try {
     const res = await fetch('/api/print-jobs');
@@ -2687,51 +3093,23 @@ async function loadPrintJobs() {
     const jobs = await res.json();
     cachedPrintJobs = jobs || [];
 
-    if (!jobs || jobs.length === 0) {
-      tbody.innerHTML = `
-        <tr style="border-bottom: 1px solid var(--border-soft);">
-          <td colspan="8" style="padding: 24px; text-align: center; color: var(--text-muted);">
-            Belum ada antrean cetak. Klik <strong>"Cetak Lembar Uji"</strong> di atas untuk uji cetak sesuai pengaturan printer.
-          </td>
-        </tr>
-      `;
-      return;
+    updatePrintQueueStats(cachedPrintJobs);
+    renderPrintQueueTable();
+    renderActivePrintBanner(cachedPrintJobs);
+    updateTabPrintsTable(cachedPrintJobs);
+
+    if (isUserTriggered) {
+      window.pbToast('✅ Antrean cetak berhasil disegarkan', 'ok', 2000);
     }
-
-    tbody.innerHTML = jobs.map(job => {
-      const timeStr = job.created_at ? new Date(job.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Baru saja';
-      let stateBadge = 'badge-active';
-      if (job.state === 'queued') stateBadge = 'badge-pending';
-      if (job.state === 'cancelled') stateBadge = 'badge-inactive';
-
-      const thumbUrl = job.media_url || '/assets/templates/strip-green-template.svg';
-
-      return `
-        <tr style="border-bottom: 1px solid var(--border-soft);">
-          <td style="padding: 8px 12px; width: 75px;">
-            <div style="width: 44px; height: 58px; background: var(--cream-bg); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1.5px solid var(--border-soft); box-shadow: 0 2px 6px rgba(0,0,0,0.06);" 
-                 onclick="openPhotoPreviewFromJob('${job.id}')" title="Klik untuk melihat foto ukuran penuh & opsi cetak ulang">
-              <img src="${thumbUrl}" onerror="this.src='/assets/templates/strip-green-template.svg'" style="max-width: 100%; max-height: 100%; object-fit: contain;">
-            </div>
-          </td>
-          <td style="padding: 12px; font-family: monospace; font-weight: 700; font-size: 13px;">${job.id}</td>
-          <td style="font-family: monospace; font-size: 13px; color: var(--charcoal); font-weight: 600;">${job.spooler_job_id || '-'}</td>
-          <td style="font-weight: 700; color: var(--caramel-brown);">${escapeHtml(job.event_name || 'Event Aktif')}</td>
-          <td>${job.copies || 1} Lembar</td>
-          <td><span class="badge-pill ${stateBadge}">${job.state ? job.state.toUpperCase() : 'COMPLETED'}</span></td>
-          <td>${timeStr}</td>
-          <td>
-            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewFromJob('${job.id}')">👁️ Lihat</button>
-              <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})">🖨️ Cetak</button>
-              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25);" onclick="deletePrintJob('${job.id}', event)" title="Hapus dari antrean cetak">🗑️</button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
   } catch (err) {
     console.warn('loadPrintJobs error:', err);
+    if (isUserTriggered) {
+      window.pbToast(`Gagal menyegarkan antrean: ${err.message}`, 'error');
+    }
+  } finally {
+    if (refreshIcon) {
+      setTimeout(() => { refreshIcon.style.transform = 'none'; }, 400);
+    }
   }
 }
 
