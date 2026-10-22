@@ -169,18 +169,42 @@ export function composeTwoUp(pngBuffer) {
 
 /**
  * Hasilkan file lembar siap cetak sesuai opsi job.
- * Mengembalikan path file (file asli bila tidak perlu dikomposisi).
+ * Jika gambar berbentuk photo strip (rasio ~3:1) dan ukuran kertas yang dipilih
+ * adalah 4×6 (atau preset 2×6): otomatis susun 2 strip berdampingan menjadi
+ * lembar 1200×1800 px (300 DPI) agar mengisi 100% kertas 4×6 tanpa sisa putih di pinggir.
  */
 export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
-  const paper = resolvePaper(options.paperSize);
-  if (paper.layout !== '2up' || !/\.png$/i.test(srcPath)) return srcPath;
+  if (!srcPath || !/\.png$/i.test(srcPath) || !fs.existsSync(srcPath)) return srcPath;
 
-  const outPath = path.join(os.tmpdir(), `mafaza_sheet_${cacheKey}.png`);
+  const paper = resolvePaper(options.paperSize);
+  const is4x6Paper = Math.round(paper.widthIn) === 4 && Math.round(paper.heightIn) === 6;
+
   try {
+    const buf = fs.readFileSync(srcPath);
+    const img = decodePng(buf);
+    if (!img) return srcPath;
+
+    const isStrip = isStripShaped(img.width, img.height);
+    const shouldTwoUp = isStrip && (paper.layout === '2up' || is4x6Paper);
+
+    if (!shouldTwoUp) return srcPath;
+
+    const outPath = path.join(os.tmpdir(), `mafaza_sheet_${cacheKey}.png`);
     if (fs.existsSync(outPath) && fs.statSync(outPath).mtimeMs >= fs.statSync(srcPath).mtimeMs) {
       return outPath;
     }
-    const composed = composeTwoUp(fs.readFileSync(srcPath));
+
+    const { width, height, channels, data } = img;
+    const outW = width * 2;
+    const outStride = outW * channels;
+    const inStride = width * channels;
+    const out = Buffer.alloc(outStride * height);
+    for (let y = 0; y < height; y++) {
+      const src = data.subarray(y * inStride, (y + 1) * inStride);
+      src.copy(out, y * outStride);
+      src.copy(out, y * outStride + inStride);
+    }
+    const composed = encodePng({ width: outW, height, channels, data: out });
     fs.writeFileSync(outPath, composed);
     return outPath;
   } catch (e) {

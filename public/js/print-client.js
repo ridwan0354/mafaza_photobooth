@@ -97,13 +97,36 @@
       pageStyle.id = 'pbPageStyle';
       document.head.appendChild(pageStyle);
     }
-    pageStyle.textContent = `@media print { @page { size: ${paper.w}in ${paper.h}in; margin: 0; } html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; } }`;
+    pageStyle.textContent = `
+      @media print {
+        @page {
+          size: ${paper.w}in ${paper.h}in;
+          margin: 0 !important;
+        }
+        html, body {
+          width: ${paper.w}in !important;
+          height: ${paper.h}in !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: #fff !important;
+          overflow: hidden !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          color-adjust: exact !important;
+        }
+        #pbPrintPortal, #pbPrintPortal * {
+          visibility: visible !important;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      }
+    `;
 
     const total = Math.max(1, parseInt(copies, 10) || 1);
     const fit = paper.borderless ? 'cover' : 'contain';
     portal.innerHTML = Array.from({ length: total }).map(() => `
-      <div style="width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; page-break-after: always; break-after: page; overflow: hidden; background: #fff;">
-        <img src="${src}" style="width: 100%; height: 100%; object-fit: ${fit}; display: block;" />
+      <div style="width: ${paper.w}in; height: ${paper.h}in; max-width: ${paper.w}in; max-height: ${paper.h}in; page-break-after: always; break-after: page; overflow: hidden; margin: 0; padding: 0; display: block; background: #fff;">
+        <img src="${src}" style="width: 100%; height: 100%; object-fit: ${fit}; display: block; image-rendering: -webkit-optimize-contrast; image-rendering: high-quality;" />
       </div>
     `).join('');
     document.body.classList.add('pb-printing');
