@@ -370,22 +370,24 @@ try {
     $hmx = [double]$e.PageSettings.HardMarginX
     $hmy = [double]$e.PageSettings.HardMarginY
 
+    $srcRect = New-Object System.Drawing.Rectangle(0, 0, $img.Width, $img.Height)
     if ($borderless) {
-      # Bleed 2% untuk memastikan full bleed tanpa celah putih di pinggir kertas
-      $bleed = 1.025
+      $bleed = 1.01
       $ratio = [Math]::Max(($pw * $bleed) / $img.Width, ($ph * $bleed) / $img.Height)
       $w = $img.Width * $ratio
       $h = $img.Height * $ratio
       $x = (($pw - $w) / 2.0) - $hmx
       $y = (($ph - $h) / 2.0) - $hmy
-      $g.DrawImage($img, [single]$x, [single]$y, [single]$w, [single]$h)
+      $destRect = New-Object System.Drawing.RectangleF([single]$x, [single]$y, [single]$w, [single]$h)
+      $g.DrawImage($img, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
     } else {
       $ratio = [Math]::Min(($pw * 0.96) / $img.Width, ($ph * 0.96) / $img.Height)
       $w = $img.Width * $ratio
       $h = $img.Height * $ratio
       $x = ($pw - $w) / 2.0
       $y = (($ph - $h) / 2.0)
-      $g.DrawImage($img, [single]$x, [single]$y, [single]$w, [single]$h)
+      $destRect = New-Object System.Drawing.RectangleF([single]$x, [single]$y, [single]$w, [single]$h)
+      $g.DrawImage($img, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
     }
     $e.HasMorePages = $false
   })

@@ -738,8 +738,27 @@ CATATAN
   (Printer Preferences). Atur sekali ke "Photo Paper / Glossy" lalu simpan sebagai default.
 `.replace(/\n/g, '\r\n');
 
+    const configPrinterBat = `@echo off
+chcp 65001 >nul
+title Pengaturan Kertas Foto Epson 4R
+echo Membuka jendela pengaturan printer Epson Anda...
+powershell -NoProfile -Command "$prt = (Get-CimInstance Win32_Printer | Where-Object { $_.Name -match 'L8050|Epson' } | Select-Object -First 1).Name; if (-not $prt) { $prt = (Get-CimInstance Win32_Printer | Where-Object Default).Name }; if ($prt) { rundll32 printui.dll,PrintUIEntry /e /n \`"$prt\`" }"
+echo.
+echo ========================================================
+echo PETUNJUK PENGATURAN KERTAS FOTO 4R (102x152mm):
+echo Di jendela Epson yang baru terbuka:
+echo 1. Ukuran Dokumen: Pilih '10 x 15 cm (4 x 6 in)'
+echo 2. Beri Tanda Centang: 'Tanpa Tepi (Borderless)'
+echo 3. Tipe Kertas: Pilih 'Epson Premium Glossy' atau 'Ultra Glossy'
+echo 4. Kualitas: Pilih 'Tinggi (High)'
+echo 5. Klik 'Terapkan (Apply)' lalu 'OK'
+echo ========================================================
+pause
+`.replace(/\n/g, '\r\n');
+
     return createZipArchive([
       { name: 'Mafaza-Print-Agent.bat', content: startBat, executable: true },
+      { name: 'Atur-Kertas-Printer-Epson.bat', content: configPrinterBat, executable: true },
       { name: 'Pasang-Autostart-Windows.bat', content: autostartBat, executable: true },
       { name: 'mafaza-print-agent.mjs', content: agentScript, executable: false },
       { name: 'config.json', content: configJson, executable: false },
