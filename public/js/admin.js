@@ -2503,6 +2503,9 @@ async function loadRecentPhotos(filterEventId = null) {
                 <button class="btn btn-coral" style="flex: 1; padding: 6px 8px; font-size: 12px; font-weight: 700;" onclick="quickPrintPhoto('${photo.asset_id}', '${photo.print_job_id || ''}')">
                   🖨️ Cetak
                 </button>
+                <button class="btn btn-secondary" style="padding: 6px 9px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25);" onclick="deletePhoto('${photo.asset_id}', event)" title="Hapus foto ini secara permanen">
+                  🗑️
+                </button>
               </div>
             </div>
           `;
@@ -2721,6 +2724,7 @@ async function loadPrintJobs() {
             <div style="display: flex; gap: 6px; flex-wrap: wrap;">
               <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewFromJob('${job.id}')">👁️ Lihat</button>
               <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})">🖨️ Cetak</button>
+              <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25);" onclick="deletePrintJob('${job.id}', event)" title="Hapus dari antrean cetak">🗑️</button>
             </div>
           </td>
         </tr>
@@ -2752,6 +2756,100 @@ async function reprintJobById(jobId) {
   const copies = (job && job.copies) || 1;
   const thumbUrl = (job && job.media_url) || '/assets/templates/strip-green-template.svg';
   await directPrintJob(jobId, thumbUrl, copies);
+}
+
+// ==============================================================
+// PHOTO DELETION & PRINT QUEUE CLEANUP
+// ==============================================================
+async function deletePhoto(assetId, evt) {
+  if (evt && evt.stopPropagation) evt.stopPropagation();
+  if (!assetId) return;
+
+  const confirmed = confirm('Apakah Anda yakin ingin menghapus foto ini secara permanen?\n\nFile foto dan riwayat cetak terkait akan dihapus dari sistem.');
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/photos/${encodeURIComponent(assetId)}`, {
+      method: 'DELETE'
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal menghapus foto');
+
+    window.pbToast('✅ Foto berhasil dihapus secara permanen', 'ok');
+    if (activeModalPhoto && activeModalPhoto.asset_id === assetId) {
+      closePhotoPreviewModal();
+    }
+    await loadRecentPhotos();
+    await loadPrintJobs();
+  } catch (err) {
+    window.pbToast(`Gagal menghapus foto: ${err.message}`, 'error');
+  }
+}
+
+async function deleteActiveModalPhoto() {
+  if (!activeModalPhoto || !activeModalPhoto.asset_id) {
+    window.pbToast('ID foto tidak ditemukan', 'warn');
+    return;
+  }
+  await deletePhoto(activeModalPhoto.asset_id);
+}
+
+async function clearCurrentEventPhotos() {
+  const filterSelect = document.getElementById('galleryEventFilter');
+  const eventId = filterSelect ? filterSelect.value : '';
+  const currentEvent = (eventsList || []).find(e => e.id === eventId);
+  const eventName = currentEvent ? currentEvent.name : (eventId ? 'Event Terpilih' : null);
+
+  if (!eventId) {
+    window.pbToast('Pilih salah satu event terlebih dahulu dari dropdown filter untuk menghapus fotonya.', 'warn', 4000);
+    return;
+  }
+
+  const promptText = `PERINGATAN: Anda akan menghapus SELURUH foto untuk event "${eventName}".\n\nSemua file foto tamu, sesi Kiosk, dan antrean cetak untuk event ini akan dihapus permanen!\n\nKetik "HAPUS" untuk konfirmasi:`;
+  const userInput = prompt(promptText);
+  if (userInput !== 'HAPUS') {
+    if (userInput !== null) window.pbToast('Konfirmasi dibatalkan (kata kunci tidak cocok).', 'warn');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/photos/clear-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventId })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal menghapus foto event');
+
+    window.pbToast(`✅ ${data.message || 'Semua foto event berhasil dihapus'}`, 'ok', 4000);
+    closePhotoPreviewModal();
+    await loadRecentPhotos(eventId);
+    await loadPrintJobs();
+  } catch (err) {
+    window.pbToast(`Gagal: ${err.message}`, 'error');
+  }
+}
+
+async function deletePrintJob(jobId, evt) {
+  if (evt && evt.stopPropagation) evt.stopPropagation();
+  if (!jobId) return;
+
+  const confirmed = confirm(`Hapus item antrean cetak ${jobId}?`);
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/print-jobs/${encodeURIComponent(jobId)}`, {
+      method: 'DELETE'
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal menghapus antrean');
+
+    window.pbToast('✅ Item antrean cetak berhasil dihapus', 'ok');
+    await loadPrintJobs();
+    await loadRecentPhotos();
+  } catch (err) {
+    window.pbToast(`Gagal menghapus antrean: ${err.message}`, 'error');
+  }
 }
 
 async function uploadTransferProof() {

@@ -313,6 +313,9 @@
               <button class="btn btn-secondary" style="font-size: 13px; font-weight: 700; padding: 10px 16px; display: flex; align-items: center; gap: 6px; background: #fff;" onclick="filterGalleryByEvent()">
                 🔄 Segarkan Galeri
               </button>
+              <button class="btn btn-secondary" style="font-size: 13px; font-weight: 700; padding: 10px 14px; display: flex; align-items: center; gap: 6px; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.3);" onclick="clearCurrentEventPhotos()" title="Hapus seluruh foto untuk event yang sedang dipilih">
+                🗑️ Kosongkan Foto Event Ini
+              </button>
             </div>
           </div>
 
@@ -1361,6 +1364,9 @@
             <a id="modalBtnGallery" href="#" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center; text-decoration: none; padding: 11px; font-weight: 700; font-size: 14px; display: none; background: #fff;">
               📱 Buka Galeri HP Tamu ➔
             </a>
+            <button id="modalBtnDelete" type="button" class="btn btn-secondary" style="width: 100%; padding: 11px; font-weight: 800; font-size: 13.5px; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.35); margin-top: 4px;" onclick="deleteActiveModalPhoto()">
+              🗑️ Hapus Foto Ini Secara Permanen
+            </button>
           </div>
         </div>
       </div>
@@ -1369,6 +1375,6 @@
 
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/print-client.js?v=1.0"></script>
-  <script src="/js/admin.js?v=warm-retro-v3.7"></script>
+  <script src="/js/admin.js?v=warm-retro-v3.8"></script>
 </body>
 </html>

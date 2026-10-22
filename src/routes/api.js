@@ -895,6 +895,125 @@ apiRouter.post('/photos/:assetId/print', authMiddleware(), (req, res) => {
   }
 });
 
+function safelyDeleteUploadedFile(relPath) {
+  if (!relPath || typeof relPath !== 'string') return;
+  if (relPath.startsWith('/assets/') || relPath === '/uploads/test_print.png') return;
+  try {
+    const clean = relPath.replace(/^\/+/, '');
+    const absPath = path.join(process.cwd(), 'public', clean);
+    const pubUploads = path.join(process.cwd(), 'public', 'uploads');
+    if (absPath.startsWith(pubUploads) && fs.existsSync(absPath)) {
+      fs.unlinkSync(absPath);
+    }
+  } catch (err) {
+    console.warn('[DELETE_PHOTO] Gagal hapus file fisik:', relPath, err.message);
+  }
+}
+
+apiRouter.delete('/photos/:assetId', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const assetId = req.params.assetId;
+    const asset = db.prepare('SELECT * FROM media_assets WHERE id = ? AND tenant_id = ?').get(assetId, tenantId);
+    if (!asset) return res.status(404).json({ error: 'Foto tidak ditemukan' });
+
+    const sessionId = asset.photo_session_id;
+    let relatedAssets = [];
+    if (sessionId) {
+      relatedAssets = db.prepare('SELECT * FROM media_assets WHERE photo_session_id = ? AND tenant_id = ?').all(sessionId, tenantId);
+    } else {
+      relatedAssets = [asset];
+    }
+
+    for (const a of relatedAssets) {
+      safelyDeleteUploadedFile(a.file_path);
+    }
+
+    if (sessionId) {
+      try {
+        const caps = db.prepare('SELECT image_url FROM captures WHERE photo_session_id = ?').all(sessionId);
+        for (const c of caps) safelyDeleteUploadedFile(c.image_url);
+        db.prepare('DELETE FROM captures WHERE photo_session_id = ?').run(sessionId);
+      } catch (e) {}
+
+      db.prepare('DELETE FROM print_jobs WHERE photo_session_id = ?').run(sessionId);
+      db.prepare('DELETE FROM media_assets WHERE photo_session_id = ?').run(sessionId);
+      db.prepare('DELETE FROM photo_sessions WHERE id = ? AND tenant_id = ?').run(sessionId, tenantId);
+    } else {
+      db.prepare('DELETE FROM print_jobs WHERE media_asset_id = ?').run(asset.id);
+      db.prepare('DELETE FROM media_assets WHERE id = ?').run(asset.id);
+    }
+
+    auditService.logAudit(
+      tenantId,
+      req.user.userId,
+      req.user.name || 'Admin',
+      'DELETE_PHOTO',
+      { assetId, sessionId, file: asset.file_path },
+      req.ip
+    );
+
+    res.json({ success: true, message: 'Foto berhasil dihapus secara permanen' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/photos/clear-event', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const eventId = req.body.eventId;
+    if (!eventId) return res.status(400).json({ error: 'ID Event wajib disertakan' });
+
+    const ev = db.prepare('SELECT * FROM events WHERE id = ? AND tenant_id = ?').get(eventId, tenantId);
+    if (!ev) return res.status(404).json({ error: 'Event tidak ditemukan' });
+
+    const assets = db.prepare('SELECT file_path FROM media_assets WHERE event_id = ? AND tenant_id = ?').all(eventId, tenantId);
+    for (const a of assets) {
+      safelyDeleteUploadedFile(a.file_path);
+    }
+
+    const sessions = db.prepare('SELECT id FROM photo_sessions WHERE event_id = ? AND tenant_id = ?').all(eventId, tenantId);
+    for (const s of sessions) {
+      try {
+        const caps = db.prepare('SELECT image_url FROM captures WHERE photo_session_id = ?').all(s.id);
+        for (const c of caps) safelyDeleteUploadedFile(c.image_url);
+        db.prepare('DELETE FROM captures WHERE photo_session_id = ?').run(s.id);
+      } catch (e) {}
+    }
+
+    db.prepare('DELETE FROM print_jobs WHERE event_id = ? AND tenant_id = ?').run(eventId, tenantId);
+    db.prepare('DELETE FROM media_assets WHERE event_id = ? AND tenant_id = ?').run(eventId, tenantId);
+    const delCount = db.prepare('DELETE FROM photo_sessions WHERE event_id = ? AND tenant_id = ?').run(eventId, tenantId);
+
+    auditService.logAudit(
+      tenantId,
+      req.user.userId,
+      req.user.name || 'Admin',
+      'CLEAR_EVENT_PHOTOS',
+      { eventId, eventName: ev.name, deletedSessions: delCount.changes },
+      req.ip
+    );
+
+    res.json({ success: true, message: `Semua foto event "${ev.name}" berhasil dihapus (${delCount.changes} sesi)` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.delete('/print-jobs/:id', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const job = db.prepare('SELECT * FROM print_jobs WHERE id = ? AND tenant_id = ?').get(req.params.id, tenantId);
+    if (!job) return res.status(404).json({ error: 'Item antrean cetak tidak ditemukan' });
+
+    db.prepare('DELETE FROM print_jobs WHERE id = ? AND tenant_id = ?').run(req.params.id, tenantId);
+    res.json({ success: true, message: 'Item antrean cetak berhasil dihapus' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Preflight hardware test
 apiRouter.get('/operator/preflight', authMiddleware(), (req, res) => {
   const profile = db.prepare('SELECT * FROM printer_profiles WHERE tenant_id = ? AND is_default = 1').get(req.user.tenantId);
