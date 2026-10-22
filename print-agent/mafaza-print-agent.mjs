@@ -189,7 +189,7 @@ function pickPageSize(option, options) {
     new RegExp(`(^|[^0-9])${wi}\\s*x\\s*${hi}(?![0-9.])`, 'i'),
     new RegExp(`^w${Math.round(w * 72)}h${Math.round(h * 72)}`, 'i')
   ];
-  if (wi === 4 && hi === 6) matchers.push(/10\s*x\s*15\s*cm|100\s*x\s*150\s*mm/i);
+  if (wi === 4 && hi === 6) matchers.push(/10\s*x\s*15\s*cm|100\s*x\s*150\s*mm|102\s*x\s*152\s*mm|4r\b/i);
   if (wi === 5 && hi === 7) matchers.push(/13\s*x\s*18\s*cm|127\s*x\s*178\s*mm/i);
   if (options.paperSize === 'A4') matchers.push(/^a4(\.|$)/i, /\ba4\b/i);
 
@@ -328,9 +328,10 @@ try {
 
   $matchingPapers = @()
   foreach ($ps in $doc.PrinterSettings.PaperSizes) {
-    $okNormal = ([math]::Abs($ps.Width - $wIn * 100) -le 15) -and ([math]::Abs($ps.Height - $hIn * 100) -le 15)
-    $okSwap   = ([math]::Abs($ps.Width - $hIn * 100) -le 15) -and ([math]::Abs($ps.Height - $wIn * 100) -le 15)
-    if ($okNormal -or $okSwap) { $matchingPapers += $ps }
+    $okNormal = ([math]::Abs($ps.Width - $wIn * 100) -le 18) -and ([math]::Abs($ps.Height - $hIn * 100) -le 18)
+    $okSwap   = ([math]::Abs($ps.Width - $hIn * 100) -le 18) -and ([math]::Abs($ps.Height - $wIn * 100) -le 18)
+    $okName   = ($ps.PaperName -match '4\s*x\s*6|10\s*x\s*15|102\s*x\s*152|4r\b')
+    if ($okNormal -or $okSwap -or ($wIn -eq 4 -and $okName)) { $matchingPapers += $ps }
   }
 
   $paper = $null

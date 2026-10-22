@@ -11,8 +11,8 @@ import path from 'node:path';
 
 // Peta ukuran kertas pengaturan -> ukuran fisik kertas (inch) & tata letak
 export const PAPER_PRESETS = {
-  '2x6': { widthIn: 4, heightIn: 6, layout: '2up', label: 'Kertas 4×6 (2 strip 2×6 per lembar)' },
-  '4x6': { widthIn: 4, heightIn: 6, layout: 'single', label: 'Kertas 4×6' },
+  '2x6': { widthIn: 4, heightIn: 6, layout: '2up', label: 'Photo Strip 2×6 inch (2 strip per lembar kertas 4R / 102×152 mm)' },
+  '4x6': { widthIn: 4, heightIn: 6, layout: 'single', label: 'Photo 4R (102×152 mm / 4×6 inch Postcard)' },
   '5x7': { widthIn: 5, heightIn: 7, layout: 'single', label: 'Kertas 5×7' },
   '6x8': { widthIn: 6, heightIn: 8, layout: 'single', label: 'Kertas 6×8' },
   'A4': { widthIn: 8.27, heightIn: 11.69, layout: 'single', label: 'Kertas A4' }
