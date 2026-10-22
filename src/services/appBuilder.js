@@ -742,7 +742,10 @@ CATATAN
 chcp 65001 >nul
 title Pengaturan Kertas Foto Epson 4R
 echo Membuka jendela pengaturan printer Epson Anda...
-powershell -NoProfile -Command "$prt = (Get-CimInstance Win32_Printer | Where-Object { $_.Name -match 'L8050|Epson' } | Select-Object -First 1).Name; if (-not $prt) { $prt = (Get-CimInstance Win32_Printer | Where-Object Default).Name }; if ($prt) { rundll32 printui.dll,PrintUIEntry /e /n \`"$prt\`" }"
+start "" rundll32.exe printui.dll,PrintUIEntry /e /n "EPSON L8050 Series" 2>nul
+start "" rundll32.exe printui.dll,PrintUIEntry /e /n "Epson L8050 Series" 2>nul
+start "" rundll32.exe printui.dll,PrintUIEntry /e /n "EPSON L8050 Series (6-Color EcoTank Photo Printer)" 2>nul
+control printers 2>nul
 echo.
 echo ========================================================
 echo PETUNJUK PENGATURAN KERTAS FOTO 4R (102x152mm):
