@@ -124,22 +124,13 @@
 
     const total = Math.max(1, parseInt(copies, 10) || 1);
     const fit = paper.borderless ? 'cover' : 'contain';
+    const imgStyle = 'display: block; width: 100%; height: 100%; object-fit: ' + fit + '; image-rendering: -webkit-optimize-contrast; image-rendering: high-quality;';
 
-    // Driver Epson di macOS memperbesar cetakan "(Tanpa Tepi)" sebesar 6% (cupsBorderlessScalingFactor 1.06)
-    // sehingga tepi foto terpotong. Kompensasi: kecilkan gambar utama 1/1.06 di tengah halaman, dan isi
-    // sisanya dengan gambar yang sama (cover) agar tidak ada garis putih saat driver memperbesar.
-    const isMac = /Mac/i.test(navigator.platform || '') && !/iPhone|iPad/i.test(navigator.userAgent || '');
-    const compensate = paper.borderless && isMac;
-    const imgStyle = 'display: block; image-rendering: -webkit-optimize-contrast; image-rendering: high-quality;';
-
-    portal.innerHTML = Array.from({ length: total }).map(() => compensate ? `
-      <div style="width: ${paper.w}in; height: ${paper.h}in; max-width: ${paper.w}in; max-height: ${paper.h}in; page-break-after: always; break-after: page; overflow: hidden; margin: 0; padding: 0; position: relative; background: #fff;">
-        <img src="${src}" style="position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; ${imgStyle}" />
-        <img src="${src}" style="position: absolute; left: 50%; top: 50%; width: ${(100 / 1.06).toFixed(3)}%; height: ${(100 / 1.06).toFixed(3)}%; transform: translate(-50%, -50%); object-fit: cover; ${imgStyle}" />
-      </div>
-    ` : `
+    // File lembar cetak (sheetUrl) sudah secara otomatis diberi Auto Safe Margin (94%) dan edge-clamping 300 DPI
+    // di server, sehingga teks dan objek di tepi aman dari hardware bleed printer Epson (Mac & Windows).
+    portal.innerHTML = Array.from({ length: total }).map(() => `
       <div style="width: ${paper.w}in; height: ${paper.h}in; max-width: ${paper.w}in; max-height: ${paper.h}in; page-break-after: always; break-after: page; overflow: hidden; margin: 0; padding: 0; display: block; background: #fff;">
-        <img src="${src}" style="width: 100%; height: 100%; object-fit: ${fit}; ${imgStyle}" />
+        <img src="${src}" style="${imgStyle}" />
       </div>
     `).join('');
     document.body.classList.add('pb-printing');

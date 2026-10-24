@@ -177,10 +177,59 @@ export function composeTwoUp(pngBuffer) {
 }
 
 /**
+ * Terapkan Auto Safe Margin dengan edge clamping (ekstensi warna tepi).
+ * Gambar utama diskalakan (mis. 94%) ke tengah kanvas lembar cetak 300 DPI.
+ * Area pinggir (bleed zone) diisi dengan warna tepi asli gambar (clamp).
+ * Sehingga teks/objek di tepi (seperti "FAS 2025" atau kaki karakter) aman dari
+ * pemotongan mekanis hardware printer Epson (1.5 - 3 mm bleed) tanpa meninggalkan garis putih.
+ */
+export function applySafeMargin(img, targetW = 1200, targetH = 1800, scale = 0.94) {
+  const { width: srcW, height: srcH, channels, data: srcData } = img;
+  const clampedScale = Math.max(0.85, Math.min(1.0, scale));
+  const innerW = Math.round(targetW * clampedScale);
+  const innerH = Math.round(targetH * clampedScale);
+  const offX = Math.floor((targetW - innerW) / 2);
+  const offY = Math.floor((targetH - innerH) / 2);
+  const outData = Buffer.alloc(targetW * targetH * channels);
+
+  for (let y = 0; y < targetH; y++) {
+    const sy = y < offY ? 0 : (y >= offY + innerH ? srcH - 1 : ((y - offY) / innerH) * srcH);
+    const y0 = Math.floor(sy);
+    const y1 = Math.min(srcH - 1, y0 + 1);
+    const wy = sy - y0;
+    const row0Offset = y0 * srcW * channels;
+    const row1Offset = y1 * srcW * channels;
+    const outRowOffset = y * targetW * channels;
+
+    for (let x = 0; x < targetW; x++) {
+      const sx = x < offX ? 0 : (x >= offX + innerW ? srcW - 1 : ((x - offX) / innerW) * srcW);
+      const x0 = Math.floor(sx);
+      const x1 = Math.min(srcW - 1, x0 + 1);
+      const wx = sx - x0;
+
+      const x0Idx0 = row0Offset + x0 * channels;
+      const x1Idx0 = row0Offset + x1 * channels;
+      const x0Idx1 = row1Offset + x0 * channels;
+      const x1Idx1 = row1Offset + x1 * channels;
+      const outIdx = outRowOffset + x * channels;
+
+      for (let c = 0; c < channels; c++) {
+        const top = srcData[x0Idx0 + c] * (1 - wx) + srcData[x1Idx0 + c] * wx;
+        const bot = srcData[x0Idx1 + c] * (1 - wx) + srcData[x1Idx1 + c] * wx;
+        outData[outIdx + c] = ((top * (1 - wy) + bot * wy) + 0.5) | 0;
+      }
+    }
+  }
+
+  return { width: targetW, height: targetH, channels, data: outData };
+}
+
+/**
  * Hasilkan file lembar siap cetak sesuai opsi job.
- * Jika gambar berbentuk photo strip (rasio ~3:1) dan ukuran kertas yang dipilih
- * adalah 4×6 (atau preset 2×6): otomatis susun 2 strip berdampingan menjadi
- * lembar 1200×1800 px (300 DPI) agar mengisi 100% kertas 4×6 tanpa sisa putih di pinggir.
+ * 1) Jika strip 2x6: otomatis susun 2 strip berdampingan di kertas 4x6 (1200x1800).
+ * 2) Terapkan Auto Safe Margin (94%) dengan ekstensi warna tepi agar teks & objek
+ *    di pinggir (mis. "FAS 2025") tidak terpotong oleh hardware bleed printer Epson.
+ * File asli digital di /uploads tetap 100% utuh tanpa margin.
  */
 export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
   if (!srcPath || !/\.png$/i.test(srcPath) || !fs.existsSync(srcPath)) return srcPath;
@@ -196,27 +245,45 @@ export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
     const isStrip = isStripShaped(img.width, img.height);
     const shouldTwoUp = isStrip && (paper.layout === '2up' || is4x6Paper);
 
-    if (!shouldTwoUp) return srcPath;
+    const targetW = Math.round((paper.widthIn || 4) * 300);
+    const targetH = Math.round((paper.heightIn || 6) * 300);
+    const isBorderless = options.borderless !== false;
 
     const outPath = path.join(os.tmpdir(), `mafaza_sheet_${cacheKey}.png`);
     if (fs.existsSync(outPath) && fs.statSync(outPath).mtimeMs >= fs.statSync(srcPath).mtimeMs) {
       return outPath;
     }
 
-    const { width, height, channels, data } = img;
-    const outW = width * 2;
-    const outStride = outW * channels;
-    const inStride = width * channels;
-    const out = Buffer.alloc(outStride * height);
-    for (let y = 0; y < height; y++) {
-      const src = data.subarray(y * inStride, (y + 1) * inStride);
-      src.copy(out, y * outStride);
-      src.copy(out, y * outStride + inStride);
+    let baseImg = img;
+
+    // Jika format photo strip: susun 2 strip berdampingan terlebih dahulu
+    if (shouldTwoUp) {
+      const { width, height, channels, data } = img;
+      const outW = width * 2;
+      const outStride = outW * channels;
+      const inStride = width * channels;
+      const out = Buffer.alloc(outStride * height);
+      for (let y = 0; y < height; y++) {
+        const src = data.subarray(y * inStride, (y + 1) * inStride);
+        src.copy(out, y * outStride);
+        src.copy(out, y * outStride + inStride);
+      }
+      baseImg = { width: outW, height, channels, data: out };
     }
-    const composed = encodePng({ width: outW, height, channels, data: out });
+
+    // Terapkan Auto Safe Margin dengan edge-clamping agar teks & objek di tepi tidak terpotong hardware bleed printer
+    let finalImg = baseImg;
+    if (isBorderless) {
+      finalImg = applySafeMargin(baseImg, targetW, targetH, 0.94);
+    } else if (baseImg.width !== targetW || baseImg.height !== targetH) {
+      finalImg = applySafeMargin(baseImg, targetW, targetH, 1.0);
+    }
+
+    const composed = encodePng(finalImg);
     fs.writeFileSync(outPath, composed);
     return outPath;
   } catch (e) {
+    console.warn('buildPrintSheetFile error:', e);
     return srcPath;
   }
 }
