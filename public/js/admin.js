@@ -2251,18 +2251,19 @@ function updateSafeMarginDisplay(val) {
   const badge = document.getElementById('prtSafeMarginValueBadge');
   if (!badge) return;
   const num = parseInt(val, 10) || 90;
+  badge.style.color = '#ffffff';
   if (num >= 98) {
     badge.textContent = `${num}% (Penuh 100% - Tanpa Jarak Tambahan)`;
-    badge.style.background = '#777';
+    badge.style.background = '#6c757d';
   } else if (num >= 93) {
     badge.textContent = `${num}% (Jarak Aman Sedang ~5 mm)`;
     badge.style.background = '#27ae60';
   } else if (num >= 88) {
     badge.textContent = `${num}% (Jarak Aman ~8 mm - Rekomendasi Bebas Terpotong)`;
-    badge.style.background = 'var(--coral-pink)';
+    badge.style.background = '#E6786B';
   } else {
     badge.textContent = `${num}% (Jarak Aman Maksimal ~12 mm)`;
-    badge.style.background = '#b3402f';
+    badge.style.background = '#B3402F';
   }
 }
 
