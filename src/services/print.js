@@ -253,7 +253,8 @@ const DEFAULT_PRINT_SETTINGS = {
   mode: 'manual',
   maxCopies: 2,
   borderless: true,
-  highDpi: true
+  highDpi: true,
+  safeMargin: 90
 };
 
 function parseJson(text, fallback) {
@@ -267,12 +268,15 @@ function parseJson(text, fallback) {
 
 export function normalizePrintSettings(input = {}) {
   const merged = { ...DEFAULT_PRINT_SETTINGS, ...(input || {}) };
+  const rawMargin = parseInt(merged.safeMargin, 10);
+  const safeMargin = Number.isFinite(rawMargin) ? Math.min(100, Math.max(80, rawMargin)) : 90;
   return {
     paperSize: String(merged.paperSize || DEFAULT_PRINT_SETTINGS.paperSize),
     mode: merged.mode === 'auto' ? 'auto' : 'manual',
     maxCopies: Math.min(10, Math.max(1, parseInt(merged.maxCopies, 10) || DEFAULT_PRINT_SETTINGS.maxCopies)),
     borderless: merged.borderless !== false && merged.borderless !== 'false',
-    highDpi: merged.highDpi !== false && merged.highDpi !== 'false'
+    highDpi: merged.highDpi !== false && merged.highDpi !== 'false',
+    safeMargin
   };
 }
 
@@ -364,6 +368,7 @@ export function buildPrintOptions(tenantId, copies = 1) {
     layout: paper.layout,
     borderless: settings.borderless,
     highDpi: settings.highDpi,
+    safeMargin: settings.safeMargin,
     copies
   };
 }

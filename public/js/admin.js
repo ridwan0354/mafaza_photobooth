@@ -2126,6 +2126,13 @@ async function loadSystemPrinters(isUserTriggered = false) {
       const prtHighDpi = document.getElementById('prtHighDpi');
       if (prtHighDpi) prtHighDpi.checked = localSettings.highDpi;
     }
+    if (localSettings.safeMargin !== undefined) {
+      const prtSafeMargin = document.getElementById('prtSafeMargin');
+      if (prtSafeMargin) prtSafeMargin.value = localSettings.safeMargin;
+      updateSafeMarginDisplay(localSettings.safeMargin);
+    } else {
+      updateSafeMarginDisplay(90);
+    }
 
     const savedMediaType = savedProfile?.media_type || localSettings.mediaType || null;
     await loadMediaTypesForPrinter(activeModel, savedMediaType);
@@ -2240,6 +2247,25 @@ function handlePrinterModelChange() {
   loadMediaTypesForPrinter(chosen);
 }
 
+function updateSafeMarginDisplay(val) {
+  const badge = document.getElementById('prtSafeMarginValueBadge');
+  if (!badge) return;
+  const num = parseInt(val, 10) || 90;
+  if (num >= 98) {
+    badge.textContent = `${num}% (Penuh 100% - Tanpa Jarak Tambahan)`;
+    badge.style.background = '#777';
+  } else if (num >= 93) {
+    badge.textContent = `${num}% (Jarak Aman Sedang ~5 mm)`;
+    badge.style.background = '#27ae60';
+  } else if (num >= 88) {
+    badge.textContent = `${num}% (Jarak Aman ~8 mm - Rekomendasi Bebas Terpotong)`;
+    badge.style.background = 'var(--coral-pink)';
+  } else {
+    badge.textContent = `${num}% (Jarak Aman Maksimal ~12 mm)`;
+    badge.style.background = '#b3402f';
+  }
+}
+
 async function savePrinterSettings() {
   const modelSelect = document.getElementById('prtModel');
   const customInput = document.getElementById('customPrinterName');
@@ -2274,6 +2300,7 @@ async function savePrinterSettings() {
   const maxCopies = document.getElementById('prtMaxCopies')?.value || '2';
   const borderless = !!document.getElementById('prtBorderless')?.checked;
   const highDpi = !!document.getElementById('prtHighDpi')?.checked;
+  const safeMargin = parseInt(document.getElementById('prtSafeMargin')?.value, 10) || 90;
 
   try {
     const matchedSys = currentSystemPrinters.find(p => p.name === chosenModel || p.id === chosenModel);
@@ -2293,7 +2320,8 @@ async function savePrinterSettings() {
           mode: mode,
           maxCopies: parseInt(maxCopies, 10) || 2,
           borderless: borderless,
-          highDpi: highDpi
+          highDpi: highDpi,
+          safeMargin: safeMargin
         }
       })
     });
@@ -2310,10 +2338,11 @@ async function savePrinterSettings() {
       mode: mode,
       maxCopies: maxCopies,
       borderless: borderless,
-      highDpi: highDpi
+      highDpi: highDpi,
+      safeMargin: safeMargin
     }));
 
-    alert(`✅ Pengaturan Printer Berhasil Disimpan!\n\n• Printer: ${chosenModel}\n• Jenis Kertas: ${chosenMediaLabel}\n• Ukuran Kertas: ${paper}\n• Mode Eksekusi: ${mode === 'auto' ? 'Otomatis Langsung Cetak' : 'Manual Pilihan Tamu'}\n• Maksimal: ${maxCopies} Lembar\n• Borderless: ${borderless ? 'Aktif' : 'Nonaktif'}\n• Kualitas: ${highDpi ? '300 DPI' : 'Standard'}\n\nSpooler siap memproses antrean cetak!`);
+    alert(`✅ Pengaturan Printer Berhasil Disimpan!\n\n• Printer: ${chosenModel}\n• Jenis Kertas: ${chosenMediaLabel}\n• Ukuran Kertas: ${paper}\n• Mode Eksekusi: ${mode === 'auto' ? 'Otomatis Langsung Cetak' : 'Manual Pilihan Tamu'}\n• Maksimal: ${maxCopies} Lembar\n• Borderless: ${borderless ? 'Aktif' : 'Nonaktif'}\n• Kualitas: ${highDpi ? '300 DPI' : 'Standard'}\n• Jarak Aman Cetak: ${safeMargin}%\n\nSpooler siap memproses antrean cetak!`);
   } catch (err) {
     alert(`Gagal menyimpan pengaturan printer: ${err.message}`);
   }

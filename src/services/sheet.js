@@ -178,18 +178,19 @@ export function composeTwoUp(pngBuffer) {
 
 /**
  * Terapkan Auto Safe Margin dengan edge clamping (ekstensi warna tepi).
- * Gambar utama diskalakan (mis. 94%) ke tengah kanvas lembar cetak 300 DPI.
+ * Gambar utama diskalakan (mis. 90%) ke tengah kanvas lembar cetak 300 DPI.
+ * Pembagian vertikal 40% atas & 60% bawah mengimbangi toleransi roller keluar (trailing edge)
+ * printer Epson di bagian bawah kertas sehingga kaki karakter & teks atas sama-sama aman.
  * Area pinggir (bleed zone) diisi dengan warna tepi asli gambar (clamp).
- * Sehingga teks/objek di tepi (seperti "FAS 2025" atau kaki karakter) aman dari
- * pemotongan mekanis hardware printer Epson (1.5 - 3 mm bleed) tanpa meninggalkan garis putih.
  */
-export function applySafeMargin(img, targetW = 1200, targetH = 1800, scale = 0.94) {
+export function applySafeMargin(img, targetW = 1200, targetH = 1800, scale = 0.90) {
   const { width: srcW, height: srcH, channels, data: srcData } = img;
-  const clampedScale = Math.max(0.85, Math.min(1.0, scale));
+  const clampedScale = Math.max(0.75, Math.min(1.0, scale));
   const innerW = Math.round(targetW * clampedScale);
   const innerH = Math.round(targetH * clampedScale);
   const offX = Math.floor((targetW - innerW) / 2);
-  const offY = Math.floor((targetH - innerH) / 2);
+  const totalYPad = targetH - innerH;
+  const offY = Math.floor(totalYPad * 0.40);
   const outData = Buffer.alloc(targetW * targetH * channels);
 
   for (let y = 0; y < targetH; y++) {
@@ -227,8 +228,8 @@ export function applySafeMargin(img, targetW = 1200, targetH = 1800, scale = 0.9
 /**
  * Hasilkan file lembar siap cetak sesuai opsi job.
  * 1) Jika strip 2x6: otomatis susun 2 strip berdampingan di kertas 4x6 (1200x1800).
- * 2) Terapkan Auto Safe Margin (94%) dengan ekstensi warna tepi agar teks & objek
- *    di pinggir (mis. "FAS 2025") tidak terpotong oleh hardware bleed printer Epson.
+ * 2) Terapkan Auto Safe Margin kustom pengguna dengan ekstensi warna tepi agar teks & objek
+ *    di pinggir tidak terpotong oleh hardware bleed printer Epson.
  * File asli digital di /uploads tetap 100% utuh tanpa margin.
  */
 export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
@@ -249,7 +250,14 @@ export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
     const targetH = Math.round((paper.heightIn || 6) * 300);
     const isBorderless = options.borderless !== false;
 
-    const outPath = path.join(os.tmpdir(), `mafaza_sheet_${cacheKey}.png`);
+    // Skala margin kustom dari pengaturan printer (default 90%)
+    const rawMargin = typeof options.safeMargin === 'number' ? options.safeMargin : parseInt(options.safeMargin, 10);
+    const scale = (Number.isFinite(rawMargin) && rawMargin >= 75 && rawMargin <= 100)
+      ? rawMargin / 100
+      : 0.90;
+
+    const marginKey = Math.round(scale * 100);
+    const outPath = path.join(os.tmpdir(), `mafaza_sheet_${cacheKey}_m${marginKey}.png`);
     if (fs.existsSync(outPath) && fs.statSync(outPath).mtimeMs >= fs.statSync(srcPath).mtimeMs) {
       return outPath;
     }
@@ -274,7 +282,7 @@ export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
     // Terapkan Auto Safe Margin dengan edge-clamping agar teks & objek di tepi tidak terpotong hardware bleed printer
     let finalImg = baseImg;
     if (isBorderless) {
-      finalImg = applySafeMargin(baseImg, targetW, targetH, 0.94);
+      finalImg = applySafeMargin(baseImg, targetW, targetH, scale);
     } else if (baseImg.width !== targetW || baseImg.height !== targetH) {
       finalImg = applySafeMargin(baseImg, targetW, targetH, 1.0);
     }
