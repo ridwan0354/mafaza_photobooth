@@ -550,6 +550,11 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
           if (options.borderless) {
             lpArgs.push('-o', 'EPIJ_Bdls=1', '-o', 'EPIJ_exmg=0');
           }
+          if (options.highDpi) {
+            lpArgs.push('-o', 'EPIJ_Qual=306', '-o', 'Resolution=720x720dpi', '-o', 'EPIJ_Mode=3', '-o', 'EPIJ_OPT_Bi_D=0', '-o', 'print-quality=5');
+          } else {
+            lpArgs.push('-o', 'EPIJ_Qual=303', '-o', 'Resolution=360x360dpi', '-o', 'EPIJ_OPT_Bi_D=1', '-o', 'print-quality=3');
+          }
           lpArgs.push(printFilePath);
 
           // On macOS, launch Print Center.app in background (-g) so the top-right Menu Bar printer status icon appears

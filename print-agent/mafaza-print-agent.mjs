@@ -268,7 +268,7 @@ async function printUnix(file, job, printer) {
     notes.push('borderless=on');
   }
 
-  // 4) Kualitas tinggi
+  // 4) Kualitas cetak (Tinggi vs Standar)
   if (o.highDpi) {
     if (lpOpts.EPIJ_Qual) {
       args.push('-o', 'EPIJ_Qual=306');
@@ -281,14 +281,38 @@ async function printUnix(file, job, printer) {
           args.push('-o', `${found[0]}=${best.key}`);
           notes.push(`kualitas=${best.label}`);
         }
-      } else if (lpOpts.Resolution) {
-        const dpi = lpOpts.Resolution.choices
-          .map((c) => ({ c, n: parseInt(c.key, 10) || 0 }))
-          .sort((x, y) => y.n - x.n)[0];
-        if (dpi && dpi.n) args.push('-o', `Resolution=${dpi.c.key}`);
       }
     }
+    if (lpOpts.Resolution) {
+      const dpi = lpOpts.Resolution.choices
+        .map((c) => ({ c, n: parseInt(c.key, 10) || 0 }))
+        .sort((x, y) => y.n - x.n)[0];
+      if (dpi && dpi.c) {
+        args.push('-o', `Resolution=${dpi.c.key}`);
+        notes.push(`resolusi=${dpi.c.key}`);
+      }
+    }
+    if (lpOpts.EPIJ_Mode) {
+      args.push('-o', 'EPIJ_Mode=3'); // Mode Foto
+    }
+    // Cetak satu arah (Uni-directional): proses lebih lama, semprotan tinta lebih rapat, hasil warna jernih & pekat
+    if (lpOpts.EPIJ_OPT_Bi_D) {
+      args.push('-o', 'EPIJ_OPT_Bi_D=0');
+      notes.push('kecepatan=Satu Arah (Halus & Jernih)');
+    }
     args.push('-o', 'print-quality=5');
+  } else {
+    if (lpOpts.EPIJ_Qual) {
+      args.push('-o', 'EPIJ_Qual=303');
+      notes.push('kualitas=Standar (303)');
+    }
+    if (lpOpts.Resolution) {
+      args.push('-o', 'Resolution=360x360dpi');
+    }
+    if (lpOpts.EPIJ_OPT_Bi_D) {
+      args.push('-o', 'EPIJ_OPT_Bi_D=1'); // Dua arah (cepat)
+    }
+    args.push('-o', 'print-quality=3');
   }
 
   args.push(file);
