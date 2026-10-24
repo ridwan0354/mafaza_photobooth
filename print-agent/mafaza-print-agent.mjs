@@ -259,7 +259,7 @@ async function printUnix(file, job, printer) {
   // 3) Borderless:
   if (o.borderless) {
     if (lpOpts.EPIJ_Bdls) args.push('-o', 'EPIJ_Bdls=1');
-    if (lpOpts.EPIJ_exmg) args.push('-o', 'EPIJ_exmg=2');
+    if (lpOpts.EPIJ_exmg) args.push('-o', 'EPIJ_exmg=0'); // 0 = Min (cegah foto terpotong akibat over-expansion)
     const found = findOptionByLabel(lpOpts, /borderless|tanpa\s*tepi/i);
     if (found && found[0] !== 'EPIJ_Bdls') {
       const on = found[1].choices.find((c) => /^(true|on|yes|1)$/i.test(c.key) || /^on$/i.test(c.label));

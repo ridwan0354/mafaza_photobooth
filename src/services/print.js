@@ -547,6 +547,9 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
           if (mediaType && mediaType !== 'auto' && mediaType !== 'any') {
             lpArgs.push('-o', `MediaType=${mediaType}`);
           }
+          if (options.borderless) {
+            lpArgs.push('-o', 'EPIJ_Bdls=1', '-o', 'EPIJ_exmg=0');
+          }
           lpArgs.push(printFilePath);
 
           // On macOS, launch Print Center.app in background (-g) so the top-right Menu Bar printer status icon appears
