@@ -2582,7 +2582,7 @@ async function loadRecentPhotos(filterEventId = null) {
                 <button class="btn btn-secondary" style="flex: 1; padding: 7px 10px; font-size: 12.5px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewByIndex(${idx})">
                   👁️ Lihat
                 </button>
-                <button class="btn btn-coral" style="flex: 1; padding: 7px 10px; font-size: 12.5px; font-weight: 700;" onclick="quickPrintPhoto('${photo.asset_id}', '${photo.print_job_id || ''}')">
+                <button class="btn btn-coral" style="flex: 1; padding: 7px 10px; font-size: 12.5px; font-weight: 700;" onclick="promptQuickPrint(${idx})">
                   🖨️ Cetak
                 </button>
               </div>
@@ -2834,7 +2834,137 @@ async function executeModalReprint() {
   }
 }
 
+let pendingQuickPrintPhoto = null;
+
+function promptQuickPrint(index) {
+  const photo = cachedRecentPhotos[index];
+  if (!photo) return;
+  pendingQuickPrintPhoto = photo;
+
+  const modal = document.getElementById('quickPrintModal');
+  if (!modal) return;
+
+  const thumbImg = document.getElementById('quickPrintThumbImg');
+  const sessLabel = document.getElementById('quickPrintSessionLabel');
+  const timeLabel = document.getElementById('quickPrintTimeLabel');
+  const historyBadge = document.getElementById('quickPrintHistoryBadge');
+  const eventTitle = document.getElementById('quickPrintEventTitle');
+
+  if (thumbImg) thumbImg.src = photo.file_path || '/assets/templates/strip-green-template.svg';
+  if (eventTitle) eventTitle.textContent = `${photo.event_name || 'Event Mafaza'} • Pilih jumlah lembar cetak`;
+  if (sessLabel) sessLabel.textContent = photo.session_id ? `Sesi: ${photo.session_id}` : 'Foto Kiosk';
+  if (timeLabel) timeLabel.textContent = photo.created_at ? new Date(photo.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-';
+
+  if (historyBadge) {
+    if (photo.print_job_id) {
+      historyBadge.innerHTML = `<span class="badge-pill badge-active" style="font-size: 10.5px;">🟢 Riwayat: Sudah dicetak (${photo.print_copies || 1}x)</span>`;
+    } else {
+      historyBadge.innerHTML = `<span class="badge-pill badge-pending" style="font-size: 10.5px;">⚪ Belum Pernah Dicetak</span>`;
+    }
+  }
+
+  // Default copies: 2 jika photostrip, atau 1 jika single
+  const defaultCopies = (photo.session_mode === 'strip') ? 2 : 1;
+  selectQuickPrintCopies(defaultCopies);
+
+  modal.style.display = 'flex';
+}
+
+function selectQuickPrintCopies(copies) {
+  const num = parseInt(copies) || 1;
+  const select = document.getElementById('quickPrintCopiesSelect');
+  if (select) select.value = num;
+
+  const btns = document.querySelectorAll('.btn-copy-option');
+  btns.forEach(b => {
+    if (parseInt(b.dataset.copies) === num) {
+      b.classList.add('active');
+    } else {
+      b.classList.remove('active');
+    }
+  });
+
+  const label = document.getElementById('quickPrintCopiesLabel');
+  if (label) label.textContent = num;
+}
+
+function syncQuickPrintCopiesFromSelect() {
+  const select = document.getElementById('quickPrintCopiesSelect');
+  if (select) selectQuickPrintCopies(select.value);
+}
+
+function closeQuickPrintModal() {
+  const modal = document.getElementById('quickPrintModal');
+  if (modal) modal.style.display = 'none';
+  pendingQuickPrintPhoto = null;
+}
+
+async function executeQuickPrint() {
+  if (!pendingQuickPrintPhoto) return;
+  const copies = parseInt(document.getElementById('quickPrintCopiesSelect')?.value) || 1;
+  const btn = document.getElementById('btnConfirmQuickPrint');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = `⏳ Mengirim ${copies} Lembar...`;
+  }
+
+  const photo = pendingQuickPrintPhoto;
+  closeQuickPrintModal();
+
+  try {
+    let printJob = null;
+    if (photo.print_job_id) {
+      const res = await fetch(`/api/print-jobs/${photo.print_job_id}/reprint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ copies })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal mengirim cetak');
+      printJob = data;
+    } else if (photo.asset_id) {
+      const res = await fetch(`/api/photos/${photo.asset_id}/print`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ copies })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Gagal mencetak');
+      printJob = data.printJob;
+    }
+
+    if (printJob) {
+      await window.pbSmartPrint(printJob, photo.file_path, copies);
+      window.pbToast(`✅ Sukses mengirim ${copies} lembar cetak ke spooler!`, 'ok');
+      await loadPrintJobs();
+      await loadRecentPhotos();
+    }
+  } catch (err) {
+    window.pbToast(`Error cetak: ${err.message}`, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `🖨️ Cetak <span id="quickPrintCopiesLabel">${copies}</span> Lembar Sekarang`;
+    }
+  }
+}
+
+async function executeQuickPrintBrowser() {
+  if (!pendingQuickPrintPhoto) return;
+  const photo = pendingQuickPrintPhoto;
+  closeQuickPrintModal();
+  openPhotoPreviewModal(photo);
+  printModalPhotoViaDevice();
+}
+
 async function quickPrintPhoto(assetId, existingJobId) {
+  // Fallback direct print jika dipanggil via parameter lama
+  const idx = cachedRecentPhotos.findIndex(p => p.asset_id === assetId);
+  if (idx !== -1) {
+    promptQuickPrint(idx);
+    return;
+  }
+
   if (existingJobId) {
     await reprintJobById(existingJobId);
   } else {
