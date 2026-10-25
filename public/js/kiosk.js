@@ -102,10 +102,10 @@ class KioskEngine {
           const select = document.getElementById('printCopiesSelect');
           const maxCopies = parseInt(st.maxCopies, 10);
           if (select && maxCopies >= 1) {
-            const prev = parseInt(select.value, 10) || 2;
+            const prev = parseInt(select.value, 10) || 1;
             select.innerHTML = Array.from({ length: maxCopies }, (_, i) =>
-              `<option value="${i + 1}">${i + 1} Lembar</option>`).join('');
-            select.value = String(Math.min(prev, maxCopies));
+              `<option value="${i + 1}" ${i === 0 ? 'selected' : ''}>${i + 1} Lembar</option>`).join('');
+            select.value = '1';
           }
           if (st.mode === 'auto') {
             this.autoPrintEnabled = true;
@@ -1821,6 +1821,10 @@ class KioskEngine {
     const banner = document.getElementById('printStatusBanner');
     if (banner) banner.style.display = 'none';
 
+    // Bawaan (default) cetak foto adalah 1 lembar
+    const printSelect = document.getElementById('printCopiesSelect');
+    if (printSelect) printSelect.value = '1';
+
     // Initial sync of composite photo to backend
     this.syncFinalPhotoToBackend();
 
@@ -1873,34 +1877,39 @@ class KioskEngine {
 
         ctx.save();
         const bleed = 4;
+        const clipX = slot.x - bleed;
+        const clipY = slot.y - bleed;
+        const clipW = slot.width + (bleed * 2);
+        const clipH = slot.height + (bleed * 2);
+
         ctx.beginPath();
-        ctx.rect(slot.x - bleed, slot.y - bleed, slot.width + (bleed * 2), slot.height + (bleed * 2));
+        ctx.rect(clipX, clipY, clipW, clipH);
         ctx.clip();
 
         const transform = (this.slotTransforms && this.slotTransforms[i]) || { panX: 0, panY: 0, zoom: 1.0 };
-        const zoom = Math.max(1.0, Math.min(3.0, transform.zoom || 1.0));
+        const zoom = Math.max(1.0, Math.min(3.5, transform.zoom || 1.0));
 
-        const imgAspect = pImg.width / pImg.height;
-        const slotAspect = slot.width / slot.height;
+        // Base cover scale: gambar otomatis mengisi slot secara proporsional
+        const baseScale = Math.max(clipW / pImg.width, clipH / pImg.height);
+        const finalScale = baseScale * zoom;
 
-        let sw, sh;
-        if (imgAspect > slotAspect) {
-          sh = pImg.height / zoom;
-          sw = sh * slotAspect;
-        } else {
-          sw = pImg.width / zoom;
-          sh = sw / slotAspect;
-        }
+        const drawW = pImg.width * finalScale;
+        const drawH = pImg.height * finalScale;
 
-        // Center crop coordinates with user pan offset
-        let sx = ((pImg.width - sw) / 2) - transform.panX;
-        let sy = ((pImg.height - sh) / 2) - transform.panY;
+        // Batas pan dinamis: memungkinkan geser bebas dalam batas slot yang terisi penuh
+        const maxPanX = Math.max((drawW - clipW) / 2, clipW * 0.35);
+        const maxPanY = Math.max((drawH - clipH) / 2, clipH * 0.35);
 
-        // Clamp crop within image boundaries
-        sx = Math.max(0, Math.min(pImg.width - sw, sx));
-        sy = Math.max(0, Math.min(pImg.height - sh, sy));
+        transform.panX = Math.max(-maxPanX, Math.min(maxPanX, transform.panX || 0));
+        transform.panY = Math.max(-maxPanY, Math.min(maxPanY, transform.panY || 0));
 
-        ctx.drawImage(pImg, sx, sy, sw, sh, slot.x - bleed, slot.y - bleed, slot.width + (bleed * 2), slot.height + (bleed * 2));
+        const slotCenterX = clipX + (clipW / 2);
+        const slotCenterY = clipY + (clipH / 2);
+
+        const drawX = slotCenterX - (drawW / 2) + transform.panX;
+        const drawY = slotCenterY - (drawH / 2) + transform.panY;
+
+        ctx.drawImage(pImg, drawX, drawY, drawW, drawH);
         ctx.restore();
       }
     }
@@ -1916,48 +1925,103 @@ class KioskEngine {
     if (!canvas || this.canvasListenersAttached) return;
     this.canvasListenersAttached = true;
 
-    const onPointerDown = (clientX, clientY) => {
-      if (!this.selectedTemplate) return;
+    // Deteksi slot mana yang disentuh / diklik dengan toleransi sentuhan
+    const findSlotAt = (canvasX, canvasY) => {
+      const slots = (this.selectedTemplate && this.selectedTemplate.slots && this.selectedTemplate.slots.length > 0)
+        ? this.selectedTemplate.slots
+        : [
+            { id: 'slot_1', pose_index: 1, x: 50, y: 130, width: 500, height: 420 },
+            { id: 'slot_2', pose_index: 2, x: 50, y: 580, width: 500, height: 420 },
+            { id: 'slot_3', pose_index: 3, x: 50, y: 1030, width: 500, height: 420 }
+          ];
+
+      if (slots.length === 1) return 0; // Frame 1-foto: seluruh area frame mengontrol slot 0
+
+      const margin = 28; // Toleransi area sentuh jari (28px)
+      const idx = slots.findIndex(s =>
+        canvasX >= (s.x - margin) &&
+        canvasX <= (s.x + s.width + margin) &&
+        canvasY >= (s.y - margin) &&
+        canvasY <= (s.y + s.height + margin)
+      );
+
+      if (idx !== -1) return idx;
+      return (typeof this.selectedPreviewSlotIndex === 'number' && this.selectedPreviewSlotIndex < slots.length)
+        ? this.selectedPreviewSlotIndex
+        : 0;
+    };
+
+    const getCanvasCoords = (clientX, clientY) => {
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
-      const canvasX = (clientX - rect.left) * scaleX;
-      const canvasY = (clientY - rect.top) * scaleY;
-
-      const slots = this.selectedTemplate.slots || [];
-      const slotIdx = slots.findIndex(s => canvasX >= s.x && canvasX <= s.x + s.width && canvasY >= s.y && canvasY <= s.y + s.height);
-
-      if (slotIdx !== -1) {
-        this.selectPreviewSlot(slotIdx);
-        this.isDraggingPhoto = true;
-        this.dragStart = {
-          clientX,
-          clientY,
-          scaleX,
-          scaleY,
-          initialPanX: this.slotTransforms[slotIdx].panX,
-          initialPanY: this.slotTransforms[slotIdx].panY
-        };
-        canvas.style.cursor = 'grabbing';
-        this.resetAutoReturnTimer();
-      }
+      return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY,
+        scaleX,
+        scaleY
+      };
     };
 
-    const onPointerMove = (clientX, clientY, e) => {
-      if (!this.isDraggingPhoto || typeof this.selectedPreviewSlotIndex !== 'number') return;
-      if (e) e.preventDefault();
+    // State gesture
+    this.isDraggingPhoto = false;
+    this.isPinching = false;
+    this.dragState = {
+      lastClientX: 0,
+      lastClientY: 0,
+      scaleX: 1,
+      scaleY: 1
+    };
+    this.pinchState = {
+      initialDist: 0,
+      initialZoom: 1.0,
+      initialPanX: 0,
+      initialPanY: 0,
+      midX: 0,
+      midY: 0,
+      scaleX: 1,
+      scaleY: 1
+    };
 
-      const dx = clientX - this.dragStart.clientX;
-      const dy = clientY - this.dragStart.clientY;
+    // 1. MOUSE DRAG & CLICK (Desktop / Laptop)
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      const coords = getCanvasCoords(e.clientX, e.clientY);
+      const slotIdx = findSlotAt(coords.x, coords.y);
+      this.selectPreviewSlot(slotIdx);
+
       const idx = this.selectedPreviewSlotIndex;
+      if (!this.slotTransforms[idx]) this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
 
-      this.slotTransforms[idx].panX = this.dragStart.initialPanX + (dx * this.dragStart.scaleX * 0.9);
-      this.slotTransforms[idx].panY = this.dragStart.initialPanY + (dy * this.dragStart.scaleY * 0.9);
+      this.isDraggingPhoto = true;
+      this.dragState = {
+        lastClientX: e.clientX,
+        lastClientY: e.clientY,
+        scaleX: coords.scaleX,
+        scaleY: coords.scaleY
+      };
+      canvas.style.cursor = 'grabbing';
+      this.resetAutoReturnTimer();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!this.isDraggingPhoto || typeof this.selectedPreviewSlotIndex !== 'number') return;
+      const idx = this.selectedPreviewSlotIndex;
+      if (!this.slotTransforms[idx]) this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
+
+      const dx = (e.clientX - this.dragState.lastClientX) * this.dragState.scaleX;
+      const dy = (e.clientY - this.dragState.lastClientY) * this.dragState.scaleY;
+
+      this.dragState.lastClientX = e.clientX;
+      this.dragState.lastClientY = e.clientY;
+
+      this.slotTransforms[idx].panX = (this.slotTransforms[idx].panX || 0) + dx;
+      this.slotTransforms[idx].panY = (this.slotTransforms[idx].panY || 0) + dy;
 
       this.renderFinalCanvas();
-    };
+    });
 
-    const onPointerUp = () => {
+    const stopMouseDrag = () => {
       if (this.isDraggingPhoto) {
         this.isDraggingPhoto = false;
         canvas.style.cursor = 'grab';
@@ -1965,24 +2029,135 @@ class KioskEngine {
         this.debounceSyncSession();
       }
     };
+    window.addEventListener('mouseup', stopMouseDrag);
 
-    canvas.addEventListener('mousedown', (e) => onPointerDown(e.clientX, e.clientY));
-    window.addEventListener('mousemove', (e) => onPointerMove(e.clientX, e.clientY, e));
-    window.addEventListener('mouseup', onPointerUp);
+    // 2. MOUSE WHEEL ZOOM (Trackpad / Scroll Wheel)
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (typeof this.selectedPreviewSlotIndex !== 'number') return;
+      const idx = this.selectedPreviewSlotIndex;
+      if (!this.slotTransforms[idx]) this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
 
+      const deltaZoom = e.deltaY < 0 ? 0.08 : -0.08;
+      this.slotTransforms[idx].zoom = Math.max(1.0, Math.min(3.5, (this.slotTransforms[idx].zoom || 1.0) + deltaZoom));
+      this.renderFinalCanvas();
+      this.resetAutoReturnTimer();
+      this.debounceSyncSession();
+    }, { passive: false });
+
+    // 3. MULTI-TOUCH GESTURES (Tablet, HP, Touchscreen Monitor)
     canvas.addEventListener('touchstart', (e) => {
-      if (e.touches && e.touches[0]) {
-        onPointerDown(e.touches[0].clientX, e.touches[0].clientY);
+      if (!e.touches || e.touches.length === 0) return;
+      e.preventDefault(); // Mencegah scrolling browser saat sentuh frame
+
+      const coords = getCanvasCoords(e.touches[0].clientX, e.touches[0].clientY);
+      const slotIdx = findSlotAt(coords.x, coords.y);
+      this.selectPreviewSlot(slotIdx);
+
+      const idx = this.selectedPreviewSlotIndex;
+      if (!this.slotTransforms[idx]) this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
+
+      if (e.touches.length === 1) {
+        // Sentuhan 1 jari: Geser posisi foto (Pan / Drag)
+        this.isDraggingPhoto = true;
+        this.isPinching = false;
+        this.dragState = {
+          lastClientX: e.touches[0].clientX,
+          lastClientY: e.touches[0].clientY,
+          scaleX: coords.scaleX,
+          scaleY: coords.scaleY
+        };
+      } else if (e.touches.length >= 2) {
+        // Sentuhan 2 jari: Pinch to Zoom (Perbesar / Perkecil) & Geser Simultan
+        this.isDraggingPhoto = false;
+        this.isPinching = true;
+        const dist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+
+        this.pinchState = {
+          initialDist: Math.max(15, dist),
+          initialZoom: this.slotTransforms[idx].zoom || 1.0,
+          initialPanX: this.slotTransforms[idx].panX || 0,
+          initialPanY: this.slotTransforms[idx].panY || 0,
+          midX,
+          midY,
+          scaleX: coords.scaleX,
+          scaleY: coords.scaleY
+        };
       }
+      this.resetAutoReturnTimer();
     }, { passive: false });
 
     window.addEventListener('touchmove', (e) => {
-      if (this.isDraggingPhoto && e.touches && e.touches[0]) {
-        onPointerMove(e.touches[0].clientX, e.touches[0].clientY, e);
+      if (!e.touches || e.touches.length === 0) return;
+      if (this.isDraggingPhoto || this.isPinching) {
+        e.preventDefault();
+      }
+
+      const idx = this.selectedPreviewSlotIndex;
+      if (typeof idx !== 'number' || !this.slotTransforms[idx]) return;
+
+      if (this.isPinching && e.touches.length >= 2) {
+        // Eksekusi Pinch to Zoom & Pan
+        const currentDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY
+        );
+        const scaleRatio = currentDist / this.pinchState.initialDist;
+        this.slotTransforms[idx].zoom = Math.max(1.0, Math.min(3.5, this.pinchState.initialZoom * scaleRatio));
+
+        const currentMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const currentMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        const deltaMidX = (currentMidX - this.pinchState.midX) * this.pinchState.scaleX;
+        const deltaMidY = (currentMidY - this.pinchState.midY) * this.pinchState.scaleY;
+
+        this.slotTransforms[idx].panX = this.pinchState.initialPanX + deltaMidX;
+        this.slotTransforms[idx].panY = this.pinchState.initialPanY + deltaMidY;
+
+        this.renderFinalCanvas();
+      } else if (this.isDraggingPhoto && e.touches.length === 1) {
+        // Eksekusi Geser 1 Jari (Pan)
+        const dx = (e.touches[0].clientX - this.dragState.lastClientX) * this.dragState.scaleX;
+        const dy = (e.touches[0].clientY - this.dragState.lastClientY) * this.dragState.scaleY;
+
+        this.dragState.lastClientX = e.touches[0].clientX;
+        this.dragState.lastClientY = e.touches[0].clientY;
+
+        this.slotTransforms[idx].panX = (this.slotTransforms[idx].panX || 0) + dx;
+        this.slotTransforms[idx].panY = (this.slotTransforms[idx].panY || 0) + dy;
+
+        this.renderFinalCanvas();
       }
     }, { passive: false });
 
-    window.addEventListener('touchend', onPointerUp);
+    const stopTouch = (e) => {
+      if (e && e.touches && e.touches.length === 1 && this.isPinching) {
+        this.isPinching = false;
+        this.isDraggingPhoto = true;
+        const coords = getCanvasCoords(e.touches[0].clientX, e.touches[0].clientY);
+        this.dragState = {
+          lastClientX: e.touches[0].clientX,
+          lastClientY: e.touches[0].clientY,
+          scaleX: coords.scaleX,
+          scaleY: coords.scaleY
+        };
+        return;
+      }
+
+      if (this.isDraggingPhoto || this.isPinching) {
+        this.isDraggingPhoto = false;
+        this.isPinching = false;
+        this.resetAutoReturnTimer();
+        this.debounceSyncSession();
+      }
+    };
+
+    window.addEventListener('touchend', stopTouch);
+    window.addEventListener('touchcancel', stopTouch);
   }
 
   selectPreviewSlot(slotIdx) {
@@ -2073,7 +2248,7 @@ class KioskEngine {
     if (typeof this.selectedPreviewSlotIndex !== 'number') return;
     const idx = this.selectedPreviewSlotIndex;
     if (!this.slotTransforms[idx]) this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
-    this.slotTransforms[idx].zoom = Math.max(1.0, Math.min(3.0, (this.slotTransforms[idx].zoom || 1.0) + deltaZoom));
+    this.slotTransforms[idx].zoom = Math.max(1.0, Math.min(3.5, (this.slotTransforms[idx].zoom || 1.0) + deltaZoom));
     this.renderFinalCanvas();
     this.resetAutoReturnTimer();
     this.debounceSyncSession();
