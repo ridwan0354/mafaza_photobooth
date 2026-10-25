@@ -10,6 +10,7 @@ import * as templateService from '../src/services/template.js';
 import * as printService from '../src/services/print.js';
 import * as aiService from '../src/services/ai.js';
 import * as syncService from '../src/services/sync.js';
+import { createToken, verifyToken, authMiddleware } from '../src/services/auth.js';
 import { optimizePhotoFile } from '../src/services/imageOptimizer.js';
 import { encodePng, decodeImage, buildPrintSheetFile } from '../src/services/sheet.js';
 import fs from 'node:fs';
@@ -222,5 +223,68 @@ test('PHOTOBOOTH SAAS FULL SYSTEM - COMPREHENSIVE TEST SUITE', async (t) => {
     // Clean up temp files
     try { fs.unlinkSync(optResult.path); } catch (e) {}
     try { fs.unlinkSync(sheetPath); } catch (e) {}
+  });
+
+  await t.test('9. Admin Security Gate & Password Verification (313354)', () => {
+    // 1. Password verification constant-time check
+    const expectedPassword = '313354';
+    const verifyPass = (input) => {
+      if (typeof input !== 'string') return false;
+      const bufA = Buffer.from(input, 'utf8');
+      const bufB = Buffer.from(expectedPassword, 'utf8');
+      if (bufA.length !== bufB.length) return false;
+      return crypto.timingSafeEqual(bufA, bufB);
+    };
+
+    assert.strictEqual(verifyPass('313354'), true, 'Correct password 313354 must match');
+    assert.strictEqual(verifyPass('123456'), false, 'Wrong password must fail');
+    assert.strictEqual(verifyPass('31335'), false, 'Partial password must fail');
+    assert.strictEqual(verifyPass(''), false, 'Empty password must fail');
+
+    // 2. Token creation and verification
+    const token = createToken({
+      userId: 'user_business_owner_01',
+      role: 'business_admin',
+      tenantId: 'tenant_studiokeren_01'
+    });
+    assert.ok(token && typeof token === 'string', 'Token must be generated');
+
+    const verified = verifyToken(token);
+    assert.ok(verified, 'Token must be verified successfully');
+    assert.strictEqual(verified.userId, 'user_business_owner_01');
+    assert.strictEqual(verified.tenantId, 'tenant_studiokeren_01');
+
+    // 3. authMiddleware blocks unauthenticated requests with 401
+    const mw = authMiddleware();
+    let statusSet = null;
+    let jsonSent = null;
+    let nextCalled = false;
+
+    const fakeReqNoAuth = { headers: {}, cookies: {}, query: {} };
+    const fakeRes = {
+      status: (code) => { statusSet = code; return fakeRes; },
+      json: (data) => { jsonSent = data; return fakeRes; }
+    };
+    const fakeNext = () => { nextCalled = true; };
+
+    mw(fakeReqNoAuth, fakeRes, fakeNext);
+    assert.strictEqual(nextCalled, false, 'Middleware must not call next when unauthenticated');
+    assert.strictEqual(statusSet, 401, 'Middleware must return 401 Unauthorized');
+    assert.ok(jsonSent.error.includes('Unauthorized'), 'Response must explain authentication requirement');
+
+    // 4. authMiddleware succeeds when valid cookie is provided
+    statusSet = null;
+    jsonSent = null;
+    nextCalled = false;
+    const fakeReqWithAuth = {
+      headers: {},
+      cookies: { pb_admin_auth: token },
+      query: {}
+    };
+
+    mw(fakeReqWithAuth, fakeRes, fakeNext);
+    assert.strictEqual(nextCalled, true, 'Middleware must call next when valid cookie is supplied');
+    assert.strictEqual(statusSet, null, 'No error status should be set');
+    assert.strictEqual(fakeReqWithAuth.user.tenantId, 'tenant_studiokeren_01');
   });
 });

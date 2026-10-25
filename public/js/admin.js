@@ -3700,3 +3700,42 @@ async function testCameraFlashTriggerFromAdmin() {
     alert(`Gagal menguji trigger kamera: ${err.message}`);
   }
 }
+
+// -------------------------------------------------------------
+// ADMIN LOGOUT & AUTHENTICATION SESSION GUARDS
+// -------------------------------------------------------------
+async function logoutAdmin() {
+  const confirmed = confirm('Apakah Anda yakin ingin keluar dan mengunci Dashboard Admin?');
+  if (!confirmed) return;
+
+  try {
+    if (window.pbNotify) {
+      window.pbNotify.info('Mengunci Dashboard Admin...', { title: 'Keluar' });
+    }
+    await fetch('/api/admin/logout', { method: 'POST' });
+  } catch (e) {
+    console.error('Logout error:', e);
+  }
+  // Redirect ke halaman login / admin gate
+  window.location.href = '/admin';
+}
+window.logoutAdmin = logoutAdmin;
+
+// Intercept 401 Unauthorized responses to safely redirect to login gate
+(function setupAuthInterceptor() {
+  const originalFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const response = await originalFetch.apply(this, args);
+    if (response && response.status === 401) {
+      const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+      // Hindari loop jika endpoint login/check-session
+      if (!url.includes('/api/admin/login') && !url.includes('/api/admin/check-session')) {
+        console.warn('⚠️ Sesi Admin habis atau tidak valid. Mengalihkan ke gerbang password...');
+        setTimeout(() => {
+          window.location.href = '/admin';
+        }, 300);
+      }
+    }
+    return response;
+  };
+})();

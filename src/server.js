@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import { initDatabase } from './db/database.js';
 import { apiRouter } from './routes/api.js';
 import { cleanupExpiredEventPhotos } from './services/event.js';
+import { verifyToken } from './services/auth.js';
 
 dotenv.config();
 
@@ -34,8 +35,47 @@ const wss = new WebSocketServer({ server });
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Static files
+// Zero-dependency cookie parser
+app.use((req, res, next) => {
+  req.cookies = {};
+  const header = req.headers.cookie;
+  if (header) {
+    header.split(';').forEach(c => {
+      const idx = c.indexOf('=');
+      if (idx !== -1) {
+        const key = c.substring(0, idx).trim();
+        const val = c.substring(idx + 1).trim();
+        try { req.cookies[key] = decodeURIComponent(val); } catch (e) { req.cookies[key] = val; }
+      }
+    });
+  }
+  next();
+});
+
 const publicDir = path.join(__dirname, '../public');
+
+// Protected Admin Dashboard Route (Gate Password: 313354)
+// Ditempatkan SEBELUM express.static agar /admin.html tidak bisa diakses langsung tanpa autentikasi
+app.get(['/admin', '/admin.html'], (req, res) => {
+  const token = req.cookies?.pb_admin_auth;
+  const verified = token ? verifyToken(token) : null;
+  if (!verified) {
+    return res.sendFile(path.join(publicDir, 'admin-login.html'));
+  }
+  res.sendFile(path.join(publicDir, 'admin.html'));
+});
+
+// Admin Login page route
+app.get('/admin/login', (req, res) => {
+  const token = req.cookies?.pb_admin_auth;
+  const verified = token ? verifyToken(token) : null;
+  if (verified) {
+    return res.redirect('/admin');
+  }
+  res.sendFile(path.join(publicDir, 'admin-login.html'));
+});
+
+// Static files (admin.html sudah dilindungi di atas)
 app.use(express.static(publicDir));
 
 // Prevent 404 console error for favicon.ico
@@ -74,10 +114,6 @@ export function broadcastEvent(eventType, payload) {
 // Serve Frontend SPA / HTML pages
 app.get('/super', (req, res) => {
   res.sendFile(path.join(publicDir, 'super.html'));
-});
-
-app.get('/admin', (req, res) => {
-  res.sendFile(path.join(publicDir, 'admin.html'));
 });
 
 app.get('/operator', (req, res) => {

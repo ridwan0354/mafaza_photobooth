@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login Admin • Mafaza Photobooth</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --caramel-brown: #7B482E;
+      --coral: #E6786B;
+      --coral-hover: #D76558;
+      --muted-mustard: #D4A754;
+      --bg-warm: #FAF6F0;
+      --cream-card: #FFFDF9;
+      --cream-white: #FFFFFF;
+      --border-soft: #EFE4D6;
+      --charcoal: #2C2623;
+      --text-muted: #8E7F77;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      background: var(--bg-warm);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* Ambient background accents */
+    body::before {
+      content: "";
+      position: absolute;
+      top: -120px;
+      right: -100px;
+      width: 420px;
+      height: 420px;
+      background: radial-gradient(circle, rgba(230, 120, 107, 0.14) 0%, transparent 70%);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    body::after {
+      content: "";
+      position: absolute;
+      bottom: -140px;
+      left: -120px;
+      width: 480px;
+      height: 480px;
+      background: radial-gradient(circle, rgba(212, 167, 84, 0.16) 0%, transparent 70%);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .login-container {
+      width: 100%;
+      max-width: 440px;
+      background: var(--cream-card);
+      border: 2px solid var(--border-soft);
+      border-radius: 28px;
+      box-shadow: 0 20px 60px rgba(123, 72, 46, 0.12), 0 4px 12px rgba(123, 72, 46, 0.04);
+      padding: 38px 32px;
+      position: relative;
+      z-index: 10;
+      text-align: center;
+    }
+
+    .brand-logo-wrapper {
+      position: relative;
+      display: inline-block;
+      margin-bottom: 16px;
+    }
+
+    .brand-logo {
+      width: 82px;
+      height: 82px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 3px solid var(--muted-mustard);
+      box-shadow: 0 8px 24px rgba(123, 72, 46, 0.22);
+    }
+
+    .badge-lock {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(123, 72, 46, 0.08);
+      color: var(--caramel-brown);
+      font-size: 12px;
+      font-weight: 800;
+      padding: 4px 12px;
+      border-radius: 999px;
+      margin-bottom: 12px;
+      border: 1px solid var(--border-soft);
+    }
+
+    h1 {
+      font-size: 26px;
+      font-weight: 900;
+      color: var(--caramel-brown);
+      margin-bottom: 6px;
+      letter-spacing: -0.5px;
+    }
+
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 13.5px;
+      line-height: 1.5;
+      margin-bottom: 26px;
+    }
+
+    .form-group {
+      text-align: left;
+      margin-bottom: 20px;
+      position: relative;
+    }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--caramel-brown);
+      margin-bottom: 8px;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    input[type="password"],
+    input[type="text"] {
+      width: 100%;
+      padding: 14px 48px 14px 16px;
+      background: var(--cream-white);
+      border: 2px solid var(--border-soft);
+      border-radius: 14px;
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--charcoal);
+      letter-spacing: 4px;
+      text-align: center;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    input[type="password"]::placeholder,
+    input[type="text"]::placeholder {
+      font-size: 14px;
+      letter-spacing: normal;
+      color: #B8ADA6;
+      font-weight: 600;
+    }
+
+    input:focus {
+      border-color: var(--coral);
+      box-shadow: 0 0 0 4px rgba(230, 120, 107, 0.16);
+      background: #fff;
+    }
+
+    .btn-toggle-eye {
+      position: absolute;
+      right: 12px;
+      background: none;
+      border: none;
+      font-size: 18px;
+      cursor: pointer;
+      padding: 6px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn-toggle-eye:hover {
+      color: var(--caramel-brown);
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 14px 20px;
+      background: var(--coral);
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 6px 18px rgba(230, 120, 107, 0.38);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-submit:hover:not(:disabled) {
+      background: var(--coral-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 22px rgba(230, 120, 107, 0.45);
+    }
+
+    .btn-submit:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    .btn-submit:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    .alert-box {
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 13px;
+      line-height: 1.45;
+      margin-bottom: 20px;
+      display: none;
+      text-align: left;
+    }
+
+    .alert-danger {
+      background: rgba(179, 64, 47, 0.09);
+      border: 1.5px solid rgba(179, 64, 47, 0.35);
+      color: #B3402F;
+    }
+
+    .alert-success {
+      background: rgba(39, 174, 96, 0.12);
+      border: 1.5px solid rgba(39, 174, 96, 0.35);
+      color: #27ae60;
+    }
+
+    .security-footer {
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px dashed var(--border-soft);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-8px); }
+      40%, 80% { transform: translateX(8px); }
+    }
+
+    .shake {
+      animation: shake 0.4s ease-in-out;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-container">
+    <div class="brand-logo-wrapper">
+      <img src="/assets/logo-mafaza.jpg" alt="Mafaza Photobooth" class="brand-logo">
+    </div>
+
+    <div>
+      <span class="badge-lock">🔒 Area Terproteksi</span>
+      <h1>Admin Dashboard</h1>
+      <p class="subtitle">Silakan masukkan password untuk mengakses kontrol acara, galeri, dan printer Mafaza.</p>
+    </div>
+
+    <div id="loginAlertBox" class="alert-box alert-danger"></div>
+    <div id="loginSuccessBox" class="alert-box alert-success"></div>
+
+    <form id="adminLoginForm" onsubmit="handleLoginSubmit(event)" autocomplete="off">
+      <div class="form-group">
+        <label for="adminPasswordInput">Password Admin</label>
+        <div class="input-wrapper">
+          <input 
+            type="password" 
+            id="adminPasswordInput" 
+            name="password" 
+            placeholder="Masukkan password..." 
+            autocomplete="current-password" 
+            required 
+            autofocus>
+          <button type="button" class="btn-toggle-eye" onclick="togglePasswordVisibility()" title="Lihat/Sembunyikan Password">
+            <span id="eyeIcon">👁️</span>
+          </button>
+        </div>
+      </div>
+
+      <button type="submit" id="btnSubmitLogin" class="btn-submit">
+        <span>Masuk ke Dashboard</span>
+        <span>➔</span>
+      </button>
+    </form>
+
+    <div class="security-footer">
+      <span>🛡️</span>
+      <span>Dilindungi Enkripsi Sesi &amp; Anti-Brute-Force</span>
+    </div>
+  </div>
+
+  <script>
+    function togglePasswordVisibility() {
+      const input = document.getElementById('adminPasswordInput');
+      const icon = document.getElementById('eyeIcon');
+      if (!input) return;
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.innerText = '🙈';
+      } else {
+        input.type = 'password';
+        icon.innerText = '👁️';
+      }
+      input.focus();
+    }
+
+    async function handleLoginSubmit(event) {
+      event.preventDefault();
+      const input = document.getElementById('adminPasswordInput');
+      const btn = document.getElementById('btnSubmitLogin');
+      const alertBox = document.getElementById('loginAlertBox');
+      const successBox = document.getElementById('loginSuccessBox');
+
+      alertBox.style.display = 'none';
+      successBox.style.display = 'none';
+
+      const password = input ? input.value : '';
+      if (!password) {
+        input.focus();
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<span>⏳ Memverifikasi...</span>';
+
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          successBox.innerHTML = '✅ <strong>Password benar!</strong> Mengalihkan ke dashboard...';
+          successBox.style.display = 'block';
+          btn.innerHTML = '<span>✅ Berhasil! Mengalihkan...</span>';
+          setTimeout(() => {
+            window.location.href = data.redirectUrl || '/admin';
+          }, 350);
+        } else {
+          alertBox.innerHTML = `⚠️ <strong>Akses Ditolak:</strong> ${data.error || 'Password salah'}`;
+          alertBox.style.display = 'block';
+
+          input.classList.add('shake');
+          setTimeout(() => input.classList.remove('shake'), 450);
+          input.value = '';
+          input.focus();
+
+          btn.disabled = false;
+          btn.innerHTML = '<span>Masuk ke Dashboard</span> <span>➔</span>';
+        }
+      } catch (err) {
+        alertBox.innerHTML = '⚠️ Terjadi kendala koneksi ke server. Silakan coba kembali.';
+        alertBox.style.display = 'block';
+        btn.disabled = false;
+        btn.innerHTML = '<span>Masuk ke Dashboard</span> <span>➔</span>';
+      }
+    }
+  </script>
+</body>
+</html>

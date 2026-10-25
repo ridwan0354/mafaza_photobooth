@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 
 import { db } from '../db/database.js';
-import { loginUser, authMiddleware, verifyToken } from '../services/auth.js';
+import { loginUser, authMiddleware, verifyToken, createToken } from '../services/auth.js';
 import * as billing from '../services/billing.js';
 import * as eventService from '../services/event.js';
 import * as qrService from '../services/qr.js';
@@ -43,6 +43,125 @@ export const apiRouter = express.Router();
 // ==========================================
 // 1. AUTH ROUTES
 // ==========================================
+
+// Rate-limiting & Brute Force Protection for Admin Gate
+const adminLoginAttempts = new Map();
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOGIN_LOCKOUT_MS = 10 * 60 * 1000; // 10 menit
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded) {
+    const list = forwarded.split(',');
+    return list[0].trim();
+  }
+  return req.socket?.remoteAddress || '127.0.0.1';
+}
+
+function verifyAdminPassword(inputPassword) {
+  if (typeof inputPassword !== 'string') return false;
+  const targetPassword = process.env.ADMIN_PASSWORD || '313354';
+  const bufInput = Buffer.from(inputPassword, 'utf8');
+  const bufTarget = Buffer.from(targetPassword, 'utf8');
+  if (bufInput.length !== bufTarget.length) return false;
+  return crypto.timingSafeEqual(bufInput, bufTarget);
+}
+
+// Admin Gate Login (Password: 313354)
+apiRouter.post('/admin/login', (req, res) => {
+  const clientIp = getClientIp(req);
+  const now = Date.now();
+  const attemptInfo = adminLoginAttempts.get(clientIp) || { count: 0, lockedUntil: 0 };
+
+  // Check lockout
+  if (attemptInfo.lockedUntil > now) {
+    const remainingSeconds = Math.ceil((attemptInfo.lockedUntil - now) / 1000);
+    return res.status(429).json({
+      error: `Akses terkunci sementara karena terlalu banyak percobaan gagal. Silakan tunggu ${remainingSeconds} detik lagi.`,
+      retryAfter: remainingSeconds
+    });
+  }
+
+  const { password } = req.body || {};
+  const isMatch = verifyAdminPassword(password);
+
+  if (!isMatch) {
+    const newCount = (attemptInfo.lockedUntil > 0 && attemptInfo.lockedUntil <= now) ? 1 : attemptInfo.count + 1;
+    let lockedUntil = 0;
+    if (newCount >= MAX_LOGIN_ATTEMPTS) {
+      lockedUntil = now + LOGIN_LOCKOUT_MS;
+      adminLoginAttempts.set(clientIp, { count: newCount, lockedUntil });
+      return res.status(429).json({
+        error: `Terlalu banyak percobaan gagal (${MAX_LOGIN_ATTEMPTS}x). Akses dikunci selama 10 menit untuk keamanan.`,
+        retryAfter: 600
+      });
+    }
+
+    adminLoginAttempts.set(clientIp, { count: newCount, lockedUntil });
+    const sisa = MAX_LOGIN_ATTEMPTS - newCount;
+    return res.status(401).json({
+      error: `Password salah! Sisa percobaan: ${sisa} kali sebelum terkunci.`,
+      remainingAttempts: sisa
+    });
+  }
+
+  // Password benar! Reset attempt counter
+  adminLoginAttempts.delete(clientIp);
+
+  // Buat sesi admin aman
+  const adminUser = db.prepare("SELECT id, email, full_name, role FROM users WHERE role IN ('business_admin', 'super_admin') LIMIT 1").get() || {
+    id: 'user_business_owner_01',
+    email: 'owner@studiokeren.id',
+    full_name: 'Admin Mafaza',
+    role: 'super_admin'
+  };
+  const activeTenant = db.prepare('SELECT id FROM tenants LIMIT 1').get() || { id: 'tenant_studiokeren_01' };
+
+  const token = createToken({
+    userId: adminUser.id,
+    email: adminUser.email,
+    name: adminUser.full_name,
+    role: 'super_admin',
+    tenantId: activeTenant.id
+  });
+
+  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  res.setHeader('Set-Cookie', [
+    `pb_admin_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${isSecure ? '; Secure' : ''}`,
+    `pb_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=2592000${isSecure ? '; Secure' : ''}`
+  ]);
+
+  return res.json({
+    success: true,
+    message: 'Login berhasil',
+    redirectUrl: '/admin',
+    token
+  });
+});
+
+// Admin Gate Logout
+apiRouter.post('/admin/logout', (req, res) => {
+  res.setHeader('Set-Cookie', [
+    'pb_admin_auth=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+    'pb_token=; Path=/; SameSite=Lax; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT'
+  ]);
+  return res.json({ success: true, message: 'Berhasil keluar dari dashboard admin' });
+});
+
+// Check Admin Session Status
+apiRouter.get('/admin/check-session', (req, res) => {
+  const token = req.cookies?.pb_admin_auth || req.cookies?.pb_token;
+  const verified = token ? verifyToken(token) : null;
+  res.json({
+    authenticated: !!verified,
+    user: verified ? {
+      name: verified.name,
+      role: verified.role,
+      email: verified.email
+    } : null
+  });
+});
+
 apiRouter.post('/auth/login', (req, res) => {
   try {
     const { email, password } = req.body;
