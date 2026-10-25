@@ -287,4 +287,72 @@ test('PHOTOBOOTH SAAS FULL SYSTEM - COMPREHENSIVE TEST SUITE', async (t) => {
     assert.strictEqual(statusSet, null, 'No error status should be set');
     assert.strictEqual(fakeReqWithAuth.user.tenantId, 'tenant_studiokeren_01');
   });
+
+  await t.test('10. Event Custom Welcome Headline & Background Storage Cleanup Engine', () => {
+    const tenantId = 'tenant_studiokeren_01';
+    // 1. Create event with custom welcome headline & start button text
+    const customHeadline = 'Selamat Datang di Resepsi Kami! 💕';
+    const customBtnText = 'Yuk Foto Berdua ➔';
+    const ev = eventService.createEvent(tenantId, {
+      name: 'Resepsi A & B',
+      eventDate: '2026-11-20',
+      shotsCount: 3,
+      welcomeHeadline: customHeadline,
+      welcomeBtnText: customBtnText
+    });
+
+    assert.ok(ev && ev.id, 'Event created successfully');
+    assert.strictEqual(ev.config.welcomeHeadline, customHeadline, 'Welcome headline preserved');
+    assert.strictEqual(ev.config.welcomeBtnText, customBtnText, 'Welcome button text preserved');
+
+    // 2. Simulate 3 background uploads, where the 3rd one is the final active choice
+    const uploadsDir = path.join(process.cwd(), 'public/uploads');
+    const dummyFile1 = path.join(uploadsDir, 'test_bg_1.mp4');
+    const dummyFile2 = path.join(uploadsDir, 'test_bg_2.mp4');
+    const dummyFile3 = path.join(uploadsDir, 'test_bg_3.mp4');
+
+    fs.writeFileSync(dummyFile1, Buffer.alloc(1024 * 50)); // 50 KB
+    fs.writeFileSync(dummyFile2, Buffer.alloc(1024 * 75)); // 75 KB
+    fs.writeFileSync(dummyFile3, Buffer.alloc(1024 * 100)); // 100 KB
+
+    const uploadedList = [
+      { fileUrl: '/uploads/test_bg_3.mp4', filename: 'test_bg_3.mp4', mediaType: 'video', sizeBytes: 102400 },
+      { fileUrl: '/uploads/test_bg_2.mp4', filename: 'test_bg_2.mp4', mediaType: 'video', sizeBytes: 76800 },
+      { fileUrl: '/uploads/test_bg_1.mp4', filename: 'test_bg_1.mp4', mediaType: 'video', sizeBytes: 51200 }
+    ];
+
+    // Final active choice is #3
+    const updated = eventService.updateEventConfig(ev.id, tenantId, {
+      kioskBackground: { type: 'video', url: '/uploads/test_bg_3.mp4', overlayOpacity: 40 },
+      uploadedBackgrounds: uploadedList
+    });
+
+    assert.strictEqual(updated.config.uploadedBackgrounds.length, 3, 'Should have 3 uploaded backgrounds');
+    assert.strictEqual(updated.config.kioskBackground.url, '/uploads/test_bg_3.mp4', 'Active background is #3');
+
+    // 3. Test cleanup unused: test_bg_1 and test_bg_2 should be deleted, test_bg_3 retained
+    const activeUrl = updated.config.kioskBackground.url;
+    let deletedCount = 0;
+    const keptList = [];
+
+    for (const item of updated.config.uploadedBackgrounds) {
+      if (item.fileUrl === activeUrl) {
+        keptList.push(item);
+      } else {
+        const filePath = path.join(uploadsDir, item.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          deletedCount++;
+        }
+      }
+    }
+
+    assert.strictEqual(deletedCount, 2, '2 unused background files deleted');
+    assert.strictEqual(fs.existsSync(dummyFile1), false, 'Dummy file 1 deleted from disk');
+    assert.strictEqual(fs.existsSync(dummyFile2), false, 'Dummy file 2 deleted from disk');
+    assert.strictEqual(fs.existsSync(dummyFile3), true, 'Active dummy file 3 preserved on disk');
+
+    // Clean up remaining test file
+    try { fs.unlinkSync(dummyFile3); } catch (e) {}
+  });
 });

@@ -335,6 +335,15 @@ apiRouter.patch('/events/:id', authMiddleware(), (req, res) => {
   }
 });
 
+// Format byte size helper
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
 // Upload custom background image or video for Kiosk Event
 apiRouter.post('/events/upload-background', authMiddleware(), upload.single('backgroundFile'), (req, res) => {
   try {
@@ -344,15 +353,211 @@ apiRouter.post('/events/upload-background', authMiddleware(), upload.single('bac
     const fileUrl = `/uploads/${req.file.filename}`;
     const mime = req.file.mimetype || '';
     const isVideo = mime.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/i.test(req.file.originalname);
+    const mediaType = isVideo ? 'video' : 'image';
+    const sizeBytes = req.file.size;
+    const sizeFormatted = formatBytes(sizeBytes);
+    const eventId = req.query.eventId || req.body.eventId;
+
+    let updatedBackgrounds = null;
+    if (eventId) {
+      const event = eventService.getEventById(eventId, req.user.tenantId);
+      if (event) {
+        const cfg = event.config || {};
+        let list = Array.isArray(cfg.uploadedBackgrounds) ? cfg.uploadedBackgrounds : [];
+        const entry = {
+          fileUrl,
+          filename: req.file.filename,
+          originalName: req.file.originalname,
+          mediaType,
+          sizeBytes,
+          sizeFormatted,
+          uploadedAt: new Date().toISOString()
+        };
+        // Avoid duplicate URL, unshift new file to top
+        list = list.filter(b => b.fileUrl !== fileUrl);
+        list.unshift(entry);
+        cfg.uploadedBackgrounds = list;
+        cfg.kioskBackground = {
+          type: mediaType,
+          url: fileUrl,
+          overlayOpacity: cfg.kioskBackground?.overlayOpacity ?? 35
+        };
+        eventService.updateEventConfig(eventId, req.user.tenantId, cfg);
+        updatedBackgrounds = list;
+      }
+    }
+
     res.json({
       success: true,
       fileUrl,
+      filename: req.file.filename,
       mimeType: mime,
-      mediaType: isVideo ? 'video' : 'image',
-      originalName: req.file.originalname
+      mediaType,
+      sizeBytes,
+      sizeFormatted,
+      originalName: req.file.originalname,
+      uploadedBackgrounds: updatedBackgrounds
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// GET list of uploaded backgrounds for an event
+apiRouter.get('/events/:id/backgrounds', authMiddleware(), (req, res) => {
+  try {
+    const event = eventService.getEventById(req.params.id, req.user.tenantId);
+    if (!event) return res.status(404).json({ error: 'Event tidak ditemukan' });
+
+    const cfg = event.config || {};
+    let list = Array.isArray(cfg.uploadedBackgrounds) ? [...cfg.uploadedBackgrounds] : [];
+    const currentUrl = (cfg.kioskBackground?.url || '').trim();
+
+    // Auto-include current active upload if it's missing from the history list
+    if (currentUrl.startsWith('/uploads/')) {
+      const existsInList = list.some(b => b.fileUrl === currentUrl);
+      if (!existsInList) {
+        const fname = path.basename(currentUrl);
+        const diskPath = path.join(uploadDir, fname);
+        let sBytes = 0;
+        let sExists = false;
+        if (fs.existsSync(diskPath)) {
+          sExists = true;
+          try { sBytes = fs.statSync(diskPath).size; } catch (e) {}
+        }
+        const isVid = /\.(mp4|webm|mov|m4v)$/i.test(fname);
+        list.unshift({
+          fileUrl: currentUrl,
+          filename: fname,
+          originalName: fname,
+          mediaType: isVid ? 'video' : 'image',
+          sizeBytes: sBytes,
+          sizeFormatted: formatBytes(sBytes),
+          uploadedAt: event.created_at || new Date().toISOString()
+        });
+      }
+    }
+
+    // Refresh existence and sizes
+    let totalBytes = 0;
+    let unusedCount = 0;
+    const enriched = list.map(item => {
+      const fname = item.filename || path.basename(item.fileUrl || '');
+      const diskPath = path.join(uploadDir, fname);
+      let exists = false;
+      let realSize = item.sizeBytes || 0;
+      if (fs.existsSync(diskPath)) {
+        exists = true;
+        try { realSize = fs.statSync(diskPath).size; } catch (e) {}
+      }
+      totalBytes += realSize;
+      const isCurrent = currentUrl === item.fileUrl;
+      if (!isCurrent) unusedCount++;
+      return {
+        ...item,
+        sizeBytes: realSize,
+        sizeFormatted: formatBytes(realSize),
+        existsOnDisk: exists,
+        isCurrent
+      };
+    });
+
+    res.json({
+      success: true,
+      files: enriched,
+      totalBytes,
+      totalFormatted: formatBytes(totalBytes),
+      unusedCount
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE a specific background file from server disk
+apiRouter.delete('/events/:id/backgrounds', authMiddleware(), (req, res) => {
+  try {
+    const event = eventService.getEventById(req.params.id, req.user.tenantId);
+    if (!event) return res.status(404).json({ error: 'Event tidak ditemukan' });
+
+    const targetUrl = (req.body?.fileUrl || req.query?.fileUrl || '').trim();
+    if (!targetUrl || !targetUrl.startsWith('/uploads/')) {
+      return res.status(400).json({ error: 'URL file background tidak valid' });
+    }
+
+    const fname = path.basename(targetUrl);
+    const diskPath = path.join(uploadDir, fname);
+    let freedBytes = 0;
+    if (fs.existsSync(diskPath)) {
+      try {
+        freedBytes = fs.statSync(diskPath).size;
+        fs.unlinkSync(diskPath);
+      } catch (e) {}
+    }
+
+    const cfg = event.config || {};
+    let list = Array.isArray(cfg.uploadedBackgrounds) ? cfg.uploadedBackgrounds : [];
+    cfg.uploadedBackgrounds = list.filter(b => b.fileUrl !== targetUrl && b.filename !== fname);
+
+    // If deleting currently active background, revert to default
+    if (cfg.kioskBackground?.url === targetUrl) {
+      cfg.kioskBackground = { type: 'default', url: '', overlayOpacity: 35 };
+    }
+
+    eventService.updateEventConfig(req.params.id, req.user.tenantId, cfg);
+    res.json({
+      success: true,
+      message: 'File background berhasil dihapus dari server.',
+      freedBytes,
+      freedFormatted: formatBytes(freedBytes)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// CLEANUP all unused background files for this event
+apiRouter.post('/events/:id/backgrounds/cleanup-unused', authMiddleware(), (req, res) => {
+  try {
+    const event = eventService.getEventById(req.params.id, req.user.tenantId);
+    if (!event) return res.status(404).json({ error: 'Event tidak ditemukan' });
+
+    const cfg = event.config || {};
+    const list = Array.isArray(cfg.uploadedBackgrounds) ? cfg.uploadedBackgrounds : [];
+    const currentUrl = (cfg.kioskBackground?.url || '').trim();
+
+    let deletedCount = 0;
+    let freedBytes = 0;
+    const keptList = [];
+
+    for (const item of list) {
+      if (item.fileUrl === currentUrl) {
+        keptList.push(item);
+      } else {
+        const fname = item.filename || path.basename(item.fileUrl || '');
+        const diskPath = path.join(uploadDir, fname);
+        if (fs.existsSync(diskPath)) {
+          try {
+            freedBytes += fs.statSync(diskPath).size;
+            fs.unlinkSync(diskPath);
+            deletedCount++;
+          } catch (e) {}
+        }
+      }
+    }
+
+    cfg.uploadedBackgrounds = keptList;
+    eventService.updateEventConfig(req.params.id, req.user.tenantId, cfg);
+
+    res.json({
+      success: true,
+      deletedCount,
+      freedBytes,
+      freedFormatted: formatBytes(freedBytes),
+      message: `Berhasil membersihkan ${deletedCount} file tidak terpakai (${formatBytes(freedBytes)}).`
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

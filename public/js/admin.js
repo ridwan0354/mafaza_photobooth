@@ -444,6 +444,20 @@ function populateSelectedEventConfig() {
   }
   onKioskBgTypeChange(false);
 
+  // Populate Welcome Headline & Start Button text
+  const headline = cfg.welcomeHeadline || 'Abadikan Momen Spesialmu Di Sini! 😊';
+  const btnText = cfg.welcomeBtnText || 'Mulai Foto ➔';
+  if (document.getElementById('cfgWelcomeHeadline')) {
+    document.getElementById('cfgWelcomeHeadline').value = headline;
+  }
+  if (document.getElementById('cfgWelcomeBtnText')) {
+    document.getElementById('cfgWelcomeBtnText').value = btnText;
+  }
+  updateAdminWelcomePreviewText();
+
+  // Load uploaded background files list for this event
+  loadEventBackgroundFiles(ev.id);
+
   const modes = cfg.enabledModes || ['single', 'strip', 'collage', 'gif'];
   if (document.getElementById('m_strip')) document.getElementById('m_strip').checked = modes.includes('strip');
   if (document.getElementById('m_single')) document.getElementById('m_single').checked = modes.includes('single');
@@ -603,6 +617,19 @@ function renderAdminBgPreview() {
   }
 }
 
+function updateAdminWelcomePreviewText() {
+  const headlineInput = document.getElementById('cfgWelcomeHeadline');
+  const btnTextInput = document.getElementById('cfgWelcomeBtnText');
+  const titlePreview = document.getElementById('cfgBgPreviewTitle');
+  const btnPreview = document.getElementById('cfgBgPreviewBtn');
+
+  const headline = (headlineInput?.value || '').trim() || 'Abadikan Momen Spesialmu Di Sini! 😊';
+  const btnText = (btnTextInput?.value || '').trim() || 'Mulai Foto ➔';
+
+  if (titlePreview) titlePreview.innerText = headline;
+  if (btnPreview) btnPreview.innerText = btnText;
+}
+
 function resetKioskBackgroundToDefault() {
   draftBgUrlsByType = { image: '', video: '', youtube: '' };
   lastSelectedBgType = 'default';
@@ -611,6 +638,9 @@ function resetKioskBackgroundToDefault() {
   if (document.getElementById('cfgBgOverlayOpacity')) document.getElementById('cfgBgOverlayOpacity').value = 35;
   if (document.getElementById('cfgBgOpacityLabel')) document.getElementById('cfgBgOpacityLabel').innerText = '35%';
   onKioskBgTypeChange(false);
+  if (currentEditingEventId) {
+    loadEventBackgroundFiles(currentEditingEventId);
+  }
 }
 
 function onNewEventBgTypeChange() {
@@ -626,13 +656,17 @@ async function handleUploadKioskBackground(fileInput, mode = 'edit') {
 
   const formData = new FormData();
   formData.append('backgroundFile', file);
+  if (mode === 'edit' && currentEditingEventId) {
+    formData.append('eventId', currentEditingEventId);
+  }
 
   const btn = document.getElementById('btnUploadBgFile');
   const prevText = btn ? btn.innerText : '';
   if (btn && mode === 'edit') btn.innerText = '⏳ Mengunggah...';
 
   try {
-    const res = await fetch('/api/events/upload-background', {
+    const query = (mode === 'edit' && currentEditingEventId) ? `?eventId=${encodeURIComponent(currentEditingEventId)}` : '';
+    const res = await fetch(`/api/events/upload-background${query}`, {
       method: 'POST',
       body: formData
     });
@@ -654,12 +688,163 @@ async function handleUploadKioskBackground(fileInput, mode = 'edit') {
       if (cfgType) cfgType.value = uploadedType;
       if (cfgUrl) cfgUrl.value = data.fileUrl;
       onKioskBgTypeChange(false);
+
+      if (currentEditingEventId) {
+        await loadEventBackgroundFiles(currentEditingEventId);
+      }
+      if (window.pbNotify) {
+        window.pbNotify.success(`File background berhasil diunggah (${data.sizeFormatted || ''})!`, { title: 'Background Terunggah' });
+      }
     }
   } catch (err) {
     alert('Gagal mengunggah background: ' + err.message);
   } finally {
     if (btn && mode === 'edit') btn.innerText = prevText || '📤 Upload Gambar / Video';
     fileInput.value = '';
+  }
+}
+
+async function loadEventBackgroundFiles(eventId) {
+  const container = document.getElementById('eventBgFilesList');
+  const summaryEl = document.getElementById('eventBgStorageSummary');
+  const countBadge = document.getElementById('eventBgCountBadge');
+  const btnCleanup = document.getElementById('btnCleanupUnusedBg');
+  if (!container || !eventId) return;
+
+  try {
+    const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/backgrounds`);
+    if (!res.ok) throw new Error('Gagal memuat file background');
+    const data = await res.json();
+    const files = data.files || [];
+
+    if (countBadge) countBadge.innerText = `${files.length} File`;
+    if (summaryEl) {
+      summaryEl.innerText = `Total kapasitas file di server: ${data.totalFormatted || '0 B'}` + 
+        (data.unusedCount > 0 ? ` • (${data.unusedCount} file lama tidak terpakai)` : ' • (Semua bersih)');
+    }
+    if (btnCleanup) {
+      btnCleanup.style.display = data.unusedCount > 0 ? 'inline-flex' : 'none';
+      btnCleanup.innerText = `🧹 Hapus ${data.unusedCount} File Tidak Terpakai`;
+    }
+
+    if (files.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12.5px; background: var(--cream-card); border-radius: 10px; border: 1px dashed var(--border-soft);">
+          Belum ada file video atau gambar yang diunggah untuk event ini. Silakan klik tombol "📤 Upload Gambar / Video".
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = files.map(file => {
+      const isCurrent = file.isCurrent;
+      const isVideo = file.mediaType === 'video';
+      const dateStr = file.uploadedAt ? new Date(file.uploadedAt).toLocaleString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
+
+      return `
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: ${isCurrent ? 'rgba(230, 120, 107, 0.08)' : 'var(--cream-card)'}; border: 1.5px solid ${isCurrent ? 'var(--coral)' : 'var(--border-soft)'}; border-radius: 12px; transition: all 0.2s ease;">
+          <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
+            <div style="width: 42px; height: 42px; border-radius: 8px; background: ${isVideo ? '#2C1810' : '#EAE0D5'}; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; overflow: hidden; border: 1px solid var(--border-soft);">
+              ${isVideo ? '🎬' : `<img src="${file.fileUrl}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.outerHTML='🖼️'">`}
+            </div>
+            <div style="min-width: 0; flex: 1;">
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <strong style="font-size: 13px; color: var(--caramel-brown); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px;" title="${file.originalName || file.filename}">
+                  ${file.originalName || file.filename}
+                </strong>
+                ${isCurrent ? '<span class="badge-pill badge-active" style="font-size: 10px; padding: 2px 8px;">● Sedang Digunakan</span>' : '<span style="font-size: 10px; color: var(--text-muted); background: #eee; padding: 2px 7px; border-radius: 6px; font-weight: 700;">Tidak Dipakai</span>'}
+              </div>
+              <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 3px;">
+                <span>💾 <strong>${file.sizeFormatted}</strong></span> • <span>${isVideo ? 'Video' : 'Gambar'}</span> • <span>${dateStr}</span>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; gap: 6px; flex-shrink: 0;">
+            ${!isCurrent ? `
+              <button type="button" class="btn btn-secondary" style="font-size: 11.5px; font-weight: 700; padding: 6px 12px; background: #fff;" onclick="useUploadedBackground('${file.fileUrl}', '${file.mediaType}')" title="Jadikan background aktif">
+                👁️ Pakai Ini
+              </button>
+            ` : `
+              <span style="font-size: 11.5px; font-weight: 800; color: #27ae60; padding: 6px 8px;">✓ Aktif</span>
+            `}
+            <button type="button" class="btn btn-secondary" style="font-size: 11.5px; font-weight: 700; padding: 6px 10px; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.3);" onclick="deleteUploadedBackground('${file.fileUrl}', '${file.originalName || file.filename}')" title="Hapus file ini permanen dari disk server">
+              🗑️
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to load event background files:', err);
+    if (container) {
+      container.innerHTML = `<div style="padding: 12px; color: #c0392b; font-size: 12px;">Gagal memuat file background: ${err.message}</div>`;
+    }
+  }
+}
+
+function useUploadedBackground(fileUrl, mediaType) {
+  const cfgType = document.getElementById('cfgBgType');
+  const cfgUrl = document.getElementById('cfgBgUrl');
+  if (cfgType) cfgType.value = mediaType || 'image';
+  if (cfgUrl) cfgUrl.value = fileUrl;
+  draftBgUrlsByType[mediaType || 'image'] = fileUrl;
+  onKioskBgTypeChange(false);
+  renderAdminBgPreview();
+  if (currentEditingEventId) {
+    loadEventBackgroundFiles(currentEditingEventId);
+  }
+  if (window.pbNotify) {
+    window.pbNotify.info('Background dipilih. Klik "💾 Simpan Konfigurasi Event" untuk menerapkan ke Kiosk.', { title: 'Background Dipilih' });
+  }
+}
+
+async function deleteUploadedBackground(fileUrl, filename) {
+  if (!confirm(`Hapus file "${filename}" secara permanen dari server?\n\nFile ini akan langsung dihapus dari disk server untuk membebaskan ruang penyimpanan.`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/events/${encodeURIComponent(currentEditingEventId)}/backgrounds`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileUrl })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal menghapus file');
+
+    // If current preview is using this file, clear it
+    const cfgUrl = document.getElementById('cfgBgUrl');
+    if (cfgUrl && cfgUrl.value === fileUrl) {
+      cfgUrl.value = '';
+      if (document.getElementById('cfgBgType')) document.getElementById('cfgBgType').value = 'default';
+      onKioskBgTypeChange(false);
+    }
+
+    await loadEventBackgroundFiles(currentEditingEventId);
+    if (window.pbNotify) {
+      window.pbNotify.success(`File berhasil dihapus dari server (${data.freedFormatted || ''})!`, { title: 'File Terhapus' });
+    }
+  } catch (err) {
+    alert('Gagal menghapus file: ' + err.message);
+  }
+}
+
+async function cleanupUnusedEventBackgrounds() {
+  if (!confirm('Apakah Anda yakin ingin menghapus SEMUA file video/gambar lama yang TIDAK SEDANG DIGUNAKAN untuk event ini?\n\nFile yang sedang aktif tidak akan dihapus. Ini akan langsung membebaskan ruang server Anda.')) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/events/${encodeURIComponent(currentEditingEventId)}/backgrounds/cleanup-unused`, {
+      method: 'POST'
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal membersihkan file');
+
+    await loadEventBackgroundFiles(currentEditingEventId);
+    alert(`🎉 ${data.message}\n\nServer Anda kini lebih lega dan bersih dari sisa file video lama.`);
+  } catch (err) {
+    alert('Gagal membersihkan file tidak terpakai: ' + err.message);
   }
 }
 
@@ -710,6 +895,9 @@ async function createNewEvent(event) {
   const newBgUrlVal = (document.getElementById('newBgUrl')?.value || '').trim();
   const resolvedNewBgType = newBgUrlVal ? detectBgTypeFromUrl(newBgUrlVal, newBgTypeVal) : newBgTypeVal;
 
+  const newWelcomeHeadline = (document.getElementById('newWelcomeHeadline')?.value || '').trim() || 'Abadikan Momen Spesialmu Di Sini! 😊';
+  const newWelcomeBtnText = (document.getElementById('newWelcomeBtnText')?.value || '').trim() || 'Mulai Foto ➔';
+
   const payload = {
     name: name,
     eventDate: eventDate,
@@ -718,6 +906,8 @@ async function createNewEvent(event) {
     maxCopiesPerSession: parseInt(document.getElementById('newMaxCopies').value) || 2,
     qrRequirement: document.getElementById('newQrRequirement')?.value || 'disabled',
     pinLock: document.getElementById('newPinLock').value || '1234',
+    welcomeHeadline: newWelcomeHeadline,
+    welcomeBtnText: newWelcomeBtnText,
     kioskBackground: {
       type: resolvedNewBgType,
       url: resolvedNewBgType === 'default' ? '' : newBgUrlVal,
@@ -764,12 +954,17 @@ async function saveEventConfig() {
     return;
   }
 
+  const welcomeHeadline = (document.getElementById('cfgWelcomeHeadline')?.value || '').trim() || 'Abadikan Momen Spesialmu Di Sini! 😊';
+  const welcomeBtnText = (document.getElementById('cfgWelcomeBtnText')?.value || '').trim() || 'Mulai Foto ➔';
+
   const payload = {
     shotsCount: shotsCount,
     countdownSeconds: parseInt(document.getElementById('cfgCountdown').value) || 3,
     maxCopiesPerSession: parseInt(document.getElementById('cfgMaxCopies').value) || 2,
     qrRequirement: document.getElementById('cfgQrRequirement').value,
     pinLock: document.getElementById('cfgPinLock').value,
+    welcomeHeadline: welcomeHeadline,
+    welcomeBtnText: welcomeBtnText,
     kioskBackground: {
       type: bgType,
       url: bgType === 'default' ? '' : bgUrl,

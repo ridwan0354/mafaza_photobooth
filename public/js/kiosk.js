@@ -158,10 +158,26 @@ class KioskEngine {
           const brandEl = document.getElementById('kioskBrandTitle');
           if (brandEl) brandEl.innerText = `MAFAZA • ${this.eventData.name}`;
         }
+        this.applyKioskWelcomeText();
         this.applyKioskBackground();
         this.renderStepProgressBars();
       }
     } catch (e) {}
+  }
+
+  applyKioskWelcomeText() {
+    const headlineEl = document.getElementById('welcomeHeadlineText');
+    const startBtn = document.getElementById('welcomeStartBtn');
+    const headline = (this.eventConfig && this.eventConfig.welcomeHeadline) || 'Abadikan Momen Spesialmu Di Sini! 😊';
+    const btnText = (this.eventConfig && this.eventConfig.welcomeBtnText) || 'Mulai Foto ➔';
+
+    if (headlineEl) {
+      const cleanHeadline = headline.replace(/\n/g, '<br>');
+      headlineEl.innerHTML = cleanHeadline;
+    }
+    if (startBtn) {
+      startBtn.innerText = btnText;
+    }
   }
 
   extractYouTubeId(url) {

@@ -570,6 +570,24 @@
                   </div>
                 </div>
 
+                <!-- Kustomisasi Tulisan Sambutan & Tombol Layar Kiosk -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: #ffffff; border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px;">
+                  <div>
+                    <label style="display: block; font-size: 12.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 5px;">
+                      ✏️ Teks Judul Sambutan Kiosk
+                    </label>
+                    <input type="text" id="cfgWelcomeHeadline" oninput="updateAdminWelcomePreviewText()" placeholder="Abadikan Momen Spesialmu Di Sini! 😊" style="width: 100%; padding: 10px 12px; background: var(--cream-bg); border: 2px solid var(--border-soft); border-radius: 10px; font-size: 13px; font-weight: 700; color: var(--dark-roast);">
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Teks judul besar di layar depan Kiosk saat tamu datang.</div>
+                  </div>
+                  <div>
+                    <label style="display: block; font-size: 12.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 5px;">
+                      🔘 Teks Tombol Mulai Foto
+                    </label>
+                    <input type="text" id="cfgWelcomeBtnText" oninput="updateAdminWelcomePreviewText()" placeholder="Mulai Foto ➔" style="width: 100%; padding: 10px 12px; background: var(--cream-bg); border: 2px solid var(--border-soft); border-radius: 10px; font-size: 13px; font-weight: 700; color: var(--dark-roast);">
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Teks tombol coral utama untuk memulai sesi foto.</div>
+                  </div>
+                </div>
+
                 <!-- Live Preview Box -->
                 <div id="cfgBgPreviewBox" style="position: relative; width: 100%; height: 165px; border-radius: 14px; overflow: hidden; border: 2px solid var(--border-soft); background: #F9E9D7; display: flex; align-items: center; justify-content: center;">
                   <div id="cfgBgPreviewMedia" style="position: absolute; inset: 0; width: 100%; height: 100%;"></div>
@@ -578,9 +596,40 @@
                     <div id="cfgBgPreviewTitle" style="font-family: var(--font-heading); font-size: 18px; font-weight: 800; color: #FFFBF5; text-shadow: 0 2px 10px rgba(0,0,0,0.65); margin-bottom: 6px;">
                       Abadikan Momen Spesialmu Di Sini! 😊
                     </div>
-                    <span style="display: inline-block; background: var(--coral); color: #fff; font-size: 11px; font-weight: 700; padding: 5px 14px; border-radius: 999px; box-shadow: 0 4px 10px rgba(0,0,0,0.25);">
+                    <span id="cfgBgPreviewBtn" style="display: inline-block; background: var(--coral); color: #fff; font-size: 11px; font-weight: 700; padding: 5px 14px; border-radius: 999px; box-shadow: 0 4px 10px rgba(0,0,0,0.25);">
                       Mulai Foto ➔
                     </span>
+                  </div>
+                </div>
+
+                <!-- DAFTAR FILE BACKGROUND TERUNGGAH & PEMBERSIH RUANG SERVER -->
+                <div id="eventBgManagerPanel" style="background: #ffffff; border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 16px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                    <div>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <h5 style="font-size: 14px; font-weight: 800; color: var(--caramel-brown); margin: 0;">
+                          📁 Riwayat File Background Event Ini (Video &amp; Gambar)
+                        </h5>
+                        <span id="eventBgCountBadge" class="sticker-badge sticker-teal" style="font-size: 10.5px; padding: 2px 8px;">0 File</span>
+                      </div>
+                      <span id="eventBgStorageSummary" style="font-size: 11.5px; color: var(--text-muted); display: block; margin-top: 3px;">
+                        Memeriksa kapasitas file di server...
+                      </span>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                      <button type="button" id="btnCleanupUnusedBg" class="btn btn-secondary" style="font-size: 11.5px; font-weight: 700; padding: 6px 12px; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.3); display: none;" onclick="cleanupUnusedEventBackgrounds()" title="Hapus semua video / gambar lama yang sudah tidak dipakai agar server tidak penuh">
+                        🧹 Hapus File Tidak Terpakai
+                      </button>
+                      <button type="button" class="btn btn-secondary" style="font-size: 11.5px; font-weight: 700; padding: 6px 10px; background: #fff;" onclick="loadEventBackgroundFiles(currentEditingEventId)" title="Segarkan daftar file">
+                        🔄 Segarkan
+                      </button>
+                    </div>
+                  </div>
+
+                  <div id="eventBgFilesList" style="display: flex; flex-direction: column; gap: 8px; max-height: 220px; overflow-y: auto;">
+                    <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;">
+                      Belum ada file video/gambar yang diunggah untuk event ini.
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1469,7 +1518,7 @@
           <label style="display: block; font-size: 13.5px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">
             🖼️🎬 Background Layar Kiosk (Bisa Gambar / YouTube / S3 Video)
           </label>
-          <div style="display: grid; grid-template-columns: 200px 1fr; gap: 10px; align-items: center;">
+          <div style="display: grid; grid-template-columns: 200px 1fr; gap: 10px; align-items: center; margin-bottom: 12px;">
             <select id="newBgType" onchange="onNewEventBgTypeChange()" style="width: 100%; padding: 10px 12px; background: #ffffff; border: 2px solid var(--border-soft); border-radius: 10px; font-size: 13px; font-weight: 700; color: var(--caramel-brown);">
               <option value="default" selected>🎨 Default Krem</option>
               <option value="image">🖼️ Gambar</option>
@@ -1482,6 +1531,16 @@
               <button type="button" class="btn btn-teal" style="padding: 9px 12px; font-size: 12px; white-space: nowrap;" onclick="document.getElementById('newBgFileInput').click()">
                 📤 Upload
               </button>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <label style="display: block; font-size: 12px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 4px;">Teks Judul Sambutan</label>
+              <input type="text" id="newWelcomeHeadline" value="Abadikan Momen Spesialmu Di Sini! 😊" style="width: 100%; padding: 8px 10px; background: #ffffff; border: 1.5px solid var(--border-soft); border-radius: 8px; font-size: 12.5px; font-weight: 600;">
+            </div>
+            <div>
+              <label style="display: block; font-size: 12px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 4px;">Teks Tombol Mulai</label>
+              <input type="text" id="newWelcomeBtnText" value="Mulai Foto ➔" style="width: 100%; padding: 8px 10px; background: #ffffff; border: 1.5px solid var(--border-soft); border-radius: 8px; font-size: 12.5px; font-weight: 600;">
             </div>
           </div>
         </div>
@@ -1764,6 +1823,6 @@
 
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/admin.js?v=warm-retro-v4.6"></script>
+  <script src="/js/admin.js?v=warm-retro-v4.7"></script>
 </body>
 </html>

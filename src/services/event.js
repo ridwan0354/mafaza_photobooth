@@ -63,11 +63,14 @@ export function createEvent(tenantId, data) {
     qrRequirement: data.qrRequirement || 'disabled',
     idleTimeoutSeconds: data.idleTimeoutSeconds || 30,
     pinLock: data.pinLock || '1234',
+    welcomeHeadline: data.welcomeHeadline || 'Abadikan Momen Spesialmu Di Sini! 😊',
+    welcomeBtnText: data.welcomeBtnText || 'Mulai Foto ➔',
     kioskBackground: data.kioskBackground || {
       type: 'default',
       url: '',
       overlayOpacity: 35
     },
+    uploadedBackgrounds: data.uploadedBackgrounds || [],
     themeTokens: data.themeTokens || {
       welcomeTitle: data.name,
       welcomeSubtitle: `Photobooth Event • ${eventDate}`,
