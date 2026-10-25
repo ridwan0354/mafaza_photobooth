@@ -248,13 +248,16 @@
 
     <!-- 2. MAIN CONTENT AREA -->
     <div class="admin-main">
-      <!-- Top Bar -->
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+      <!-- Top Bar (Sticky di pojok kanan atas untuk akses cepat Kiosk) -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 16px; position: sticky; top: -36px; z-index: 100; background: var(--bg-warm, #FAF6F0); padding: 8px 0 14px 0;">
         <div>
           <span class="sticker-badge sticker-purple" style="margin-bottom: 8px;">Event Aktif Saat Ini</span>
           <h1 id="topActiveEventTitle" style="font-size: 32px; font-weight: 800; color: var(--charcoal); margin-top: 4px;">Memuat Event...</h1>
         </div>
-        <div style="display: flex; align-items: center; gap: 14px;">
+        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+          <a href="/kiosk?fullscreen=1" target="_blank" class="btn btn-coral" style="padding: 11px 22px; font-size: 14px; font-weight: 800; border-radius: var(--radius-pill); text-decoration: none; box-shadow: 0 4px 14px rgba(230, 120, 107, 0.35); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;">
+            🖥️ Buka Kiosk Full-Screen ➔
+          </a>
           <span class="badge-pill badge-active">● Kiosk Online</span>
           <img src="/assets/logo-mafaza.jpg" alt="Mafaza" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--muted-mustard); box-shadow: 0 4px 12px rgba(123, 72, 46, 0.25);">
         </div>
@@ -1571,6 +1574,11 @@
             <div><strong>Format:</strong> <span id="modalPhotoFormat">-</span></div>
             <div><strong>Session ID:</strong> <span id="modalPhotoSessionId" style="font-family: monospace;">-</span></div>
             <div><strong>Spooler ID:</strong> <span id="modalPhotoSpoolerId" style="font-family: monospace; color: var(--caramel-brown);">-</span></div>
+            <div style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-soft); display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <strong>Alur QR:</strong>
+              <span id="modalPhotoQrBadge" class="sticker-badge sticker-teal" style="font-size: 11px; padding: 2px 8px;">Memuat...</span>
+            </div>
+            <div id="modalPhotoQrInfo" style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin-top: 4px;">-</div>
           </div>
 
           <div style="margin-bottom: 18px;">
@@ -1592,6 +1600,9 @@
             <button type="button" class="btn btn-secondary" style="width: 100%; padding: 11px; font-weight: 700; font-size: 13.5px; background: var(--cream-bg); color: var(--caramel-brown);" onclick="printModalPhotoViaDevice()">
               🖨️ Cetak via Dialog Browser (Cadangan)
             </button>
+            <button type="button" id="modalBtnViewQr" class="btn btn-secondary" style="width: 100%; padding: 11px; font-weight: 800; font-size: 14px; background: #fff; border: 2px solid var(--dusty-teal); color: var(--dusty-teal); display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 2px 8px rgba(45, 122, 122, 0.1);" onclick="openPhotoQrModal()">
+              🎟️ Lihat QR Code &amp; Alur Tamu
+            </button>
             <a id="modalBtnDownload" href="#" download class="btn btn-secondary" style="width: 100%; text-align: center; text-decoration: none; padding: 11px; font-weight: 700; font-size: 14px; background: #fff;">
               ⬇️ Unduh File Foto (HD)
             </a>
@@ -1607,8 +1618,64 @@
     </div>
   </div>
 
+  <!-- 4. QR CODE & FLOW DETAIL MODAL -->
+  <div id="photoQrDetailModal" style="display: none; position: fixed; inset: 0; z-index: 10001; background: rgba(30, 15, 10, 0.82); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;">
+    <div class="card-pop" style="max-width: 500px; width: 100%; max-height: 92vh; overflow-y: auto; background: #fff; padding: 28px; position: relative; border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.38); text-align: center;">
+      <button onclick="closePhotoQrModal()" style="position: absolute; top: 18px; right: 18px; width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--soft-gray); background: var(--cream-white); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">✕</button>
+
+      <div style="font-size: 32px; margin-bottom: 4px;">🎟️</div>
+      <h3 style="font-size: 22px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 6px 0;">QR Code Galeri Tamu</h3>
+      <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 16px 0;" id="qrModalEventTitle">Memuat info QR...</p>
+
+      <!-- Flow Type Badge & Description Box -->
+      <div id="qrModalFlowBox" style="background: var(--cream-card); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 12px 16px; margin-bottom: 18px; text-align: left;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <strong style="font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Tipe Alur QR:</strong>
+          <span id="qrModalFlowBadge" class="sticker-badge sticker-teal" style="font-size: 11.5px;">-</span>
+        </div>
+        <div id="qrModalFlowDescription" style="font-size: 12.5px; color: var(--charcoal); line-height: 1.5;">
+          -
+        </div>
+        <div id="qrModalMultiSessionNotice" style="margin-top: 8px; font-size: 12px; font-weight: 700; color: #27ae60; display: none;">
+          ℹ️ Kartu QR ini menampung <span id="qrModalSessionCount">1</span> sesi foto dari tamu yang sama.
+        </div>
+      </div>
+
+      <!-- Big QR Code Display Box -->
+      <div style="background: #fff; border: 2.5px solid var(--border-soft); border-radius: 20px; padding: 18px; display: inline-block; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(123, 72, 46, 0.1);">
+        <img id="qrModalImg" src="" alt="QR Code Galeri" style="width: 230px; height: 230px; display: block; border-radius: 10px; margin: 0 auto;">
+        <div style="font-size: 11px; color: var(--text-muted); margin-top: 8px; font-weight: 600;">
+          📲 Scan langsung pakai kamera HP untuk membuka galeri foto
+        </div>
+      </div>
+
+      <!-- Gallery Link & Token Box -->
+      <div style="background: var(--cream-bg); border-radius: 12px; padding: 10px 14px; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+        <div style="text-align: left; overflow: hidden; flex: 1;">
+          <div style="font-size: 10.5px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Link Galeri Tamu</div>
+          <div id="qrModalUrlText" style="font-family: monospace; font-size: 11.5px; color: var(--coral); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            -
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="copyQrGalleryLink()" style="padding: 6px 12px; font-size: 12px; font-weight: 700; white-space: nowrap; background: #fff;">
+          📋 Salin Link
+        </button>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="display: flex; gap: 10px; justify-content: center;">
+        <a id="qrModalBtnOpenGallery" href="#" target="_blank" class="btn btn-coral" style="flex: 1; padding: 11px; font-size: 13.5px; font-weight: 700; text-decoration: none; text-align: center;">
+          📱 Buka Galeri HP ↗
+        </a>
+        <a id="qrModalBtnDownloadQr" href="#" download="QR_Galeri_Tamu.png" class="btn btn-secondary" style="flex: 1; padding: 11px; font-size: 13.5px; font-weight: 700; text-decoration: none; text-align: center; background: #fff;">
+          💾 Simpan Gambar QR
+        </a>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/admin.js?v=warm-retro-v4.2"></script>
+  <script src="/js/admin.js?v=warm-retro-v4.3"></script>
 </body>
 </html>

@@ -2582,6 +2582,9 @@ async function loadRecentPhotos(filterEventId = null) {
                 <button class="btn btn-secondary" style="flex: 1; padding: 6px 8px; font-size: 12px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewByIndex(${idx})">
                   👁️ Lihat
                 </button>
+                <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px; font-weight: 700; background: #fff; border: 1.5px solid var(--dusty-teal); color: var(--dusty-teal);" onclick="event.stopPropagation(); openPhotoQrModalByIndex(${idx})" title="Lihat QR Code &amp; Alur Masuk Tamu">
+                  🎟️ QR
+                </button>
                 <button class="btn btn-coral" style="flex: 1; padding: 6px 8px; font-size: 12px; font-weight: 700;" onclick="quickPrintPhoto('${photo.asset_id}', '${photo.print_job_id || ''}')">
                   🖨️ Cetak
                 </button>
@@ -2612,6 +2615,12 @@ function openPhotoPreviewByIndex(index) {
   const photo = cachedRecentPhotos[index];
   if (!photo) return;
   openPhotoPreviewModal(photo);
+}
+
+function openPhotoQrModalByIndex(index) {
+  const photo = cachedRecentPhotos[index];
+  if (!photo) return;
+  openPhotoQrModal(photo);
 }
 
 function openPhotoPreviewFromJob(jobId) {
@@ -2668,6 +2677,26 @@ function openPhotoPreviewModal(photo) {
   if (sessId) sessId.textContent = photo.session_id || '-';
   if (spoolerId) spoolerId.textContent = photo.spooler_job_id || 'Belum Ada Spooler ID';
 
+  const qrBadge = document.getElementById('modalPhotoQrBadge');
+  const qrInfo = document.getElementById('modalPhotoQrInfo');
+  const isPreRegistered = (photo.qr_flow_type === 'batch' || photo.qr_flow_type === 'registration');
+  if (qrBadge) {
+    if (isPreRegistered) {
+      qrBadge.className = 'sticker-badge sticker-purple';
+      qrBadge.textContent = '🎟️ Alur QR Duluan';
+    } else {
+      qrBadge.className = 'sticker-badge sticker-teal';
+      qrBadge.textContent = '⚡ QR Sesi Mandiri';
+    }
+  }
+  if (qrInfo) {
+    const passToken = photo.guest_token || photo.guest_pass_id || (photo.session_id ? `sesi:${photo.session_id}` : 'Otomatis di Kiosk');
+    const sessCount = photo.gp_session_count && photo.gp_session_count > 1 ? ` • ${photo.gp_session_count} Sesi Foto` : '';
+    qrInfo.innerHTML = isPreRegistered
+      ? `Kartu Tamu Terdaftar: <code style="font-size: 11px; background: #fff; padding: 2px 5px; border-radius: 4px; border: 1px solid var(--border-soft);">${escapeHtml(passToken)}</code>${sessCount}`
+      : `QR Khusus Sesi Ini: <code style="font-size: 11px; background: #fff; padding: 2px 5px; border-radius: 4px; border: 1px solid var(--border-soft);">${escapeHtml(passToken)}</code>`;
+  }
+
   if (btnDownload) {
     btnDownload.href = imgSrc;
     const ext = /\.(jpe?g)$/i.test(imgSrc) ? 'jpg' : 'png';
@@ -2675,9 +2704,10 @@ function openPhotoPreviewModal(photo) {
   }
 
   if (btnGallery) {
-    if (photo.guest_pass_id) {
+    const targetToken = photo.guest_token || photo.guest_pass_id || photo.session_id;
+    if (targetToken) {
       btnGallery.style.display = 'block';
-      btnGallery.href = `/gallery/g/${photo.guest_pass_id}`;
+      btnGallery.href = `/gallery/g/${targetToken}`;
     } else {
       btnGallery.style.display = 'none';
     }
@@ -2694,6 +2724,77 @@ function closePhotoPreviewModal() {
   const modal = document.getElementById('photoPreviewModal');
   if (modal) modal.style.display = 'none';
   activeModalPhoto = null;
+}
+
+let activeQrData = null;
+
+async function openPhotoQrModal(photo = null) {
+  const targetPhoto = photo || activeModalPhoto;
+  if (!targetPhoto || !targetPhoto.asset_id) return;
+
+  const modal = document.getElementById('photoQrDetailModal');
+  if (!modal) return;
+
+  const titleEl = document.getElementById('qrModalEventTitle');
+  const flowBadge = document.getElementById('qrModalFlowBadge');
+  const flowDesc = document.getElementById('qrModalFlowDescription');
+  const multiNotice = document.getElementById('qrModalMultiSessionNotice');
+  const sessionCountSpan = document.getElementById('qrModalSessionCount');
+  const qrImg = document.getElementById('qrModalImg');
+  const urlText = document.getElementById('qrModalUrlText');
+  const btnOpenGallery = document.getElementById('qrModalBtnOpenGallery');
+  const btnDownloadQr = document.getElementById('qrModalBtnDownloadQr');
+
+  if (titleEl) titleEl.textContent = `Memuat QR galeri untuk ${targetPhoto.event_name || 'Event'}...`;
+  if (qrImg) qrImg.src = '';
+  if (urlText) urlText.textContent = 'Memuat tautan...';
+  modal.style.display = 'flex';
+
+  try {
+    const res = await fetch(`/api/photos/${encodeURIComponent(targetPhoto.asset_id)}/qr`);
+    if (!res.ok) throw new Error('Gagal memuat QR galeri');
+    const data = await res.json();
+    activeQrData = data;
+
+    if (titleEl) titleEl.textContent = `${data.eventName} • Sesi: ${data.sessionId || '-'}`;
+    if (flowBadge) {
+      flowBadge.className = data.flowType === 'pre_registered' ? 'sticker-badge sticker-purple' : 'sticker-badge sticker-teal';
+      flowBadge.textContent = data.flowBadge;
+    }
+    if (flowDesc) flowDesc.textContent = data.flowDescription;
+    if (multiNotice) {
+      if (data.sessionCount > 1) {
+        multiNotice.style.display = 'block';
+        if (sessionCountSpan) sessionCountSpan.textContent = data.sessionCount;
+      } else {
+        multiNotice.style.display = 'none';
+      }
+    }
+    if (qrImg) qrImg.src = data.qrDataUrl;
+    if (urlText) urlText.textContent = data.fullQrUrl;
+    if (btnOpenGallery) btnOpenGallery.href = data.galleryUrl;
+    if (btnDownloadQr) {
+      btnDownloadQr.href = data.qrDataUrl;
+      btnDownloadQr.download = `QR_Galeri_${data.token || 'Tamu'}.png`;
+    }
+  } catch (err) {
+    if (titleEl) titleEl.textContent = '⚠️ ' + err.message;
+  }
+}
+
+function closePhotoQrModal() {
+  const modal = document.getElementById('photoQrDetailModal');
+  if (modal) modal.style.display = 'none';
+  activeQrData = null;
+}
+
+function copyQrGalleryLink() {
+  if (!activeQrData || !activeQrData.fullQrUrl) return;
+  navigator.clipboard.writeText(activeQrData.fullQrUrl).then(() => {
+    alert('✅ Link galeri tamu berhasil disalin ke clipboard:\n\n' + activeQrData.fullQrUrl);
+  }).catch(() => {
+    prompt('Salin link galeri tamu:', activeQrData.fullQrUrl);
+  });
 }
 
 async function executeModalReprint() {

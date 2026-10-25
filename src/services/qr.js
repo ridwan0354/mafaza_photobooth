@@ -98,8 +98,8 @@ export function resolveGuestPass(token) {
     FROM guest_passes gp
     JOIN events e ON gp.event_id = e.id
     JOIN tenants t ON gp.tenant_id = t.id
-    WHERE gp.token_plain = ? AND gp.status = 'active'
-  `).get(cleanToken);
+    WHERE (gp.token_plain = ? OR gp.id = ?) AND gp.status = 'active'
+  `).get(cleanToken, cleanToken);
 
   return pass || null;
 }
@@ -120,7 +120,60 @@ export async function resolveGuestPassWithQr(token, baseUrl = '') {
 }
 
 export function getGuestGalleryData(token) {
-  const pass = resolveGuestPass(token);
+  let pass = resolveGuestPass(token);
+  const cleanToken = token && token.includes('/gallery/g/') ? token.split('/gallery/g/')[1].split('?')[0] : token;
+
+  if (!pass && cleanToken) {
+    const session = db.prepare(`
+      SELECT ps.*, e.name as event_name, t.name as tenant_name
+      FROM photo_sessions ps
+      JOIN events e ON ps.event_id = e.id
+      JOIN tenants t ON ps.tenant_id = t.id
+      WHERE ps.id = ?
+    `).get(cleanToken);
+
+    if (session) {
+      if (session.guest_pass_id) {
+        pass = resolveGuestPass(session.guest_pass_id);
+      }
+      if (!pass) {
+        const media = db.prepare(`
+          SELECT * FROM media_assets 
+          WHERE photo_session_id = ? 
+          GROUP BY type, variant
+          ORDER BY CASE 
+            WHEN type = 'final_photo' THEN 1 
+            WHEN type = 'boomerang' THEN 2 
+            WHEN type = 'live_clip' THEN 3
+            WHEN type = 'live_photo' THEN 4 
+            WHEN type = 'raw_capture' THEN 5 
+            ELSE 6 
+          END ASC, variant ASC
+        `).all(session.id).map(ma => ({
+          id: ma.id,
+          type: ma.type,
+          variant: ma.variant,
+          filePath: ma.file_path,
+          createdAt: ma.created_at
+        }));
+
+        return {
+          guestPass: {
+            id: session.id,
+            token: session.id,
+            eventName: session.event_name,
+            tenantName: session.tenant_name,
+            expiresAt: null
+          },
+          sessions: [{
+            ...session,
+            media
+          }]
+        };
+      }
+    }
+  }
+
   if (!pass) return null;
 
   // Retrieve all photo sessions associated with this guest pass (multi-session!)

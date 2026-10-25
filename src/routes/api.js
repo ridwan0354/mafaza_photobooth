@@ -18,6 +18,7 @@ import * as auditService from '../services/audit.js';
 import * as appBuilder from '../services/appBuilder.js';
 import * as cameraService from '../services/camera.js';
 import { optimizePhotoFile } from '../services/imageOptimizer.js';
+import QRCode from 'qrcode';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -856,6 +857,9 @@ apiRouter.get('/photos/recent', authMiddleware(), (req, res) => {
       SELECT ma.id as asset_id, ma.file_path, ma.variant, ma.created_at,
              ps.id as session_id, ps.mode as session_mode, ps.status as session_status,
              ps.guest_pass_id,
+             gp.token_plain as guest_token,
+             gp.issued_via as qr_flow_type,
+             (SELECT COUNT(*) FROM photo_sessions ps2 WHERE ps2.guest_pass_id = gp.id) as gp_session_count,
              e.id as event_id, e.name as event_name,
              (SELECT pj.id FROM print_jobs pj WHERE pj.media_asset_id = ma.id ORDER BY pj.created_at DESC LIMIT 1) as print_job_id,
              (SELECT pj.state FROM print_jobs pj WHERE pj.media_asset_id = ma.id ORDER BY pj.created_at DESC LIMIT 1) as print_state,
@@ -863,6 +867,7 @@ apiRouter.get('/photos/recent', authMiddleware(), (req, res) => {
              (SELECT pj.copies FROM print_jobs pj WHERE pj.media_asset_id = ma.id ORDER BY pj.created_at DESC LIMIT 1) as print_copies
       FROM media_assets ma
       LEFT JOIN photo_sessions ps ON ma.photo_session_id = ps.id
+      LEFT JOIN guest_passes gp ON ps.guest_pass_id = gp.id
       LEFT JOIN events e ON ma.event_id = e.id
       WHERE ma.tenant_id = ?
         AND (ma.type = 'final_photo' OR ma.variant = 'print_hires')
@@ -878,6 +883,75 @@ apiRouter.get('/photos/recent', authMiddleware(), (req, res) => {
     query += ' ORDER BY ma.created_at DESC LIMIT 60';
     const photos = db.prepare(query).all(...params);
     res.json(photos);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint Detail QR & Status Alur Masuk (Alur QR Duluan vs QR Sendiri-Sendiri)
+apiRouter.get('/photos/:assetId/qr', authMiddleware(), async (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const asset = db.prepare(`
+      SELECT ma.id as asset_id, ma.file_path, ma.photo_session_id, ma.tenant_id, ma.event_id,
+             ps.id as session_id, ps.guest_pass_id, ps.mode as session_mode, ps.started_at,
+             gp.id as gp_id, gp.token_plain as gp_token, gp.issued_via as gp_issued_via, gp.created_at as gp_created_at,
+             e.name as event_name
+      FROM media_assets ma
+      LEFT JOIN photo_sessions ps ON ma.photo_session_id = ps.id
+      LEFT JOIN guest_passes gp ON ps.guest_pass_id = gp.id
+      LEFT JOIN events e ON ma.event_id = e.id
+      WHERE ma.id = ? AND ma.tenant_id = ?
+    `).get(req.params.assetId, tenantId);
+
+    if (!asset) return res.status(404).json({ error: 'Foto tidak ditemukan' });
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    let token = asset.gp_token;
+    let guestPassId = asset.guest_pass_id;
+    let flowType = asset.gp_issued_via || 'booth';
+
+    // Jika belum punya guest pass (mis. sesi lama atau dibuat tanpa pass), otomatis buatkan pass agar QR selalu ada!
+    if (!token) {
+      const pass = await qrService.createGuestPass(tenantId, asset.event_id, 'booth', baseUrl);
+      token = pass.token_plain;
+      guestPassId = pass.id;
+      flowType = 'booth';
+      if (asset.session_id) {
+        db.prepare('UPDATE photo_sessions SET guest_pass_id = ? WHERE id = ?').run(pass.id, asset.session_id);
+      }
+    }
+
+    const sessionCount = db.prepare('SELECT COUNT(*) as count FROM photo_sessions WHERE guest_pass_id = ?').get(guestPassId)?.count || 1;
+
+    const galleryUrl = `/gallery/g/${token}`;
+    const fullQrUrl = `${baseUrl.replace(/\/$/, '')}${galleryUrl}`;
+    const qrDataUrl = await QRCode.toDataURL(fullQrUrl, { margin: 1, width: 340 });
+
+    const isPreRegistered = (flowType === 'batch' || flowType === 'registration');
+    const flowTitle = isPreRegistered
+      ? 'Alur: QR Tamu Terdaftar (Kartu Undangan Tamu)'
+      : 'Alur: QR Sesi Mandiri (Dibuat Otomatis di Booth)';
+    const flowBadge = isPreRegistered ? '🎟️ Alur QR Duluan' : '⚡ QR Sesi Mandiri';
+    const flowDescription = isPreRegistered
+      ? 'Tamu melakukan scan QR kartu undangan terlebih dahulu sebelum mulai berfoto di Kiosk. Foto ini tersimpan ke dalam kartu QR tamu tersebut bersama sesi lainnya.'
+      : 'Tamu langsung mengambil foto di Kiosk tanpa kartu di awal, dan QR galeri ini dibuat otomatis khusus untuk sesi ini.';
+
+    res.json({
+      assetId: asset.asset_id,
+      sessionId: asset.session_id,
+      eventName: asset.event_name || 'Event Mafaza',
+      token,
+      guestPassId,
+      flowType: isPreRegistered ? 'pre_registered' : 'on_spot',
+      flowBadge,
+      flowTitle,
+      flowDescription,
+      sessionCount,
+      galleryUrl,
+      fullQrUrl,
+      qrDataUrl
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
