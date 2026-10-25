@@ -2578,18 +2578,12 @@ async function loadRecentPhotos(filterEventId = null) {
                 ${timeStr}
               </div>
 
-              <div style="display: flex; gap: 6px; margin-top: 4px;">
-                <button class="btn btn-secondary" style="flex: 1; padding: 6px 8px; font-size: 12px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewByIndex(${idx})">
+              <div style="display: flex; gap: 8px; margin-top: 4px;">
+                <button class="btn btn-secondary" style="flex: 1; padding: 7px 10px; font-size: 12.5px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewByIndex(${idx})">
                   👁️ Lihat
                 </button>
-                <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 12px; font-weight: 700; background: #fff; border: 1.5px solid var(--dusty-teal); color: var(--dusty-teal);" onclick="event.stopPropagation(); openPhotoQrModalByIndex(${idx})" title="Lihat QR Code &amp; Alur Masuk Tamu">
-                  🎟️ QR
-                </button>
-                <button class="btn btn-coral" style="flex: 1; padding: 6px 8px; font-size: 12px; font-weight: 700;" onclick="quickPrintPhoto('${photo.asset_id}', '${photo.print_job_id || ''}')">
+                <button class="btn btn-coral" style="flex: 1; padding: 7px 10px; font-size: 12.5px; font-weight: 700;" onclick="quickPrintPhoto('${photo.asset_id}', '${photo.print_job_id || ''}')">
                   🖨️ Cetak
-                </button>
-                <button class="btn btn-secondary" style="padding: 6px 9px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25);" onclick="deletePhoto('${photo.asset_id}', event)" title="Hapus foto ini secara permanen">
-                  🗑️
                 </button>
               </div>
             </div>
