@@ -2073,7 +2073,10 @@ class KioskEngine {
   }
 
   resetAutoReturnTimer(seconds = 45) {
-    this.startAutoReturnTimer(seconds);
+    if (this.autoReturnTimerId) {
+      clearInterval(this.autoReturnTimerId);
+      this.autoReturnTimerId = null;
+    }
   }
 
   debounceSyncSession() {
@@ -2308,18 +2311,11 @@ class KioskEngine {
   }
 
   startAutoReturnTimer(seconds = 20) {
-    let remaining = seconds;
-    const timerDisplay = document.getElementById('autoReturnTimer');
-    if (this.autoReturnTimerId) clearInterval(this.autoReturnTimerId);
-
-    this.autoReturnTimerId = setInterval(() => {
-      remaining--;
-      if (timerDisplay) timerDisplay.innerText = remaining;
-      if (remaining <= 0) {
-        clearInterval(this.autoReturnTimerId);
-        this.finishSession();
-      }
-    }, 1000);
+    // Dinonaktifkan: halaman tetap di layar hasil agar customer leluasa scan QR dan simpan foto ke HP
+    if (this.autoReturnTimerId) {
+      clearInterval(this.autoReturnTimerId);
+      this.autoReturnTimerId = null;
+    }
   }
 
   finishSession() {
