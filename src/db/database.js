@@ -117,6 +117,8 @@ function runMigrations() {
   ensureColumn('print_jobs', 'options_json', "TEXT DEFAULT '{}'");
   // Kunci rahasia Print Agent (aplikasi cetak otomatis di komputer studio)
   ensureColumn('tenants', 'agent_key', 'TEXT');
+  // Template ID yang digunakan saat sesi foto di Kiosk
+  ensureColumn('photo_sessions', 'template_id', 'TEXT');
 }
 
 function seedDatabase() {

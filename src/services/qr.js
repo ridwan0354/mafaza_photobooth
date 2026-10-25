@@ -119,22 +119,51 @@ export async function resolveGuestPassWithQr(token, baseUrl = '') {
   };
 }
 
-function getEventTemplate(eventId) {
-  if (!eventId) return null;
+function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null) {
   try {
-    const tpl = db.prepare(`
-      SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
-      FROM templates t
-      LEFT JOIN template_versions tv ON t.current_version_id = tv.id
-      WHERE t.event_id = ? AND t.status != 'archived'
-      ORDER BY t.created_at DESC LIMIT 1
-    `).get(eventId) || db.prepare(`
-      SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
-      FROM templates t
-      LEFT JOIN template_versions tv ON t.current_version_id = tv.id
-      WHERE t.status != 'archived'
-      ORDER BY t.created_at DESC LIMIT 1
-    `).get();
+    let tpl = null;
+    // 1. If explicit templateId is associated with this session
+    if (templateId) {
+      tpl = db.prepare(`
+        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        FROM templates t
+        LEFT JOIN template_versions tv ON t.current_version_id = tv.id
+        WHERE t.id = ? AND t.status != 'archived'
+      `).get(templateId);
+    }
+    // 2. By event_id if assigned specifically to the event
+    if (!tpl && eventId) {
+      tpl = db.prepare(`
+        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        FROM templates t
+        LEFT JOIN template_versions tv ON t.current_version_id = tv.id
+        WHERE t.event_id = ? AND t.status != 'archived'
+        ORDER BY t.created_at DESC LIMIT 1
+      `).get(eventId);
+    }
+    // 3. Match by matching orientation (strip vs portrait vs landscape) so portrait doesn't load landscape
+    if (!tpl) {
+      const isStrip = (sessionMode === 'strip');
+      const isLandscape = (sessionMode === 'landscape');
+      const targetOrientation = isStrip ? 'strip' : (isLandscape ? 'landscape' : 'portrait');
+      tpl = db.prepare(`
+        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        FROM templates t
+        LEFT JOIN template_versions tv ON t.current_version_id = tv.id
+        WHERE t.status != 'archived' AND (t.orientation = ? OR (t.width < t.height AND ? = 'portrait') OR (t.width > t.height AND ? = 'landscape'))
+        ORDER BY t.created_at DESC LIMIT 1
+      `).get(targetOrientation, targetOrientation, targetOrientation);
+    }
+    // 4. General fallback
+    if (!tpl) {
+      tpl = db.prepare(`
+        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        FROM templates t
+        LEFT JOIN template_versions tv ON t.current_version_id = tv.id
+        WHERE t.status != 'archived'
+        ORDER BY t.created_at DESC LIMIT 1
+      `).get();
+    }
 
     if (!tpl) return null;
     let slots = [];
@@ -145,7 +174,7 @@ function getEventTemplate(eventId) {
       width: tpl.width || 1200,
       height: tpl.height || 1800,
       orientation: tpl.orientation || 'portrait',
-      imageUrl: tpl.image_storage_key || '/assets/templates/strip-green-template.svg',
+      imageUrl: tpl.image_storage_key || '/assets/templates/single-green-template.svg',
       slots: slots
     };
   } catch (e) {
@@ -191,7 +220,7 @@ export function getGuestGalleryData(token) {
           createdAt: ma.created_at
         }));
 
-        const tpl = getEventTemplate(session.event_id);
+        const tpl = getEventTemplate(session.event_id, session.mode, session.template_id);
 
         return {
           guestPass: {
@@ -238,11 +267,14 @@ export function getGuestGalleryData(token) {
     FROM photo_sessions ps
     WHERE ps.guest_pass_id = ?
     ORDER BY ps.started_at DESC
-  `).all(pass.id).map(s => ({
-    ...s,
-    template: tpl,
-    media: JSON.parse(s.media_json || '[]')
-  }));
+  `).all(pass.id).map(s => {
+    const sTpl = getEventTemplate(s.event_id, s.mode, s.template_id) || tpl;
+    return {
+      ...s,
+      template: sTpl,
+      media: JSON.parse(s.media_json || '[]')
+    };
+  });
 
   return {
     guestPass: {

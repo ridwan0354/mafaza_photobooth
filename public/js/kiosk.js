@@ -1710,7 +1710,8 @@ class KioskEngine {
             eventId: this.eventId,
             deviceId: this.deviceId,
             guestPassId: this.guestPass ? this.guestPass.id : null,
-            mode: this.selectedMode
+            mode: this.selectedMode,
+            templateId: this.selectedTemplate ? this.selectedTemplate.id : null
           })
         });
         if (sessRes.ok) {
@@ -2448,6 +2449,9 @@ class KioskEngine {
       if (this.guestPass && this.guestPass.id) {
         formData.append('guestPassId', this.guestPass.id);
       }
+      if (this.selectedTemplate && this.selectedTemplate.id) {
+        formData.append('templateId', this.selectedTemplate.id);
+      }
 
       if (needSyncRaw) {
         rawBlobs.forEach(item => {
@@ -2506,6 +2510,9 @@ class KioskEngine {
       formData.append('printCopies', copies);
       if (this.guestPass && this.guestPass.id) {
         formData.append('guestPassId', this.guestPass.id);
+      }
+      if (this.selectedTemplate && this.selectedTemplate.id) {
+        formData.append('templateId', this.selectedTemplate.id);
       }
 
       try {

@@ -768,14 +768,14 @@ apiRouter.post('/kiosk/qr/resolve', async (req, res) => {
 // Start a photo session on kiosk
 apiRouter.post('/kiosk/sessions', (req, res) => {
   try {
-    const { tenantId, eventId, deviceId, guestPassId, mode } = req.body;
+    const { tenantId, eventId, deviceId, guestPassId, mode, templateId } = req.body;
     const sessionId = 'sess_' + crypto.randomBytes(8).toString('hex');
     const nowIso = new Date().toISOString();
 
     db.prepare(`
-      INSERT INTO photo_sessions (id, tenant_id, event_id, device_id, guest_pass_id, mode, status, started_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?)
-    `).run(sessionId, tenantId, eventId, deviceId || null, guestPassId || null, mode || 'single', nowIso);
+      INSERT INTO photo_sessions (id, tenant_id, event_id, device_id, guest_pass_id, mode, status, started_at, template_id)
+      VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?, ?)
+    `).run(sessionId, tenantId, eventId, deviceId || null, guestPassId || null, mode || 'single', nowIso, templateId || null);
 
     res.json({ sessionId, status: 'capturing' });
   } catch (err) {
@@ -795,6 +795,11 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
     const sessionId = req.params.id;
     const session = db.prepare('SELECT * FROM photo_sessions WHERE id = ?').get(sessionId);
     if (!session) return res.status(404).json({ error: 'Session tidak ditemukan' });
+
+    if (req.body && req.body.templateId) {
+      db.prepare('UPDATE photo_sessions SET template_id = ? WHERE id = ?').run(req.body.templateId, sessionId);
+      session.template_id = req.body.templateId;
+    }
 
     if (req.body && req.body.guestPassId && !session.guest_pass_id) {
       db.prepare('UPDATE photo_sessions SET guest_pass_id = ? WHERE id = ?').run(req.body.guestPassId, sessionId);
