@@ -285,7 +285,7 @@
     <div id="loginAlertBox" class="alert-box alert-danger"></div>
     <div id="loginSuccessBox" class="alert-box alert-success"></div>
 
-    <form id="adminLoginForm" onsubmit="handleLoginSubmit(event)" autocomplete="off">
+    <form id="adminLoginForm" onsubmit="event.preventDefault(); handleLoginSubmit(event); return false;" action="javascript:void(0);" method="POST" autocomplete="off">
       <div class="form-group">
         <label for="adminPasswordInput">Password Admin</label>
         <div class="input-wrapper">
@@ -293,9 +293,8 @@
             type="password" 
             id="adminPasswordInput" 
             name="password" 
-            placeholder="Masukkan password..." 
+            placeholder="Ketik password admin..." 
             autocomplete="current-password" 
-            required 
             autofocus>
           <button type="button" class="btn-toggle-eye" onclick="togglePasswordVisibility()" title="Lihat/Sembunyikan Password">
             <span id="eyeIcon">👁️</span>
@@ -331,7 +330,9 @@
     }
 
     async function handleLoginSubmit(event) {
-      event.preventDefault();
+      if (event) {
+        try { event.preventDefault(); event.stopPropagation(); } catch (e) {}
+      }
       const input = document.getElementById('adminPasswordInput');
       const btn = document.getElementById('btnSubmitLogin');
       const alertBox = document.getElementById('loginAlertBox');
@@ -340,10 +341,12 @@
       alertBox.style.display = 'none';
       successBox.style.display = 'none';
 
-      const password = input ? input.value : '';
+      const password = (input ? input.value : '').trim();
       if (!password) {
-        input.focus();
-        return;
+        alertBox.innerHTML = '⚠️ <strong>Perhatian:</strong> Silakan ketik password admin terlebih dahulu.';
+        alertBox.style.display = 'block';
+        if (input) input.focus();
+        return false;
       }
 
       btn.disabled = true;
@@ -359,20 +362,31 @@
         const data = await res.json();
 
         if (res.ok && data.success) {
-          successBox.innerHTML = '✅ <strong>Password benar!</strong> Mengalihkan ke dashboard...';
+          // Set client-side cookies & localStorage backup
+          if (data.token) {
+            document.cookie = 'pb_admin_auth=' + encodeURIComponent(data.token) + '; Path=/; SameSite=Lax; Max-Age=2592000';
+            document.cookie = 'pb_token=' + encodeURIComponent(data.token) + '; Path=/; SameSite=Lax; Max-Age=2592000';
+            try { localStorage.setItem('pb_admin_token', data.token); } catch (e) {}
+          }
+
+          successBox.innerHTML = '✅ <strong>Password benar!</strong> Membuka Dashboard Admin...';
           successBox.style.display = 'block';
           btn.innerHTML = '<span>✅ Berhasil! Mengalihkan...</span>';
+          
+          const targetUrl = data.redirectUrl || ('/admin?auth=' + encodeURIComponent(data.token || ''));
           setTimeout(() => {
-            window.location.href = data.redirectUrl || '/admin';
-          }, 350);
+            window.location.href = targetUrl;
+          }, 250);
         } else {
           alertBox.innerHTML = `⚠️ <strong>Akses Ditolak:</strong> ${data.error || 'Password salah'}`;
           alertBox.style.display = 'block';
 
-          input.classList.add('shake');
-          setTimeout(() => input.classList.remove('shake'), 450);
-          input.value = '';
-          input.focus();
+          if (input) {
+            input.classList.add('shake');
+            setTimeout(() => input.classList.remove('shake'), 450);
+            input.focus();
+            input.select();
+          }
 
           btn.disabled = false;
           btn.innerHTML = '<span>Masuk ke Dashboard</span> <span>➔</span>';
@@ -383,6 +397,7 @@
         btn.disabled = false;
         btn.innerHTML = '<span>Masuk ke Dashboard</span> <span>➔</span>';
       }
+      return false;
     }
   </script>
 </body>

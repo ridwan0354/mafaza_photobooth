@@ -59,9 +59,10 @@ function getClientIp(req) {
 }
 
 function verifyAdminPassword(inputPassword) {
-  if (typeof inputPassword !== 'string') return false;
-  const targetPassword = process.env.ADMIN_PASSWORD || '313354';
-  const bufInput = Buffer.from(inputPassword, 'utf8');
+  if (typeof inputPassword !== 'string' && typeof inputPassword !== 'number') return false;
+  const cleanInput = String(inputPassword).trim();
+  const targetPassword = (process.env.ADMIN_PASSWORD || '313354').trim();
+  const bufInput = Buffer.from(cleanInput, 'utf8');
   const bufTarget = Buffer.from(targetPassword, 'utf8');
   if (bufInput.length !== bufTarget.length) return false;
   return crypto.timingSafeEqual(bufInput, bufTarget);
@@ -125,16 +126,15 @@ apiRouter.post('/admin/login', (req, res) => {
     tenantId: activeTenant.id
   });
 
-  const isSecure = req.secure || req.headers['x-forwarded-proto'] === 'https';
   res.setHeader('Set-Cookie', [
-    `pb_admin_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${isSecure ? '; Secure' : ''}`,
-    `pb_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=2592000${isSecure ? '; Secure' : ''}`
+    `pb_admin_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
+    `pb_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=2592000`
   ]);
 
   return res.json({
     success: true,
     message: 'Login berhasil',
-    redirectUrl: '/admin',
+    redirectUrl: `/admin?auth=${encodeURIComponent(token)}`,
     token
   });
 });

@@ -23,6 +23,18 @@ let activeKioskEventId = localStorage.getItem('pb_active_event_id') || null;
 let activeEvent = null;
 
 window.addEventListener('DOMContentLoaded', async () => {
+  // Bersihkan param auth dari address bar jika ada redirect login
+  if (window.location.search.includes('auth=')) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const authVal = urlParams.get('auth');
+    if (authVal) {
+      try { localStorage.setItem('pb_admin_token', authVal); } catch (e) {}
+    }
+    urlParams.delete('auth');
+    const remaining = urlParams.toString();
+    const cleanUrl = window.location.pathname + (remaining ? '?' + remaining : '') + window.location.hash;
+    window.history.replaceState({}, document.title, cleanUrl);
+  }
   const urlParams = new URLSearchParams(window.location.search);
   const initialTab = urlParams.get('tab') || (window.location.hash ? window.location.hash.replace('#', '') : null);
   if (initialTab && document.getElementById('tab-' + initialTab)) {
@@ -3712,6 +3724,7 @@ async function logoutAdmin() {
     if (window.pbNotify) {
       window.pbNotify.info('Mengunci Dashboard Admin...', { title: 'Keluar' });
     }
+    try { localStorage.removeItem('pb_admin_token'); } catch (e) {}
     await fetch('/api/admin/logout', { method: 'POST' });
   } catch (e) {
     console.error('Logout error:', e);
@@ -3724,13 +3737,27 @@ window.logoutAdmin = logoutAdmin;
 // Intercept 401 Unauthorized responses to safely redirect to login gate
 (function setupAuthInterceptor() {
   const originalFetch = window.fetch;
-  window.fetch = async function(...args) {
-    const response = await originalFetch.apply(this, args);
+  window.fetch = async function(resource, init = {}) {
+    init = init || {};
+    const token = localStorage.getItem('pb_admin_token');
+    if (token) {
+      init.headers = init.headers || {};
+      if (typeof init.headers.set === 'function') {
+        if (!init.headers.get('Authorization')) {
+          init.headers.set('Authorization', 'Bearer ' + token);
+        }
+      } else if (!init.headers['Authorization'] && !init.headers['authorization']) {
+        init.headers['Authorization'] = 'Bearer ' + token;
+      }
+    }
+
+    const response = await originalFetch.call(this, resource, init);
     if (response && response.status === 401) {
-      const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+      const url = typeof resource === 'string' ? resource : (resource?.url || '');
       // Hindari loop jika endpoint login/check-session
       if (!url.includes('/api/admin/login') && !url.includes('/api/admin/check-session')) {
         console.warn('⚠️ Sesi Admin habis atau tidak valid. Mengalihkan ke gerbang password...');
+        try { localStorage.removeItem('pb_admin_token'); } catch (e) {}
         setTimeout(() => {
           window.location.href = '/admin';
         }, 300);
