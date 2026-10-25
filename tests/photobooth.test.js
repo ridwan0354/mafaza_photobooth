@@ -10,6 +10,11 @@ import * as templateService from '../src/services/template.js';
 import * as printService from '../src/services/print.js';
 import * as aiService from '../src/services/ai.js';
 import * as syncService from '../src/services/sync.js';
+import { optimizePhotoFile } from '../src/services/imageOptimizer.js';
+import { encodePng, decodeImage, buildPrintSheetFile } from '../src/services/sheet.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 test('PHOTOBOOTH SAAS FULL SYSTEM - COMPREHENSIVE TEST SUITE', async (t) => {
   // Ensure DB initialized
@@ -176,5 +181,46 @@ test('PHOTOBOOTH SAAS FULL SYSTEM - COMPREHENSIVE TEST SUITE', async (t) => {
     const result = aiService.processAiJob(tenantId, eventId, sessId, 'face_swap', { hasConsent: true });
     assert.strictEqual(result.status, 'success');
     assert.ok(result.latencyMs > 0);
+  });
+
+  await t.test('8. High-Quality Photo Compression for Framed and Unframed Photos', () => {
+    const tmpPng = path.join(os.tmpdir(), `test_raw_framed_${Date.now()}.png`);
+    // Create a 1200x1800 4R photo with varied color data (simulating a photo)
+    const w = 1200, h = 1800;
+    const testBuf = Buffer.alloc(w * h * 4);
+    for (let i = 0; i < testBuf.length; i += 4) {
+      testBuf[i] = (i * 17 + (i % 73)) % 256;      // R
+      testBuf[i + 1] = (i * 31 + (i % 101)) % 256; // G
+      testBuf[i + 2] = (i * 53 + (i % 149)) % 256; // B
+      testBuf[i + 3] = 255;                        // A
+    }
+    const pngBuf = encodePng({ width: w, height: h, channels: 4, data: testBuf });
+    fs.writeFileSync(tmpPng, pngBuf);
+
+    const originalSize = fs.statSync(tmpPng).size;
+    assert.ok(originalSize > 500000, 'Original uncompressed image should be large');
+
+    // Run photo optimization (quality 88)
+    const optResult = optimizePhotoFile(tmpPng, { quality: 88, maxDimension: 1920 });
+    assert.ok(optResult, 'Optimization should return result');
+    assert.strictEqual(optResult.wasCompressed, true, 'Image must be compressed');
+    assert.ok(optResult.path.endsWith('.jpg'), 'Result should be JPEG format');
+    assert.strictEqual(fs.existsSync(tmpPng), false, 'Original PNG must be cleaned up');
+    assert.ok(fs.existsSync(optResult.path), 'Optimized JPEG must exist');
+    assert.ok(optResult.size < originalSize * 0.5, 'Compressed file should be drastically smaller than PNG');
+
+    // Verify it decodes cleanly and preserves 1200x1800 resolution for printing
+    const decoded = decodeImage(fs.readFileSync(optResult.path));
+    assert.strictEqual(decoded.width, 1200);
+    assert.strictEqual(decoded.height, 1800);
+    assert.strictEqual(decoded.channels, 4);
+
+    // Verify print engine can build print sheet from the compressed JPEG
+    const sheetPath = buildPrintSheetFile(optResult.path, { paperSize: '4x6', autoSafeMargin: true }, 'test_compressed_job');
+    assert.ok(sheetPath && fs.existsSync(sheetPath), 'Print sheet file must be generated from compressed JPEG');
+
+    // Clean up temp files
+    try { fs.unlinkSync(optResult.path); } catch (e) {}
+    try { fs.unlinkSync(sheetPath); } catch (e) {}
   });
 });

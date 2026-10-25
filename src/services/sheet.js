@@ -2,6 +2,7 @@ import zlib from 'node:zlib';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import jpeg from 'jpeg-js';
 
 /**
  * Zero-dependency PNG sheet composer.
@@ -112,6 +113,30 @@ export function decodePng(buf) {
     }
   }
   return { width, height, channels, data: out };
+}
+
+// Decode PNG atau JPEG ke format { width, height, channels, data } secara universal
+export function decodeImage(buf) {
+  if (!buf || buf.length < 4) return null;
+  // PNG signature: 89 50 4E 47
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return decodePng(buf);
+  }
+  // JPEG signature: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    try {
+      const decoded = jpeg.decode(buf, { useTArray: true });
+      return {
+        width: decoded.width,
+        height: decoded.height,
+        channels: 4,
+        data: Buffer.from(decoded.data.buffer, decoded.data.byteOffset, decoded.data.byteLength)
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+  return null;
 }
 
 export function encodePng({ width, height, channels, data }) {
@@ -233,14 +258,14 @@ export function applySafeMargin(img, targetW = 1200, targetH = 1800, scale = 0.9
  * File asli digital di /uploads tetap 100% utuh tanpa margin.
  */
 export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
-  if (!srcPath || !/\.png$/i.test(srcPath) || !fs.existsSync(srcPath)) return srcPath;
+  if (!srcPath || !/\.(png|jpe?g)$/i.test(srcPath) || !fs.existsSync(srcPath)) return srcPath;
 
   const paper = resolvePaper(options.paperSize);
   const is4x6Paper = Math.round(paper.widthIn) === 4 && Math.round(paper.heightIn) === 6;
 
   try {
     const buf = fs.readFileSync(srcPath);
-    const img = decodePng(buf);
+    const img = decodeImage(buf);
     if (!img) return srcPath;
 
     const isStrip = isStripShaped(img.width, img.height);

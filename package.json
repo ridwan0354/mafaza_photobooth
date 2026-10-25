@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "compress:photos": "node src/scripts/compress-existing-photos.mjs"
   },
   "keywords": [],
   "author": "",
@@ -15,6 +16,7 @@
   "dependencies": {
     "dotenv": "^18.0.8",
     "express": "^5.3.0",
+    "jpeg-js": "^0.4.4",
     "multer": "^2.4.0",
     "qrcode": "^1.5.4",
     "sql.js": "^1.15.1",

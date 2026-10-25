@@ -807,7 +807,7 @@
 
                     <!-- Main Action Buttons -->
                     <div class="session-main-actions">
-                      <a href="${finalSrc}" download="Photobooth_${s.id}.png" class="btn btn-coral" style="flex: 1.2;">
+                      <a href="${finalSrc}" download="Photobooth_${s.id}.${/\\.(jpe?g)$/i.test(finalSrc) ? 'jpg' : 'png'}" class="btn btn-coral" style="flex: 1.2;">
                         ⬇️ Unduh Foto HD
                       </a>
                       <button class="btn btn-teal" style="flex: 1;" onclick="shareToWhatsApp('${finalSrc}')">

@@ -17,6 +17,7 @@ import * as syncService from '../services/sync.js';
 import * as auditService from '../services/audit.js';
 import * as appBuilder from '../services/appBuilder.js';
 import * as cameraService from '../services/camera.js';
+import { optimizePhotoFile } from '../services/imageOptimizer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -479,22 +480,31 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
 
     if (req.files && req.files['finalImage'] && req.files['finalImage'][0]) {
       const file = req.files['finalImage'][0];
-      finalUrl = `/uploads/${file.filename}`;
+      const opt = optimizePhotoFile(file.path, { quality: 88, maxDimension: 1920 });
+      const finalFileName = opt ? path.basename(opt.path) : file.filename;
+      const finalFileSize = opt ? opt.size : file.size;
+      finalUrl = `/uploads/${finalFileName}`;
       
-      const existingFinal = db.prepare("SELECT id FROM media_assets WHERE photo_session_id = ? AND type = 'final_photo'").get(sessionId);
+      const existingFinal = db.prepare("SELECT id, file_path FROM media_assets WHERE photo_session_id = ? AND type = 'final_photo'").get(sessionId);
       if (existingFinal) {
+        if (existingFinal.file_path && existingFinal.file_path !== finalUrl) {
+          const oldPath = path.join(uploadDir, path.basename(existingFinal.file_path));
+          if (fs.existsSync(oldPath)) {
+            try { fs.unlinkSync(oldPath); } catch (e) {}
+          }
+        }
         db.prepare(`
           UPDATE media_assets 
           SET file_path = ?, size_bytes = ?
           WHERE id = ?
-        `).run(finalUrl, file.size, existingFinal.id);
+        `).run(finalUrl, finalFileSize, existingFinal.id);
         finalAssetId = existingFinal.id;
       } else {
         finalAssetId = 'asset_' + crypto.randomBytes(8).toString('hex');
         db.prepare(`
           INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, size_bytes, status)
           VALUES (?, ?, ?, ?, 'final_photo', 'print_hires', ?, ?, 'ready')
-        `).run(finalAssetId, session.tenant_id, session.event_id, sessionId, finalUrl, file.size);
+        `).run(finalAssetId, session.tenant_id, session.event_id, sessionId, finalUrl, finalFileSize);
       }
     }
 
@@ -504,12 +514,15 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
       const existingRaw = db.prepare("SELECT COUNT(*) as count FROM media_assets WHERE photo_session_id = ? AND type = 'raw_capture'").get(sessionId);
       if (existingRaw.count === 0) {
         req.files['captures'].forEach((captureFile, idx) => {
-          const rawUrl = `/uploads/${captureFile.filename}`;
+          const opt = optimizePhotoFile(captureFile.path, { quality: 88, maxDimension: 1920 });
+          const rawFileName = opt ? path.basename(opt.path) : captureFile.filename;
+          const rawFileSize = opt ? opt.size : captureFile.size;
+          const rawUrl = `/uploads/${rawFileName}`;
           const rawAssetId = 'asset_raw_' + crypto.randomBytes(8).toString('hex');
           db.prepare(`
             INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, size_bytes, status)
             VALUES (?, ?, ?, ?, 'raw_capture', ?, ?, ?, 'ready')
-          `).run(rawAssetId, session.tenant_id, session.event_id, sessionId, `pose_${idx + 1}`, rawUrl, captureFile.size);
+          `).run(rawAssetId, session.tenant_id, session.event_id, sessionId, `pose_${idx + 1}`, rawUrl, rawFileSize);
         });
       }
     }

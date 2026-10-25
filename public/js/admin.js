@@ -2670,7 +2670,8 @@ function openPhotoPreviewModal(photo) {
 
   if (btnDownload) {
     btnDownload.href = imgSrc;
-    btnDownload.download = `photobooth_${Date.now()}.png`;
+    const ext = /\.(jpe?g)$/i.test(imgSrc) ? 'jpg' : 'png';
+    btnDownload.download = `photobooth_${Date.now()}.${ext}`;
   }
 
   if (btnGallery) {

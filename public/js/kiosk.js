@@ -1285,7 +1285,7 @@ class KioskEngine {
           ctx.translate(c.width, 0);
           ctx.scale(-1, 1);
           ctx.drawImage(img, 0, 0, c.width, c.height);
-          const flashDataUrl = c.toDataURL('image/jpeg', 0.95);
+          const flashDataUrl = c.toDataURL('image/jpeg', 0.88);
           this.posesCaptured[poseIndex] = flashDataUrl;
           this.renderFilmstripDock();
 
@@ -1341,7 +1341,7 @@ class KioskEngine {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     }
 
-    const photoDataUrl = canvas.toDataURL('image/jpeg', 0.95);
+    const photoDataUrl = canvas.toDataURL('image/jpeg', 0.88);
     this.posesCaptured[poseIndex] = photoDataUrl;
     this.renderFilmstripDock();
   }
@@ -2177,7 +2177,7 @@ class KioskEngine {
 
     finalCanvas.toBlob(async (blob) => {
       const formData = new FormData();
-      formData.append('finalImage', blob, `final_${Date.now()}.png`);
+      formData.append('finalImage', blob, `final_${Date.now()}.jpg`);
       formData.append('printRequested', 'false');
       if (this.guestPass && this.guestPass.id) {
         formData.append('guestPassId', this.guestPass.id);
@@ -2215,7 +2215,7 @@ class KioskEngine {
       } catch (e) {
         console.warn('Error syncing session:', e);
       }
-    }, 'image/png');
+    }, 'image/jpeg', 0.88);
   }
 
   async printCurrentSession(isAuto = false) {
@@ -2235,7 +2235,7 @@ class KioskEngine {
 
     finalCanvas.toBlob(async (blob) => {
       const formData = new FormData();
-      formData.append('finalImage', blob, `print_${Date.now()}.png`);
+      formData.append('finalImage', blob, `print_${Date.now()}.jpg`);
       formData.append('printRequested', 'true');
       formData.append('printCopies', copies);
       if (this.guestPass && this.guestPass.id) {
@@ -2294,7 +2294,7 @@ class KioskEngine {
           banner.innerText = '⚠️ Gagal menghubungi server cetak.';
         }
       }
-    }, 'image/png');
+    }, 'image/jpeg', 0.88);
   }
 
   printViaChromeDialog(job = null) {
