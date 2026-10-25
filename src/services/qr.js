@@ -94,7 +94,7 @@ export function resolveGuestPass(token) {
   // Can resolve either by plain token or extracted from URL
   const cleanToken = token.includes('/gallery/g/') ? token.split('/gallery/g/')[1].split('?')[0] : token;
   const pass = db.prepare(`
-    SELECT gp.*, e.name as event_name, e.status as event_status, t.name as tenant_name
+    SELECT gp.*, e.name as event_name, e.status as event_status, e.timezone as event_timezone, e.starts_at as event_starts_at, t.name as tenant_name
     FROM guest_passes gp
     JOIN events e ON gp.event_id = e.id
     JOIN tenants t ON gp.tenant_id = t.id
@@ -119,13 +119,47 @@ export async function resolveGuestPassWithQr(token, baseUrl = '') {
   };
 }
 
+function getEventTemplate(eventId) {
+  if (!eventId) return null;
+  try {
+    const tpl = db.prepare(`
+      SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+      FROM templates t
+      LEFT JOIN template_versions tv ON t.current_version_id = tv.id
+      WHERE t.event_id = ? AND t.status != 'archived'
+      ORDER BY t.created_at DESC LIMIT 1
+    `).get(eventId) || db.prepare(`
+      SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+      FROM templates t
+      LEFT JOIN template_versions tv ON t.current_version_id = tv.id
+      WHERE t.status != 'archived'
+      ORDER BY t.created_at DESC LIMIT 1
+    `).get();
+
+    if (!tpl) return null;
+    let slots = [];
+    try { slots = JSON.parse(tpl.slots_json || '[]'); } catch (e) {}
+    return {
+      id: tpl.id,
+      name: tpl.name,
+      width: tpl.width || 1200,
+      height: tpl.height || 1800,
+      orientation: tpl.orientation || 'portrait',
+      imageUrl: tpl.image_storage_key || '/assets/templates/strip-green-template.svg',
+      slots: slots
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 export function getGuestGalleryData(token) {
   let pass = resolveGuestPass(token);
   const cleanToken = token && token.includes('/gallery/g/') ? token.split('/gallery/g/')[1].split('?')[0] : token;
 
   if (!pass && cleanToken) {
     const session = db.prepare(`
-      SELECT ps.*, e.name as event_name, t.name as tenant_name
+      SELECT ps.*, e.name as event_name, e.timezone as event_timezone, e.starts_at as event_starts_at, t.name as tenant_name
       FROM photo_sessions ps
       JOIN events e ON ps.event_id = e.id
       JOIN tenants t ON ps.tenant_id = t.id
@@ -157,16 +191,22 @@ export function getGuestGalleryData(token) {
           createdAt: ma.created_at
         }));
 
+        const tpl = getEventTemplate(session.event_id);
+
         return {
           guestPass: {
             id: session.id,
             token: session.id,
             eventName: session.event_name,
             tenantName: session.tenant_name,
-            expiresAt: null
+            timezone: session.event_timezone || 'Asia/Makassar',
+            startsAt: session.event_starts_at,
+            expiresAt: null,
+            template: tpl
           },
           sessions: [{
             ...session,
+            template: tpl,
             media
           }]
         };
@@ -175,6 +215,8 @@ export function getGuestGalleryData(token) {
   }
 
   if (!pass) return null;
+
+  const tpl = getEventTemplate(pass.event_id);
 
   // Retrieve all photo sessions associated with this guest pass (multi-session!)
   const sessions = db.prepare(`
@@ -198,6 +240,7 @@ export function getGuestGalleryData(token) {
     ORDER BY ps.started_at DESC
   `).all(pass.id).map(s => ({
     ...s,
+    template: tpl,
     media: JSON.parse(s.media_json || '[]')
   }));
 
@@ -207,7 +250,10 @@ export function getGuestGalleryData(token) {
       token: pass.token_plain,
       eventName: pass.event_name,
       tenantName: pass.tenant_name,
-      expiresAt: pass.expires_at
+      timezone: pass.event_timezone || 'Asia/Makassar',
+      startsAt: pass.event_starts_at,
+      expiresAt: pass.expires_at,
+      template: tpl
     },
     sessions
   };

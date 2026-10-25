@@ -355,4 +355,41 @@ test('PHOTOBOOTH SAAS FULL SYSTEM - COMPREHENSIVE TEST SUITE', async (t) => {
     // Clean up remaining test file
     try { fs.unlinkSync(dummyFile3); } catch (e) {}
   });
+
+  await t.test('11. Event Timezone Selection & Template Metadata in Guest Gallery', async () => {
+    const tenantId = 'tenant_studiokeren_01';
+
+    // 1. Create event with custom timezone Asia/Makassar (WITA) and event time
+    const ev = eventService.createEvent(tenantId, {
+      name: 'Event Mataram WITA',
+      eventDate: '2026-10-26',
+      eventTime: '06:20',
+      timezone: 'Asia/Makassar',
+      shotsCount: 3
+    });
+
+    assert.ok(ev && ev.id, 'Event with custom timezone created');
+    assert.strictEqual(ev.timezone, 'Asia/Makassar', 'Timezone stored on event table');
+    assert.strictEqual(ev.config.timezone, 'Asia/Makassar', 'Timezone stored in config');
+    assert.strictEqual(ev.config.eventTime, '06:20', 'Event time stored in config');
+    assert.ok(ev.starts_at.includes('06:20:00'), 'starts_at includes selected event time');
+
+    // 2. Update timezone to WIB (Asia/Jakarta)
+    const updated = eventService.updateEventConfig(ev.id, tenantId, {
+      timezone: 'Asia/Jakarta',
+      eventTime: '19:30'
+    });
+
+    assert.strictEqual(updated.timezone, 'Asia/Jakarta', 'Updated timezone stored on event table');
+    assert.strictEqual(updated.config.timezone, 'Asia/Jakarta', 'Updated timezone in config');
+    assert.strictEqual(updated.config.eventTime, '19:30', 'Updated event time in config');
+
+    // 3. Create guest pass and verify gallery returns timezone and template
+    const guestPass = await qrService.createGuestPass(tenantId, ev.id, 'booth');
+    const gallery = qrService.getGuestGalleryData(guestPass.token);
+
+    assert.ok(gallery, 'Gallery data should be returned');
+    assert.strictEqual(gallery.guestPass.timezone, 'Asia/Jakarta', 'Guest pass reflects event timezone');
+    assert.ok(gallery.guestPass.template, 'Guest pass includes template metadata for framed motion');
+  });
 });

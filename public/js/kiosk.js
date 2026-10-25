@@ -2283,7 +2283,7 @@ class KioskEngine {
   }
 
   async generateBoomerangBlob(poses) {
-    if (!poses || poses.length < 2) return null;
+    if (!poses || poses.length < 1) return null;
     try {
       const imgElements = await Promise.all(poses.map(src => {
         return new Promise(resolve => {
@@ -2294,16 +2294,33 @@ class KioskEngine {
         });
       }));
       const validImgs = imgElements.filter(img => img !== null);
-      if (validImgs.length < 2) return null;
+      if (validImgs.length < 1) return null;
 
-      const forward = [...validImgs];
-      const backward = [...validImgs].slice(1, -1).reverse();
-      const sequence = forward.concat(backward);
-
+      const finalCanvas = document.getElementById('finalCanvas');
       const canvas = document.createElement('canvas');
-      canvas.width = validImgs[0].naturalWidth || 1280;
-      canvas.height = validImgs[0].naturalHeight || 720;
+      const tplWidth = finalCanvas ? finalCanvas.width : (validImgs[0].naturalWidth || 1200);
+      const tplHeight = finalCanvas ? finalCanvas.height : (validImgs[0].naturalHeight || 1800);
+      canvas.width = tplWidth;
+      canvas.height = tplHeight;
       const ctx = canvas.getContext('2d');
+
+      const slots = (this.selectedTemplate && this.selectedTemplate.slots && this.selectedTemplate.slots.length > 0)
+        ? this.selectedTemplate.slots
+        : [
+            { id: 'slot_1', pose_index: 1, x: 50, y: 130, width: 500, height: 420 },
+            { id: 'slot_2', pose_index: 2, x: 50, y: 580, width: 500, height: 420 },
+            { id: 'slot_3', pose_index: 3, x: 50, y: 1030, width: 500, height: 420 }
+          ];
+
+      // Ping-pong sequence of pose offsets / subtle motions
+      const steps = [];
+      const numPoses = validImgs.length;
+      if (numPoses >= 2) {
+        for (let i = 0; i < numPoses; i++) steps.push(i);
+        for (let i = numPoses - 2; i > 0; i--) steps.push(i);
+      } else {
+        steps.push(0, 0, 0, 0);
+      }
 
       const mimeTypes = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
       const mime = mimeTypes.find(t => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || 'video/webm';
@@ -2314,7 +2331,7 @@ class KioskEngine {
       recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
       const totalLoops = 3;
-      const totalFrames = sequence.length * totalLoops;
+      const totalFrames = steps.length * totalLoops;
 
       return await new Promise((resolve) => {
         recorder.onstop = () => {
@@ -2329,13 +2346,68 @@ class KioskEngine {
             recorder.stop();
             return;
           }
-          const img = sequence[frameIdx % sequence.length];
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+          const stepOffset = steps[frameIdx % steps.length];
+
+          // 1. Solid canvas background
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, tplWidth, tplHeight);
+
+          // 2. Render each slot with framed photo animation
+          for (let sIdx = 0; sIdx < slots.length; sIdx++) {
+            const slot = slots[sIdx];
+            const basePhotoIdx = (this.slotAssignments && this.slotAssignments[sIdx] !== undefined)
+              ? this.slotAssignments[sIdx]
+              : (sIdx % validImgs.length);
+            
+            // In boomerang mode: animate pose index cycling or subtle dynamic zoom
+            const activePhotoIdx = (basePhotoIdx + stepOffset) % validImgs.length;
+            const pImg = validImgs[activePhotoIdx] || validImgs[0];
+
+            if (pImg) {
+              ctx.save();
+              const bleed = 4;
+              const clipX = slot.x - bleed;
+              const clipY = slot.y - bleed;
+              const clipW = slot.width + (bleed * 2);
+              const clipH = slot.height + (bleed * 2);
+
+              ctx.beginPath();
+              ctx.rect(clipX, clipY, clipW, clipH);
+              ctx.clip();
+
+              const transform = (this.slotTransforms && this.slotTransforms[sIdx]) || { panX: 0, panY: 0, zoom: 1.0 };
+              // Subtle pulse zoom (+0.04) on odd frames for organic vitality
+              const pulse = (frameIdx % 2 === 1) ? 1.02 : 1.0;
+              const zoom = Math.max(1.0, Math.min(3.5, (transform.zoom || 1.0) * pulse));
+
+              const baseScale = Math.max(clipW / pImg.width, clipH / pImg.height);
+              const finalScale = baseScale * zoom;
+
+              const drawW = pImg.width * finalScale;
+              const drawH = pImg.height * finalScale;
+
+              const slotCenterX = clipX + (clipW / 2);
+              const slotCenterY = clipY + (clipH / 2);
+
+              const drawX = slotCenterX - (drawW / 2) + (transform.panX || 0);
+              const drawY = slotCenterY - (drawH / 2) + (transform.panY || 0);
+
+              ctx.drawImage(pImg, drawX, drawY, drawW, drawH);
+              ctx.restore();
+            }
+          }
+
+          // 3. LAYER ATAS: Draw frame overlay on top of every single frame
+          if (this.cachedKeyedFrame) {
+            ctx.drawImage(this.cachedKeyedFrame, 0, 0, tplWidth, tplHeight);
+          }
+
           frameIdx++;
-        }, 120);
+        }, 130);
       });
     } catch (e) {
-      console.warn('Could not generate boomerang blob:', e);
+      console.warn('Could not generate framed boomerang blob:', e);
       return null;
     }
   }

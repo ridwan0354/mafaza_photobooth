@@ -279,6 +279,42 @@
       z-index: 5;
     }
 
+    /* Frame Mode Toggle Switcher (Foto Jadi / Boomerang / Live Photo) */
+    .frame-mode-toggle {
+      display: flex;
+      gap: 6px;
+      margin: 10px 0 14px 0;
+      background: rgba(123, 72, 46, 0.08);
+      padding: 5px;
+      border-radius: var(--radius-pill);
+      border: 1.5px solid var(--border-soft);
+    }
+    .frame-mode-btn {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      background: transparent;
+      border-radius: var(--radius-pill);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--caramel-brown);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .frame-mode-btn:hover {
+      background: rgba(255, 255, 255, 0.7);
+      color: var(--coral);
+    }
+    .frame-mode-btn.active {
+      background: var(--coral);
+      color: #ffffff;
+      box-shadow: 0 3px 10px rgba(230, 120, 107, 0.35);
+    }
+
     .session-main-actions {
       display: flex;
       gap: 12px;
@@ -586,9 +622,36 @@
     const token = window.location.pathname.split('/gallery/g/')[1];
     let currentEventName = 'Photobooth Event';
 
+    function formatSessionTime(timestamp, timezone = 'Asia/Makassar') {
+      if (!timestamp) return '';
+      const iso = timestamp.includes('T') ? (timestamp.endsWith('Z') ? timestamp : timestamp + 'Z') : timestamp.replace(' ', 'T') + 'Z';
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return timestamp;
+      
+      const tzMap = {
+        'Asia/Makassar': 'WITA',
+        'Asia/Jakarta': 'WIB',
+        'Asia/Jayapura': 'WIT'
+      };
+      const tzLabel = tzMap[timezone] || (timezone.includes('Makassar') ? 'WITA' : (timezone.includes('Jayapura') ? 'WIT' : 'WIB'));
+
+      try {
+        const timeStr = d.toLocaleTimeString('id-ID', {
+          timeZone: timezone,
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }).replace(':', '.');
+        return `${timeStr} ${tzLabel}`;
+      } catch (e) {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      }
+    }
+
     // Store active players and intervals
     const liveControllers = {};
     const boomerangControllers = {};
+    const frameSessionControllers = {};
 
     window.addEventListener('DOMContentLoaded', async () => {
       if (!token) return;
@@ -752,6 +815,9 @@
                 `;
               }
 
+              const eventTimezone = (data.guestPass && data.guestPass.timezone) || 'Asia/Makassar';
+              const eventTemplate = s.template || (data.guestPass && data.guestPass.template) || null;
+
               // 3. MAIN SESSION CARD (ELEGANT WARM RETRO SHOWCASE)
               const card = document.createElement('div');
               card.className = 'session-card';
@@ -761,7 +827,7 @@
                   <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                     <span class="sticker-badge sticker-coral" style="font-size: 13px;">Sesi #${data.sessions.length - idx} • ${s.mode.toUpperCase()}</span>
                     <span style="font-size: 12.5px; font-weight: 700; color: var(--text-muted);">
-                      🕒 ${new Date(s.started_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                      🕒 ${formatSessionTime(s.started_at, eventTimezone)}
                     </span>
                   </div>
                   <span class="sticker-badge sticker-teal">🟢 Siap Diunduh</span>
@@ -778,10 +844,23 @@
                       <span class="sticker-badge sticker-purple" style="font-size: 10.5px;">RESOLUSI CETAK</span>
                     </div>
 
+                    <!-- Pilihan Tampilan Berframe: Foto Jadi / Boomerang / Live Photo -->
+                    <div class="frame-mode-toggle" id="modeToggle_${s.id}">
+                      <button type="button" class="frame-mode-btn active" id="btnModeStill_${s.id}" onclick="setSessionViewMode('${s.id}', 'still')">
+                        <span>🖼️</span> Foto Jadi
+                      </button>
+                      <button type="button" class="frame-mode-btn" id="btnModeBoomerang_${s.id}" onclick="setSessionViewMode('${s.id}', 'boomerang')">
+                        <span>🎬</span> Boomerang
+                      </button>
+                      <button type="button" class="frame-mode-btn" id="btnModeLive_${s.id}" onclick="setSessionViewMode('${s.id}', 'live')">
+                        <span>⚡</span> Live Photo
+                      </button>
+                    </div>
+
                     <!-- Apple Live Photo Container -->
                     <div class="apple-live-container" id="liveContainer_${s.id}">
                       <!-- Apple Live Photo Badge -->
-                      <div class="apple-live-badge" id="liveBadge_${s.id}" onclick="toggleLivePhoto('${s.id}', event)">
+                      <div class="apple-live-badge" id="liveBadge_${s.id}" style="display: none;" onclick="toggleLivePhoto('${s.id}', event)">
                         <span class="live-icon">
                           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
                             <circle cx="12" cy="12" r="9" stroke-dasharray="2.5 2.5"/>
@@ -789,25 +868,27 @@
                             <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
                           </svg>
                         </span>
-                        <span>LIVE</span>
+                        <span id="badgeText_${s.id}">LIVE</span>
                       </div>
 
-                      <div class="apple-live-hint" id="liveHint_${s.id}">
+                      <div class="apple-live-hint" id="liveHint_${s.id}" style="display: none;">
                         👆 Tahan foto untuk gerak
                       </div>
 
-                      <img src="${finalSrc}" id="stillImg_${s.id}" alt="Foto Sesi" onclick="openLightbox('${finalSrc}')" title="Klik untuk memperbesar">
+                      <img src="${finalSrc}" id="stillImg_${s.id}" alt="Foto Sesi" onclick="handleMainPhotoClick('${s.id}', '${finalSrc}')" title="Klik untuk memperbesar">
                       
+                      <canvas class="live-anim-canvas" id="motionCanvas_${s.id}"></canvas>
+
                       ${livePhotoAsset ? `
-                        <video id="liveVideo_${s.id}" src="${livePhotoAsset.filePath}" playsinline muted loop style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; display: none; z-index: 5;"></video>
-                      ` : `
-                        <canvas class="live-anim-canvas" id="liveCanvas_${s.id}"></canvas>
-                      `}
+                        <video id="liveVideo_${s.id}" src="${livePhotoAsset.filePath}" playsinline muted loop style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; display: none; z-index: 3;"></video>
+                      ` : ''}
+
+                      <img id="frameOverlayImg_${s.id}" src="" style="position: absolute; inset:0; width:100%; height:100%; object-fit: fill; pointer-events: none; z-index: 6; display: none;">
                     </div>
 
                     <!-- Main Action Buttons -->
-                    <div class="session-main-actions">
-                      <a href="${finalSrc}" download="Photobooth_${s.id}.${/\\.(jpe?g)$/i.test(finalSrc) ? 'jpg' : 'png'}" class="btn btn-coral" style="flex: 1.2;">
+                    <div class="session-main-actions" id="mainActions_${s.id}">
+                      <a href="${finalSrc}" download="Photobooth_${s.id}.${/\\.(jpe?g)$/i.test(finalSrc) ? 'jpg' : 'png'}" class="btn btn-coral" id="btnDownloadMain_${s.id}" style="flex: 1.2;">
                         ⬇️ Unduh Foto HD
                       </a>
                       <button class="btn btn-teal" style="flex: 1;" onclick="shareToWhatsApp('${finalSrc}')">
@@ -825,8 +906,8 @@
               `;
               container.appendChild(card);
 
-              // Initialize Apple Live Photo and Boomerang Controllers for this session
-              initLivePhoto(s.id, finalSrc, poseImages, livePhotoAsset);
+              // Initialize Apple Live Photo and Framed Boomerang Controller for this session
+              initFramedSessionController(s.id, finalSrc, poseImages, eventTemplate, livePhotoAsset, boomerangAsset);
               if (poseImages.length >= 2 && !boomerangAsset) {
                 initBoomerang(s.id, poseImages);
               }
@@ -866,118 +947,452 @@
     });
 
     // =========================================================================
-    // 1. APPLE LIVE PHOTO IMPLEMENTATION (TOUCH-AND-HOLD / IPHONE EXPERIENCE)
+    // 1. ADVANCED FRAMED PHOTO / BOOMERANG / LIVE PHOTO CONTROLLER
     // =========================================================================
-    function initLivePhoto(sessionId, stillSrc, poseFrames, livePhotoAsset) {
-      const container = document.getElementById(`liveContainer_${sessionId}`);
-      const badge = document.getElementById(`liveBadge_${sessionId}`);
-      const hint = document.getElementById(`liveHint_${sessionId}`);
-      const stillImg = document.getElementById(`stillImg_${sessionId}`);
-      const liveCanvas = document.getElementById(`liveCanvas_${sessionId}`);
-      const liveVideo = document.getElementById(`liveVideo_${sessionId}`);
+    function setSessionViewMode(sessionId, mode) {
+      const ctrl = frameSessionControllers[sessionId];
+      if (ctrl) {
+        ctrl.setMode(mode);
+      }
+    }
 
-      if (!container) return;
+    function handleMainPhotoClick(sessionId, src) {
+      const ctrl = frameSessionControllers[sessionId];
+      if (ctrl && ctrl.currentMode === 'still') {
+        openLightbox(src);
+      } else if (ctrl && ctrl.currentMode === 'boomerang') {
+        ctrl.togglePlayback();
+      } else if (ctrl && ctrl.currentMode === 'live') {
+        if (ctrl.isPlaying) ctrl.stopMotion();
+        else ctrl.startMotion();
+      } else {
+        openLightbox(src);
+      }
+    }
+
+    async function downloadFramedVideo(sessionId, mode = 'boomerang') {
+      const ctrl = frameSessionControllers[sessionId];
+      if (ctrl) {
+        await ctrl.downloadVideo(mode);
+      }
+    }
+
+    function initFramedSessionController(sessionId, stillSrc, poseFrames, template, livePhotoAsset, boomerangAsset) {
+      const container = document.getElementById(`liveContainer_${sessionId}`);
+      const stillImg = document.getElementById(`stillImg_${sessionId}`);
+      const motionCanvas = document.getElementById(`motionCanvas_${sessionId}`);
+      const liveVideo = document.getElementById(`liveVideo_${sessionId}`);
+      const frameOverlayImg = document.getElementById(`frameOverlayImg_${sessionId}`);
+      const badge = document.getElementById(`liveBadge_${sessionId}`);
+      const badgeText = document.getElementById(`badgeText_${sessionId}`);
+      const hint = document.getElementById(`liveHint_${sessionId}`);
+      const btnDownload = document.getElementById(`btnDownloadMain_${sessionId}`);
+
+      if (!container || !stillImg || !motionCanvas) return;
 
       // Preload images into memory
-      const loadedImages = [];
-      let isReady = false;
-
-      const sourcesToLoad = (poseFrames && poseFrames.length > 0) ? poseFrames : [stillSrc];
-      let loadedCount = 0;
-      sourcesToLoad.forEach(src => {
+      const rawImages = [];
+      const validPoseFrames = (poseFrames && poseFrames.length > 0) ? poseFrames : [stillSrc];
+      validPoseFrames.forEach(src => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.src = src;
-        img.onload = () => {
-          loadedCount++;
-          if (loadedCount === sourcesToLoad.length) {
-            isReady = true;
-          }
-        };
-        loadedImages.push(img);
+        rawImages.push(img);
       });
 
-      const controller = {
-        isPlaying: false,
-        timer: null,
-        frameIdx: 0,
-        direction: 1,
-        stillSrc,
-        loadedImages,
-        poseFrames: sourcesToLoad,
-        startMotion: () => {
-          if (controller.isPlaying) return;
-          controller.isPlaying = true;
-          badge.classList.add('playing');
-          if (hint) hint.style.opacity = '0';
-          if (navigator.vibrate) try { navigator.vibrate(30); } catch(e){}
+      const stillImageObj = new Image();
+      stillImageObj.crossOrigin = 'anonymous';
+      stillImageObj.src = stillSrc;
 
-          if (liveVideo) {
-            liveVideo.style.display = 'block';
-            liveVideo.play().catch(()=>{});
-          } else if (liveCanvas) {
-            liveCanvas.style.display = 'block';
-            const ctx = liveCanvas.getContext('2d');
-            
-            // Set canvas resolution based on still image size
-            liveCanvas.width = stillImg.naturalWidth || 800;
-            liveCanvas.height = stillImg.naturalHeight || 1200;
+      let templateImgObj = null;
+      let keyedFrameCanvas = null;
 
-            const seq = buildPingPongSequence(controller.loadedImages);
-            let seqIdx = 0;
+      if (template && template.imageUrl) {
+        templateImgObj = new Image();
+        templateImgObj.crossOrigin = 'anonymous';
+        templateImgObj.src = template.imageUrl;
+        templateImgObj.onload = () => {
+          try {
+            const tWidth = template.width || stillImg.naturalWidth || 1200;
+            const tHeight = template.height || stillImg.naturalHeight || 1800;
+            const slots = (template.slots && template.slots.length > 0) ? template.slots : [
+              { id: 'slot_1', pose_index: 1, x: 50, y: 130, width: 500, height: 420 },
+              { id: 'slot_2', pose_index: 2, x: 50, y: 580, width: 500, height: 420 },
+              { id: 'slot_3', pose_index: 3, x: 50, y: 1030, width: 500, height: 420 }
+            ];
 
-            const render = () => {
-              if (!controller.isPlaying) return;
-              const curImg = seq[seqIdx % seq.length];
-              if (curImg && curImg.complete) {
-                ctx.clearRect(0, 0, liveCanvas.width, liveCanvas.height);
-                ctx.drawImage(curImg, 0, 0, liveCanvas.width, liveCanvas.height);
+            keyedFrameCanvas = document.createElement('canvas');
+            keyedFrameCanvas.width = tWidth;
+            keyedFrameCanvas.height = tHeight;
+            const kCtx = keyedFrameCanvas.getContext('2d');
+            kCtx.drawImage(templateImgObj, 0, 0, tWidth, tHeight);
+
+            // Chroma-key green areas in slot regions so photos/videos shine through cleanly
+            const imgData = kCtx.getImageData(0, 0, tWidth, tHeight);
+            const data = imgData.data;
+            function isGreen(r, g, b, a) {
+              if (a < 50) return false;
+              if (g >= 150 && r <= 100 && b <= 100) return true;
+              if (g >= 135 && (g - r) >= 28 && (g - b) >= 32) return true;
+              if (g >= 115 && (g - r) >= 35 && (g - b) >= 35) return true;
+              return false;
+            }
+
+            const pad = 12;
+            for (const slot of slots) {
+              const startX = Math.max(0, Math.floor(slot.x - pad));
+              const endX = Math.min(tWidth, Math.ceil(slot.x + slot.width + pad));
+              const startY = Math.max(0, Math.floor(slot.y - pad));
+              const endY = Math.min(tHeight, Math.ceil(slot.y + slot.height + pad));
+
+              for (let y = startY; y < endY; y++) {
+                for (let x = startX; x < endX; x++) {
+                  const idx = (y * tWidth + x) * 4;
+                  if (isGreen(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) {
+                    data[idx + 3] = 0; // transparent slot hole
+                  }
+                }
               }
-              seqIdx++;
-              controller.timer = setTimeout(render, 130);
-            };
-            render();
+            }
+            kCtx.putImageData(imgData, 0, 0);
+
+            if (frameOverlayImg) {
+              frameOverlayImg.src = keyedFrameCanvas.toDataURL('image/png');
+            }
+          } catch (err) {
+            console.warn('Could not key template frame overlay:', err);
+          }
+        };
+      }
+
+      // Build steps sequence for boomerang ping-pong
+      const steps = [];
+      const numPoses = rawImages.length;
+      if (numPoses >= 2) {
+        for (let i = 0; i < numPoses; i++) steps.push(i);
+        for (let i = numPoses - 2; i > 0; i--) steps.push(i);
+      } else {
+        steps.push(0, 0, 0, 0);
+      }
+
+      const mCtx = motionCanvas.getContext('2d');
+      let animationTimer = null;
+      let currentFrameIdx = 0;
+
+      function renderAnimationFrame() {
+        const tWidth = (template && template.width) || stillImg.naturalWidth || 1200;
+        const tHeight = (template && template.height) || stillImg.naturalHeight || 1800;
+
+        if (motionCanvas.width !== tWidth || motionCanvas.height !== tHeight) {
+          motionCanvas.width = tWidth;
+          motionCanvas.height = tHeight;
+        }
+
+        const slots = (template && template.slots && template.slots.length > 0) ? template.slots : [
+          { id: 'slot_1', pose_index: 1, x: 50, y: 130, width: 500, height: 420 },
+          { id: 'slot_2', pose_index: 2, x: 50, y: 580, width: 500, height: 420 },
+          { id: 'slot_3', pose_index: 3, x: 50, y: 1030, width: 500, height: 420 }
+        ];
+
+        const stepOffset = steps[currentFrameIdx % steps.length];
+
+        // 1. Draw solid background
+        mCtx.fillStyle = '#ffffff';
+        mCtx.fillRect(0, 0, tWidth, tHeight);
+
+        // 2. Draw animated photos inside each slot
+        for (let sIdx = 0; sIdx < slots.length; sIdx++) {
+          const slot = slots[sIdx];
+          const activeIdx = (sIdx + stepOffset) % rawImages.length;
+          const pImg = rawImages[activeIdx] || rawImages[0];
+
+          if (pImg && pImg.complete && pImg.naturalWidth > 0) {
+            mCtx.save();
+            const bleed = 4;
+            const clipX = slot.x - bleed;
+            const clipY = slot.y - bleed;
+            const clipW = slot.width + (bleed * 2);
+            const clipH = slot.height + (bleed * 2);
+
+            mCtx.beginPath();
+            mCtx.rect(clipX, clipY, clipW, clipH);
+            mCtx.clip();
+
+            const pulse = (currentFrameIdx % 2 === 1) ? 1.02 : 1.0;
+            const baseScale = Math.max(clipW / pImg.naturalWidth, clipH / pImg.naturalHeight);
+            const finalScale = baseScale * pulse;
+
+            const drawW = pImg.naturalWidth * finalScale;
+            const drawH = pImg.naturalHeight * finalScale;
+
+            const slotCenterX = clipX + (clipW / 2);
+            const slotCenterY = clipY + (clipH / 2);
+
+            const drawX = slotCenterX - (drawW / 2);
+            const drawY = slotCenterY - (drawH / 2);
+
+            mCtx.drawImage(pImg, drawX, drawY, drawW, drawH);
+            mCtx.restore();
+          }
+        }
+
+        // 3. LAYER ATAS: Always draw frame overlay on top
+        if (keyedFrameCanvas) {
+          mCtx.drawImage(keyedFrameCanvas, 0, 0, tWidth, tHeight);
+        } else if (stillImageObj && stillImageObj.complete) {
+          mCtx.drawImage(stillImageObj, 0, 0, tWidth, tHeight);
+        }
+
+        currentFrameIdx++;
+      }
+
+      const controller = {
+        currentMode: 'still', // 'still', 'boomerang', 'live'
+        isPlaying: false,
+
+        setMode(mode) {
+          this.currentMode = mode;
+          
+          // Update tab active buttons
+          ['still', 'boomerang', 'live'].forEach(m => {
+            const btn = document.getElementById(`btnMode${m.charAt(0).toUpperCase() + m.slice(1)}_${sessionId}`);
+            if (btn) {
+              if (m === mode) btn.classList.add('active');
+              else btn.classList.remove('active');
+            }
+          });
+
+          if (mode === 'still') {
+            this.stopPlayback();
+            stillImg.style.display = 'block';
+            motionCanvas.style.display = 'none';
+            if (liveVideo) liveVideo.style.display = 'none';
+            if (frameOverlayImg) frameOverlayImg.style.display = 'none';
+            if (badge) badge.style.display = 'none';
+            if (hint) hint.style.display = 'none';
+
+            if (btnDownload) {
+              btnDownload.href = stillSrc;
+              btnDownload.setAttribute('download', `Photobooth_${sessionId}.jpg`);
+              btnDownload.innerHTML = '⬇️ Unduh Foto HD';
+              btnDownload.onclick = null;
+            }
+          } else if (mode === 'boomerang') {
+            stillImg.style.display = 'none';
+            motionCanvas.style.display = 'block';
+            if (frameOverlayImg && frameOverlayImg.src) frameOverlayImg.style.display = 'block';
+            if (badge) {
+              badge.style.display = 'inline-flex';
+              badge.classList.add('playing');
+              if (badgeText) badgeText.innerText = 'BOOMERANG';
+            }
+            if (hint) hint.style.display = 'none';
+
+            this.startPlayback(130);
+
+            if (btnDownload) {
+              btnDownload.removeAttribute('href');
+              btnDownload.innerHTML = '⬇️ Unduh Video Boomerang (Berframe)';
+              btnDownload.onclick = () => downloadFramedVideo(sessionId, 'boomerang');
+            }
+          } else if (mode === 'live') {
+            this.stopPlayback();
+            stillImg.style.display = 'block';
+            motionCanvas.style.display = 'none';
+            if (liveVideo) liveVideo.style.display = 'none';
+            if (frameOverlayImg && frameOverlayImg.src) frameOverlayImg.style.display = 'block';
+            if (badge) {
+              badge.style.display = 'inline-flex';
+              badge.classList.remove('playing');
+              if (badgeText) badgeText.innerText = 'LIVE';
+            }
+            if (hint) {
+              hint.style.display = 'block';
+              hint.innerText = '👆 Tahan foto untuk gerak';
+              hint.style.opacity = '1';
+            }
+
+            if (btnDownload) {
+              btnDownload.removeAttribute('href');
+              btnDownload.innerHTML = '⬇️ Unduh Live Photo (Berframe)';
+              btnDownload.onclick = () => downloadFramedVideo(sessionId, 'live');
+            }
           }
         },
-        stopMotion: () => {
-          controller.isPlaying = false;
-          badge.classList.remove('playing');
-          if (controller.timer) clearTimeout(controller.timer);
 
-          if (liveVideo) {
-            liveVideo.pause();
-            liveVideo.currentTime = 0;
-            liveVideo.style.display = 'none';
-          } else if (liveCanvas) {
-            liveCanvas.style.display = 'none';
+        startPlayback(intervalMs = 130) {
+          if (this.isPlaying) return;
+          this.isPlaying = true;
+          if (animationTimer) clearInterval(animationTimer);
+          renderAnimationFrame();
+          animationTimer = setInterval(renderAnimationFrame, intervalMs);
+        },
+
+        stopPlayback() {
+          this.isPlaying = false;
+          if (animationTimer) {
+            clearInterval(animationTimer);
+            animationTimer = null;
+          }
+        },
+
+        togglePlayback() {
+          if (this.isPlaying) this.stopPlayback();
+          else this.startPlayback();
+        },
+
+        startMotion() {
+          if (this.currentMode !== 'live') return;
+          if (navigator.vibrate) try { navigator.vibrate(25); } catch(e){}
+          if (badge) badge.classList.add('playing');
+          if (hint) hint.style.opacity = '0';
+          stillImg.style.display = 'none';
+          motionCanvas.style.display = 'block';
+          if (frameOverlayImg && frameOverlayImg.src) frameOverlayImg.style.display = 'block';
+          this.startPlayback(130);
+        },
+
+        stopMotion() {
+          if (this.currentMode !== 'live') return;
+          this.stopPlayback();
+          if (badge) badge.classList.remove('playing');
+          if (hint) hint.style.opacity = '1';
+          stillImg.style.display = 'block';
+          motionCanvas.style.display = 'none';
+        },
+
+        async downloadVideo(mode = 'boomerang') {
+          const btn = btnDownload;
+          const originalText = btn ? btn.innerHTML : '';
+          if (btn) {
+            btn.innerHTML = '⏳ Menyiapkan Video Berframe...';
+            btn.style.pointerEvents = 'none';
+          }
+
+          try {
+            // Record high quality video stream from framed canvas
+            const exportCanvas = document.createElement('canvas');
+            const tWidth = (template && template.width) || stillImg.naturalWidth || 1200;
+            const tHeight = (template && template.height) || stillImg.naturalHeight || 1800;
+            exportCanvas.width = tWidth;
+            exportCanvas.height = tHeight;
+            const eCtx = exportCanvas.getContext('2d');
+
+            const slots = (template && template.slots && template.slots.length > 0) ? template.slots : [
+              { id: 'slot_1', pose_index: 1, x: 50, y: 130, width: 500, height: 420 },
+              { id: 'slot_2', pose_index: 2, x: 50, y: 580, width: 500, height: 420 },
+              { id: 'slot_3', pose_index: 3, x: 50, y: 1030, width: 500, height: 420 }
+            ];
+
+            const mimeTypes = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+            const selectedMime = mimeTypes.find(t => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+
+            const stream = exportCanvas.captureStream(30);
+            const recorder = new MediaRecorder(stream, selectedMime ? { mimeType: selectedMime } : {});
+            const chunks = [];
+            recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+
+            const totalLoops = 3;
+            const totalFrames = steps.length * totalLoops;
+            const frameInterval = 120;
+
+            recorder.start();
+
+            for (let f = 0; f < totalFrames; f++) {
+              const stepOffset = steps[f % steps.length];
+              eCtx.fillStyle = '#ffffff';
+              eCtx.fillRect(0, 0, tWidth, tHeight);
+
+              for (let sIdx = 0; sIdx < slots.length; sIdx++) {
+                const slot = slots[sIdx];
+                const activeIdx = (sIdx + stepOffset) % rawImages.length;
+                const pImg = rawImages[activeIdx] || rawImages[0];
+                if (pImg && pImg.complete && pImg.naturalWidth > 0) {
+                  eCtx.save();
+                  const bleed = 4;
+                  const clipX = slot.x - bleed;
+                  const clipY = slot.y - bleed;
+                  const clipW = slot.width + (bleed * 2);
+                  const clipH = slot.height + (bleed * 2);
+                  eCtx.beginPath();
+                  eCtx.rect(clipX, clipY, clipW, clipH);
+                  eCtx.clip();
+                  const pulse = (f % 2 === 1) ? 1.02 : 1.0;
+                  const baseScale = Math.max(clipW / pImg.naturalWidth, clipH / pImg.naturalHeight);
+                  const finalScale = baseScale * pulse;
+                  const drawW = pImg.naturalWidth * finalScale;
+                  const drawH = pImg.naturalHeight * finalScale;
+                  const drawX = clipX + (clipW / 2) - (drawW / 2);
+                  const drawY = clipY + (clipH / 2) - (drawH / 2);
+                  eCtx.drawImage(pImg, drawX, drawY, drawW, drawH);
+                  eCtx.restore();
+                }
+              }
+
+              if (keyedFrameCanvas) {
+                eCtx.drawImage(keyedFrameCanvas, 0, 0, tWidth, tHeight);
+              } else if (stillImageObj && stillImageObj.complete) {
+                eCtx.drawImage(stillImageObj, 0, 0, tWidth, tHeight);
+              }
+
+              await new Promise(r => setTimeout(r, frameInterval));
+            }
+
+            recorder.stop();
+            recorder.onstop = () => {
+              const mime = recorder.mimeType || 'video/webm';
+              const ext = mime.includes('mp4') ? 'mp4' : 'webm';
+              const blob = new Blob(chunks, { type: mime });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `Photobooth_${mode === 'boomerang' ? 'Boomerang' : 'LivePhoto'}_Berframe_${sessionId}.${ext}`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+              if (btn) {
+                btn.innerHTML = originalText;
+                btn.style.pointerEvents = 'auto';
+              }
+            };
+          } catch (err) {
+            console.error('Download framed video error:', err);
+            alert('Gagal mengunduh video berframe: ' + err.message);
+            if (btn) {
+              btn.innerHTML = originalText;
+              btn.style.pointerEvents = 'auto';
+            }
           }
         }
       };
 
-      liveControllers[sessionId] = controller;
+      frameSessionControllers[sessionId] = controller;
+      liveControllers[sessionId] = controller; // backwards compatibility
 
-      // Touch & Mouse Event Handlers for Press-and-Hold
+      // Attach touch & mouse event listeners for Live Photo press-and-hold
       let holdTimeout = null;
-
       const onPressStart = (e) => {
-        if (e.type === 'touchstart') {
-          holdTimeout = setTimeout(() => {
+        if (controller.currentMode === 'live') {
+          if (e.type === 'touchstart') {
+            holdTimeout = setTimeout(() => controller.startMotion(), 60);
+          } else {
             controller.startMotion();
-          }, 80);
-        } else {
-          controller.startMotion();
+          }
         }
       };
 
       const onPressEnd = () => {
-        if (holdTimeout) clearTimeout(holdTimeout);
-        controller.stopMotion();
+        if (controller.currentMode === 'live') {
+          if (holdTimeout) clearTimeout(holdTimeout);
+          controller.stopMotion();
+        }
       };
 
       container.addEventListener('mousedown', onPressStart);
       container.addEventListener('mouseup', onPressEnd);
       container.addEventListener('mouseleave', onPressEnd);
-
       container.addEventListener('touchstart', onPressStart, { passive: true });
       container.addEventListener('touchend', onPressEnd);
       container.addEventListener('touchcancel', onPressEnd);

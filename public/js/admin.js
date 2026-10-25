@@ -409,6 +409,20 @@ function populateSelectedEventConfig() {
     }
   }
 
+  // Set Timezone & Event Time
+  const tzSelect = document.getElementById('cfgTimezone');
+  if (tzSelect) {
+    tzSelect.value = ev.timezone || cfg.timezone || 'Asia/Makassar';
+  }
+  const dateInput = document.getElementById('cfgEventDate');
+  if (dateInput) {
+    dateInput.value = cfg.eventDate || (ev.starts_at ? ev.starts_at.split(' ')[0] : '');
+  }
+  const timeInput = document.getElementById('cfgEventTime');
+  if (timeInput) {
+    timeInput.value = cfg.eventTime || (ev.starts_at && ev.starts_at.includes(' ') ? ev.starts_at.split(' ')[1].substring(0, 5) : '08:00');
+  }
+
   // Set Berapa Kali Cekrek
   const shotsSelect = document.getElementById('cfgShotsCount');
   if (shotsSelect) {
@@ -889,6 +903,9 @@ async function createNewEvent(event) {
     return;
   }
 
+  const eventTime = document.getElementById('newEventTime')?.value || '08:00';
+  const timezone = document.getElementById('newTimezone')?.value || 'Asia/Makassar';
+
   const shotsCount = parseInt(document.getElementById('newShotsCount').value) || 3;
 
   const newBgTypeVal = document.getElementById('newBgType')?.value || 'default';
@@ -901,6 +918,8 @@ async function createNewEvent(event) {
   const payload = {
     name: name,
     eventDate: eventDate,
+    eventTime: eventTime,
+    timezone: timezone,
     shotsCount: shotsCount,
     countdownSeconds: parseInt(document.getElementById('newCountdown').value) || 3,
     maxCopiesPerSession: parseInt(document.getElementById('newMaxCopies').value) || 2,
@@ -956,8 +975,14 @@ async function saveEventConfig() {
 
   const welcomeHeadline = (document.getElementById('cfgWelcomeHeadline')?.value || '').trim() || 'Abadikan Momen Spesialmu Di Sini! 😊';
   const welcomeBtnText = (document.getElementById('cfgWelcomeBtnText')?.value || '').trim() || 'Mulai Foto ➔';
+  const timezone = document.getElementById('cfgTimezone')?.value || 'Asia/Makassar';
+  const eventDate = document.getElementById('cfgEventDate')?.value || '';
+  const eventTime = document.getElementById('cfgEventTime')?.value || '08:00';
 
   const payload = {
+    timezone: timezone,
+    eventDate: eventDate,
+    eventTime: eventTime,
     shotsCount: shotsCount,
     countdownSeconds: parseInt(document.getElementById('cfgCountdown').value) || 3,
     maxCopiesPerSession: parseInt(document.getElementById('cfgMaxCopies').value) || 2,

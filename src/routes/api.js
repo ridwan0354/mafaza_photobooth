@@ -770,11 +770,12 @@ apiRouter.post('/kiosk/sessions', (req, res) => {
   try {
     const { tenantId, eventId, deviceId, guestPassId, mode } = req.body;
     const sessionId = 'sess_' + crypto.randomBytes(8).toString('hex');
+    const nowIso = new Date().toISOString();
 
     db.prepare(`
       INSERT INTO photo_sessions (id, tenant_id, event_id, device_id, guest_pass_id, mode, status, started_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'capturing', datetime('now'))
-    `).run(sessionId, tenantId, eventId, deviceId || null, guestPassId || null, mode || 'single');
+      VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?)
+    `).run(sessionId, tenantId, eventId, deviceId || null, guestPassId || null, mode || 'single', nowIso);
 
     res.json({ sessionId, status: 'capturing' });
   } catch (err) {

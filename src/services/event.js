@@ -38,7 +38,10 @@ export function createEvent(tenantId, data) {
     }
   }
 
-  const startsAt = `${eventDate} 00:00:00`;
+  const eventTime = data.eventTime || '08:00';
+  const timezone = data.timezone || 'Asia/Makassar';
+
+  const startsAt = `${eventDate} ${eventTime}:00`;
   const endsAt = `${eventDate} 23:59:59`;
 
   // Hitung tanggal otomatis hapus foto: Tepat 1 Tahun setelah tanggal acara selesai
@@ -52,6 +55,8 @@ export function createEvent(tenantId, data) {
 
   const defaultConfig = {
     eventDate: eventDate,
+    eventTime: eventTime,
+    timezone: timezone,
     autoDeleteAt: autoDeleteAt,
     retentionYears: 1,
     shotsCount: shotsCount,
@@ -88,7 +93,7 @@ export function createEvent(tenantId, data) {
     data.name,
     startsAt,
     endsAt,
-    data.timezone || 'Asia/Jakarta',
+    timezone,
     JSON.stringify(defaultConfig)
   );
 
@@ -101,12 +106,22 @@ export function updateEventConfig(eventId, tenantId, newConfig) {
 
   const mergedConfig = { ...current.config, ...newConfig };
   const newVersion = current.config_version + 1;
+  const timezone = newConfig.timezone || current.timezone || 'Asia/Makassar';
+
+  let startsAt = current.starts_at;
+  let endsAt = current.ends_at;
+  if (newConfig.eventDate || newConfig.eventTime) {
+    const eDate = newConfig.eventDate || (current.starts_at ? current.starts_at.split(' ')[0] : new Date().toISOString().split('T')[0]);
+    const eTime = newConfig.eventTime || '08:00';
+    startsAt = `${eDate} ${eTime}:00`;
+    endsAt = `${eDate} 23:59:59`;
+  }
 
   db.prepare(`
     UPDATE events
-    SET config_json = ?, config_version = ?
+    SET config_json = ?, config_version = ?, timezone = ?, starts_at = ?, ends_at = ?
     WHERE id = ? AND tenant_id = ?
-  `).run(JSON.stringify(mergedConfig), newVersion, eventId, tenantId);
+  `).run(JSON.stringify(mergedConfig), newVersion, timezone, startsAt, endsAt, eventId, tenantId);
 
   return getEventById(eventId, tenantId);
 }
