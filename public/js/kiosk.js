@@ -1016,8 +1016,31 @@ class KioskEngine {
   }
 
   setupKeyboardRemoteListeners() {
-    const trigger = (e) => {
-      // Hanya aktif ketika layar kamera (screenCapture) sedang aktif
+    const fireRemoteShutter = (sourceLabel) => {
+      const screenCapture = document.getElementById('screenCapture');
+      const isCaptureActive = screenCapture && screenCapture.classList.contains('active');
+      if (!isCaptureActive) return false;
+
+      // Jangan trigger bila modal sedang terbuka
+      const photoModal = document.getElementById('photoPreviewModal');
+      if (photoModal && photoModal.style.display === 'flex') return false;
+      const pinModal = document.getElementById('operatorPinModal');
+      if (pinModal && pinModal.style.display === 'flex') return false;
+
+      // Debounce 350ms untuk mencegah double trigger dari keydown + keyup / mouse click remote bluetooth
+      const now = Date.now();
+      if (this._lastRemoteTriggerTime && (now - this._lastRemoteTriggerTime < 350)) {
+        return true;
+      }
+      this._lastRemoteTriggerTime = now;
+
+      console.log('📸 [Remote Shutter Triggered]:', sourceLabel);
+      this.showToast('📸 Sinyal Shutter Diterima!', '⚡', 900);
+      this.handleShutterClick();
+      return true;
+    };
+
+    const keyTrigger = (e) => {
       const screenCapture = document.getElementById('screenCapture');
       const isCaptureActive = screenCapture && screenCapture.classList.contains('active');
       if (!isCaptureActive) return;
@@ -1027,58 +1050,82 @@ class KioskEngine {
         return;
       }
 
+      // Abaikan shortcut browser (Cmd+R, Ctrl+F5, F11, F12, Escape, dll)
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
       const keyName = (e.key || '').toLowerCase();
       const codeName = (e.code || '').toLowerCase();
       const keyCode = e.keyCode || e.which;
 
-      // 1. Tombol Perkecil Volume (AudioVolumeDown / VolumeDown / 174)
-      const isVolumeDown = keyName === 'audiovolumedown' ||
-                           keyName === 'volumedown' ||
-                           codeName === 'audiovolumedown' ||
-                           codeName === 'volumedown' ||
-                           keyCode === 174;
+      if (keyName === 'escape' || keyName === 'f5' || keyName === 'f11' || keyName === 'f12' || keyName === 'tab') {
+        return;
+      }
 
-      // 2. Tombol Perbesar Volume (AudioVolumeUp / VolumeUp / 175)
-      const isVolumeUp = keyName === 'audiovolumeup' ||
-                         keyName === 'volumeup' ||
-                         codeName === 'audiovolumeup' ||
-                         codeName === 'volumeup' ||
-                         keyCode === 175;
+      // 1. Tombol Perkecil Volume & Perbesar Volume (AudioVolumeDown / AudioVolumeUp / 174 / 175 / 182 / 183)
+      const isVolumeKey = keyName.includes('volume') ||
+                          codeName.includes('volume') ||
+                          keyCode === 174 || keyCode === 175 || keyCode === 182 || keyCode === 183;
 
-      // 3. Tombol Enter / Return (banyak remote Bluetooth mengirimkan Enter untuk mode Android)
-      const isEnter = keyName === 'enter' || codeName === 'enter' || keyCode === 13;
+      // 2. Tombol Enter / Return / Spasi (dikirim oleh remote Bluetooth seperti ADYSS-A7 & J09)
+      const isEnterOrSpace = keyName === 'enter' || codeName === 'enter' || keyCode === 13 ||
+                             keyName === ' ' || keyName === 'space' || codeName === 'space' || keyCode === 32;
 
-      // 4. Tombol Spasi (banyak remote selfie / presenter clicker mengirimkan Space)
-      const isSpace = keyName === ' ' || keyName === 'space' || codeName === 'space' || keyCode === 32;
+      // 3. Tombol Arrow / PageUp / PageDown / F13-F15 (dikirim oleh ring remote Bluetooth / presenter clicker)
+      const isNavRemoteKey = keyName.startsWith('arrow') || codeName.startsWith('arrow') ||
+                             keyName === 'pageup' || keyName === 'pagedown' ||
+                             keyName === 'f13' || keyName === 'f14' || keyName === 'f15' ||
+                             (keyCode >= 33 && keyCode <= 40);
 
-      // 5. Tombol Media / Camera shutter hardware
+      // 4. Tombol Media / Camera shutter hardware
       const isMediaShutter = keyName.includes('media') ||
                              codeName.includes('media') ||
                              keyName === 'camera' ||
                              codeName === 'camera' ||
-                             keyCode === 27;
+                             (keyCode >= 176 && keyCode <= 179);
 
-      if (isVolumeDown || isVolumeUp || isEnter || isSpace || isMediaShutter) {
+      if (isVolumeKey || isEnterOrSpace || isNavRemoteKey || isMediaShutter) {
         e.preventDefault();
         e.stopPropagation();
-
-        // Debounce 300ms untuk mencegah double trigger keydown + keyup dari remote bluetooth
-        const now = Date.now();
-        if (this._lastRemoteTriggerTime && (now - this._lastRemoteTriggerTime < 300)) {
-          return;
-        }
-        this._lastRemoteTriggerTime = now;
-
-        console.log('📸 [Remote Shutter Triggered]:', { key: e.key, code: e.code, keyCode });
-        this.showToast('📸 Sinyal Shutter Diterima!', '⚡', 900);
-        this.handleShutterClick();
-      } else {
-        console.log('ℹ️ [Kiosk Key Pressed]:', { key: e.key, code: e.code, keyCode });
+        fireRemoteShutter({ key: e.key, code: e.code, keyCode });
       }
     };
 
-    window.addEventListener('keydown', trigger, { capture: true });
-    window.addEventListener('keyup', trigger, { capture: true });
+    window.addEventListener('keydown', keyTrigger, { capture: true });
+    window.addEventListener('keyup', keyTrigger, { capture: true });
+
+    // Dukung juga remote Bluetooth tipe Mouse/Ring (seperti J09) yang mengirim klik mouse di area bebas screenCapture
+    const screenCaptureEl = document.getElementById('screenCapture');
+    if (screenCaptureEl && !screenCaptureEl._hasRemoteMouseBound) {
+      screenCaptureEl._hasRemoteMouseBound = true;
+      screenCaptureEl.addEventListener('click', (e) => {
+        if (!screenCaptureEl.classList.contains('active')) return;
+        const t = e.target;
+        if (!t || !t.closest) return;
+        // Abaikan jika klik pada tombol kontrol atas, dock foto bawah, atau tombol spesifik
+        if (
+          t.closest('button') ||
+          t.closest('a') ||
+          t.closest('#kioskGlobalControls') ||
+          t.closest('#kioskOfflineBadge') ||
+          t.closest('#filmstripDock') ||
+          t.closest('.camera-retro-frame') // sudah ditangani oleh handleCameraViewportClick
+        ) {
+          return;
+        }
+        fireRemoteShutter('screenCapture-background-click');
+      });
+    }
+
+    // Dukung MediaSession hardware remote actions
+    if ('mediaSession' in navigator) {
+      ['play', 'pause', 'previoustrack', 'nexttrack'].forEach((action) => {
+        try {
+          navigator.mediaSession.setActionHandler(action, () => {
+            fireRemoteShutter(`mediaSession:${action}`);
+          });
+        } catch (err) {}
+      });
+    }
   }
 
   handleQuickRetake() {
