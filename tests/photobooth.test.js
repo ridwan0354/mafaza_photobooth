@@ -392,4 +392,77 @@ test('PHOTOBOOTH SAAS FULL SYSTEM - COMPREHENSIVE TEST SUITE', async (t) => {
     assert.strictEqual(gallery.guestPass.timezone, 'Asia/Jakarta', 'Guest pass reflects event timezone');
     assert.ok(gallery.guestPass.template, 'Guest pass includes template metadata for framed motion');
   });
+
+  await t.test('12. Template Orientation Matching & Separation of Boomerang vs Live Video', async () => {
+    const tenantId = 'tenant_studiokeren_01';
+    const ev = eventService.createEvent(tenantId, {
+      name: 'Event Multi-Template Test',
+      timezone: 'Asia/Jakarta'
+    });
+
+    // 1. Create a Portrait 1-slot template
+    const tplPortrait = templateService.createTemplate(tenantId, {
+      name: 'PB Shuttlemom Portrait Single',
+      eventId: ev.id,
+      width: 1200,
+      height: 1800,
+      orientation: 'portrait',
+      slots: [{ id: 'slot_1', pose_index: 1, x: 100, y: 150, width: 1000, height: 1500 }]
+    });
+
+    // 2. Create a Landscape 6-slot template created later for the same event
+    const tplLandscape = templateService.createTemplate(tenantId, {
+      name: 'PB Shuttlemom Landscape 6-Slot',
+      eventId: ev.id,
+      width: 1800,
+      height: 1200,
+      orientation: 'landscape',
+      slots: [
+        { id: 's1', pose_index: 1, x: 50, y: 50, width: 500, height: 400 },
+        { id: 's2', pose_index: 2, x: 600, y: 50, width: 500, height: 400 },
+        { id: 's3', pose_index: 3, x: 1150, y: 50, width: 500, height: 400 },
+        { id: 's4', pose_index: 4, x: 50, y: 500, width: 500, height: 400 },
+        { id: 's5', pose_index: 5, x: 600, y: 500, width: 500, height: 400 },
+        { id: 's6', pose_index: 6, x: 1150, y: 500, width: 500, height: 400 }
+      ]
+    });
+
+    // 3. Create a Guest Pass and a Single Portrait Photo Session
+    const guestPass = await qrService.createGuestPass(tenantId, ev.id, 'booth');
+    const sessionId = 'sess_test_orientation_' + Date.now();
+    db.prepare(`
+      INSERT INTO photo_sessions (id, tenant_id, event_id, guest_pass_id, mode, status, started_at)
+      VALUES (?, ?, ?, ?, 'single', 'completed', datetime('now'))
+    `).run(sessionId, tenantId, ev.id, guestPass.id);
+
+    // Save final photo, raw capture, and genuine live clip
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
+      VALUES ('asset_f1', ?, ?, ?, 'final_photo', 'print_hires', '/uploads/final_test.jpg', 'ready')
+    `).run(tenantId, ev.id, sessionId);
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
+      VALUES ('asset_r1', ?, ?, ?, 'raw_capture', 'pose_1', '/uploads/raw_pose1.jpg', 'ready')
+    `).run(tenantId, ev.id, sessionId);
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
+      VALUES ('asset_lc1', ?, ?, ?, 'live_clip', 'pose_1', '/uploads/live_pose1.mp4', 'ready')
+    `).run(tenantId, ev.id, sessionId);
+
+    // 4. Resolve Gallery Data
+    const gallery = qrService.getGuestGalleryData(guestPass.token);
+    assert.ok(gallery && gallery.sessions && gallery.sessions.length > 0, 'Session retrieved');
+    const sess = gallery.sessions[0];
+
+    // Assert orientation matching: Must pick PORTRAIT template, NOT the newer landscape 6-slot template!
+    assert.ok(sess.template, 'Session template should be resolved');
+    assert.strictEqual(sess.template.orientation, 'portrait', 'Single portrait session must resolve to portrait template');
+    assert.strictEqual(sess.template.id, tplPortrait.id, 'Session template must match portrait template ID, not landscape');
+    assert.strictEqual(sess.template.slots.length, 1, 'Portrait template has 1 slot, not 6');
+
+    // Assert separation of media: live_clip exists and is preserved separately
+    const liveClip = sess.media.find(m => m.type === 'live_clip');
+    assert.ok(liveClip, 'Live clip exists in session media');
+    assert.strictEqual(liveClip.filePath, '/uploads/live_pose1.mp4', 'Live clip file path is genuine video clip');
+  });
 });

@@ -2470,7 +2470,11 @@ class KioskEngine {
 
         if (bmResult && bmResult.blob) {
           formData.append('boomerang', bmResult.blob, `boomerang_${Date.now()}.${bmResult.ext}`);
-          formData.append('livePhoto', bmResult.blob, `livephoto_${Date.now()}.${bmResult.ext}`);
+        }
+        if (this.liveClips && this.liveClips[0]) {
+          const firstClip = this.liveClips[0];
+          const ext = (firstClip.type && firstClip.type.includes('mp4')) ? 'mp4' : 'webm';
+          formData.append('livePhoto', firstClip, `livephoto_${Date.now()}.${ext}`);
         }
       }
 

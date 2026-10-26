@@ -708,7 +708,8 @@
               const boomerangAsset = s.media && s.media.find(m => m.type === 'boomerang');
               const livePhotoAsset = s.media && s.media.find(m => m.type === 'live_photo');
               const finalSrc = finalPhoto ? finalPhoto.filePath : '/assets/templates/strip-green-template.svg';
-              const mainLiveVideoSrc = (livePhotoAsset && livePhotoAsset.filePath) || (liveClips.length > 0 ? liveClips[0].filePath : null);
+              const genuineLiveClip = (liveClips.length > 0) ? liveClips[0].filePath : null;
+              const mainLiveVideoSrc = genuineLiveClip || ((livePhotoAsset && livePhotoAsset.filePath && (!boomerangAsset || livePhotoAsset.filePath !== boomerangAsset.filePath)) ? livePhotoAsset.filePath : null) || null;
 
               // Frame images for live photo & boomerang synthesis
               const poseImages = rawCaptures.map(r => r.filePath);
@@ -903,8 +904,6 @@
                       ${mainLiveVideoSrc ? `
                         <video id="liveVideo_${s.id}" src="${mainLiveVideoSrc}" playsinline muted loop preload="auto" style="display: none;"></video>
                       ` : ''}
-
-                      <img id="frameOverlayImg_${s.id}" src="" style="position: absolute; inset:0; width:100%; height:100%; object-fit: fill; pointer-events: none; z-index: 6; display: none;">
                     </div>
 
                     <!-- Main Action Buttons -->
@@ -1007,7 +1006,6 @@
       const stillImg = document.getElementById(`stillImg_${sessionId}`);
       const motionCanvas = document.getElementById(`motionCanvas_${sessionId}`);
       const liveVideo = document.getElementById(`liveVideo_${sessionId}`);
-      const frameOverlayImg = document.getElementById(`frameOverlayImg_${sessionId}`);
       const badge = document.getElementById(`liveBadge_${sessionId}`);
       const badgeText = document.getElementById(`badgeText_${sessionId}`);
       const hint = document.getElementById(`liveHint_${sessionId}`);
@@ -1031,8 +1029,23 @@
       let keyedFrameCanvas = null;
       let slots = (template && template.slots && template.slots.length > 0) ? template.slots : [];
 
+      function validateTemplateMatch() {
+        if (!template) return;
+        const sW = stillImg.naturalWidth || stillImageObj.naturalWidth || 1200;
+        const sH = stillImg.naturalHeight || stillImageObj.naturalHeight || 1800;
+        const sAspect = sW / sH;
+        const tAspect = (template.width && template.height) ? (template.width / template.height) : sAspect;
+        // If still image is portrait (aspect < 0.95) but template is landscape (aspect > 1.05), or vice versa:
+        if ((sAspect < 0.95 && tAspect > 1.05) || (sAspect > 1.05 && tAspect < 0.95)) {
+          console.warn('Template orientation mismatch detected! Discarding mismatched template.', { sAspect, tAspect });
+          template = null;
+          slots = [];
+        }
+      }
+
       function setupKeyedFrame(sourceImg) {
         if (!sourceImg || !sourceImg.naturalWidth) return;
+        validateTemplateMatch();
         try {
           const tWidth = (template && template.width) || sourceImg.naturalWidth || stillImg.naturalWidth || 1200;
           const tHeight = (template && template.height) || sourceImg.naturalHeight || stillImg.naturalHeight || 1800;
@@ -1091,10 +1104,6 @@
               width: Math.round(tWidth * 0.84),
               height: Math.round(tHeight * 0.70)
             }];
-          }
-
-          if (frameOverlayImg) {
-            frameOverlayImg.src = keyedFrameCanvas.toDataURL('image/png');
           }
         } catch(e) {
           console.warn('Frame keying error:', e);
@@ -1255,7 +1264,6 @@
           if (mode === 'still') {
             stillImg.style.display = 'block';
             motionCanvas.style.display = 'none';
-            if (frameOverlayImg) frameOverlayImg.style.display = 'none';
             if (badge) badge.style.display = 'none';
             if (hint) hint.style.display = 'none';
 
@@ -1268,7 +1276,6 @@
           } else if (mode === 'boomerang') {
             stillImg.style.display = 'none';
             motionCanvas.style.display = 'block';
-            if (frameOverlayImg && frameOverlayImg.src) frameOverlayImg.style.display = 'block';
             if (badge) {
               badge.style.display = 'inline-flex';
               badge.classList.add('playing');
@@ -1286,7 +1293,6 @@
           } else if (mode === 'live') {
             stillImg.style.display = 'block';
             motionCanvas.style.display = 'none';
-            if (frameOverlayImg) frameOverlayImg.style.display = 'none';
             if (badge) {
               badge.style.display = 'inline-flex';
               badge.classList.remove('playing');
@@ -1337,17 +1343,14 @@
           if (navigator.vibrate) try { navigator.vibrate(25); } catch(e){}
           if (badge) badge.classList.add('playing');
           if (hint) hint.style.opacity = '0';
-          stillImg.style.display = 'none';
-          motionCanvas.style.display = 'block';
-          if (frameOverlayImg && frameOverlayImg.src) frameOverlayImg.style.display = 'block';
 
-          if (liveVideo) {
+          if (liveVideo && liveVideo.src) {
+            stillImg.style.display = 'none';
+            motionCanvas.style.display = 'block';
             liveVideo.currentTime = 0;
             liveVideo.play().catch(()=>{});
             if (liveAnimId) cancelAnimationFrame(liveAnimId);
             renderLiveVideoSlotFrame();
-          } else {
-            this.startBoomerang(110);
           }
         },
 
@@ -1356,12 +1359,10 @@
           this.isPlaying = false;
           if (liveAnimId) cancelAnimationFrame(liveAnimId);
           if (liveVideo) liveVideo.pause();
-          this.stopBoomerang();
           if (badge) badge.classList.remove('playing');
           if (hint) hint.style.opacity = '1';
           stillImg.style.display = 'block';
           motionCanvas.style.display = 'none';
-          if (frameOverlayImg) frameOverlayImg.style.display = 'none';
         },
 
         stopAllMotion() {
@@ -1417,7 +1418,11 @@
 
             recorder.start();
 
-            if (mode === 'live' && liveVideo) {
+            if (mode === 'live') {
+              if (!liveVideo || !liveVideo.src) {
+                alert('Klip video Live Photo tidak tersedia untuk sesi ini.');
+                return;
+              }
               liveVideo.currentTime = 0;
               await liveVideo.play().catch(()=>{});
 

@@ -119,7 +119,7 @@ export async function resolveGuestPassWithQr(token, baseUrl = '') {
   };
 }
 
-function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null) {
+function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, slotCount = 1) {
   try {
     let tpl = null;
     // 1. If explicit templateId is associated with this session
@@ -131,7 +131,46 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null) 
         WHERE t.id = ? AND t.status != 'archived'
       `).get(templateId);
     }
-    // 2. By event_id if assigned specifically to the event
+
+    const isStrip = (sessionMode === 'strip');
+    const isLandscape = (sessionMode === 'landscape');
+    const targetOrientation = isStrip ? 'strip' : (isLandscape ? 'landscape' : 'portrait');
+
+    // 2. By event_id AND matching orientation/aspect-ratio (prevents landscape template on portrait session)
+    if (!tpl && eventId) {
+      tpl = db.prepare(`
+        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        FROM templates t
+        LEFT JOIN template_versions tv ON t.current_version_id = tv.id
+        WHERE t.event_id = ? AND t.status != 'archived'
+          AND (
+            t.orientation = ? 
+            OR (? = 'portrait' AND (t.orientation = 'portrait' OR t.orientation = 'single' OR t.width <= t.height))
+            OR (? = 'landscape' AND (t.orientation = 'landscape' OR t.width > t.height))
+            OR (? = 'strip' AND t.orientation = 'strip')
+          )
+        ORDER BY t.created_at DESC LIMIT 1
+      `).get(eventId, targetOrientation, targetOrientation, targetOrientation, targetOrientation);
+    }
+
+    // 3. Match by matching orientation across non-archived templates
+    if (!tpl) {
+      tpl = db.prepare(`
+        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        FROM templates t
+        LEFT JOIN template_versions tv ON t.current_version_id = tv.id
+        WHERE t.status != 'archived'
+          AND (
+            t.orientation = ? 
+            OR (? = 'portrait' AND (t.orientation = 'portrait' OR t.orientation = 'single' OR t.width <= t.height))
+            OR (? = 'landscape' AND (t.orientation = 'landscape' OR t.width > t.height))
+            OR (? = 'strip' AND t.orientation = 'strip')
+          )
+        ORDER BY t.created_at DESC LIMIT 1
+      `).get(targetOrientation, targetOrientation, targetOrientation, targetOrientation);
+    }
+
+    // 4. Fallback to any template for this event
     if (!tpl && eventId) {
       tpl = db.prepare(`
         SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
@@ -141,20 +180,8 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null) 
         ORDER BY t.created_at DESC LIMIT 1
       `).get(eventId);
     }
-    // 3. Match by matching orientation (strip vs portrait vs landscape) so portrait doesn't load landscape
-    if (!tpl) {
-      const isStrip = (sessionMode === 'strip');
-      const isLandscape = (sessionMode === 'landscape');
-      const targetOrientation = isStrip ? 'strip' : (isLandscape ? 'landscape' : 'portrait');
-      tpl = db.prepare(`
-        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
-        FROM templates t
-        LEFT JOIN template_versions tv ON t.current_version_id = tv.id
-        WHERE t.status != 'archived' AND (t.orientation = ? OR (t.width < t.height AND ? = 'portrait') OR (t.width > t.height AND ? = 'landscape'))
-        ORDER BY t.created_at DESC LIMIT 1
-      `).get(targetOrientation, targetOrientation, targetOrientation);
-    }
-    // 4. General fallback
+
+    // 5. General fallback
     if (!tpl) {
       tpl = db.prepare(`
         SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
@@ -245,10 +272,8 @@ export function getGuestGalleryData(token) {
 
   if (!pass) return null;
 
-  const tpl = getEventTemplate(pass.event_id);
-
   // Retrieve all photo sessions associated with this guest pass (multi-session!)
-  const sessions = db.prepare(`
+  const rawSessions = db.prepare(`
     SELECT ps.*,
            (SELECT json_group_array(json_object('id', ma.id, 'type', ma.type, 'variant', ma.variant, 'filePath', ma.file_path, 'createdAt', ma.created_at))
             FROM (
@@ -267,7 +292,12 @@ export function getGuestGalleryData(token) {
     FROM photo_sessions ps
     WHERE ps.guest_pass_id = ?
     ORDER BY ps.started_at DESC
-  `).all(pass.id).map(s => {
+  `).all(pass.id);
+
+  const primaryMode = rawSessions.length > 0 ? rawSessions[0].mode : 'portrait';
+  const tpl = getEventTemplate(pass.event_id, primaryMode);
+
+  const sessions = rawSessions.map(s => {
     const sTpl = getEventTemplate(s.event_id, s.mode, s.template_id) || tpl;
     return {
       ...s,
