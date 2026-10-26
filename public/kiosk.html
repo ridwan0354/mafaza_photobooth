@@ -11,7 +11,7 @@
   <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
   <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
   <title>Mafaza — Photobooth Kiosk</title>
-  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v3.1">
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v3.3">
   <style>
     /* Specific overrides for Konsep C: Warm Playful Retro */
     .template-retro-card {
@@ -539,8 +539,8 @@
         </div>
       </div>
 
-      <!-- MAIN CAMERA VIEWPORT with Corner Brackets (Expanded Full Studio Size) -->
-      <div class="camera-retro-frame">
+      <!-- MAIN CAMERA VIEWPORT with Corner Brackets (Compact Studio Size) -->
+      <div class="camera-retro-frame" style="width: min(72vw, 640px); max-width: 640px; height: clamp(260px, 38vh, 390px); aspect-ratio: 16 / 10; margin: 4px auto 8px; border-radius: 22px; border: 4.5px solid #FFFBF5; box-shadow: 0 16px 45px rgba(0, 0, 0, 0.32);">
         <video id="videoFeed" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block;"></video>
 
         <!-- Corner photo brackets -->
