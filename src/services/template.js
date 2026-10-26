@@ -1,5 +1,21 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import crypto from 'node:crypto';
 import { db } from '../db/database.js';
+
+function detectImageDimensions(storageKey) {
+  if (!storageKey) return null;
+  try {
+    const cleanPath = storageKey.startsWith('/') ? storageKey.slice(1) : storageKey;
+    const absPath = path.resolve(process.cwd(), 'public', cleanPath);
+    if (!fs.existsSync(absPath)) return null;
+    const buf = fs.readFileSync(absPath);
+    if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) {
+      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+    }
+  } catch (e) {}
+  return null;
+}
 
 export function getTemplates(tenantId, eventId = null, scope = null) {
   let query = `
@@ -59,6 +75,10 @@ export function createTemplate(tenantId, data) {
   const versionId = 'ver_' + crypto.randomBytes(8).toString('hex');
   const qrPosition = data.qrPosition || data.qr_position || 'bottom-right';
 
+  const detected = detectImageDimensions(data.imageUrl);
+  const finalWidth = parseInt(data.width) || (detected ? detected.width : 1200);
+  const finalHeight = parseInt(data.height) || (detected ? detected.height : 1800);
+
   db.prepare(`
     INSERT INTO templates (id, tenant_id, event_id, name, status, width, height, dpi, orientation, qr_position, current_version_id)
     VALUES (?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?)
@@ -67,8 +87,8 @@ export function createTemplate(tenantId, data) {
     tenantId,
     data.eventId || null,
     data.name,
-    data.width || 1200,
-    data.height || 1800,
+    finalWidth,
+    finalHeight,
     data.dpi || 300,
     data.orientation || 'portrait',
     qrPosition,
@@ -89,7 +109,7 @@ export function createTemplate(tenantId, data) {
   return getTemplateById(templateId, tenantId);
 }
 
-export function updateTemplateSlots(templateId, tenantId, slots, layers = null, qrPosition = null) {
+export function updateTemplateSlots(templateId, tenantId, slots, layers = null, qrPosition = null, width = null, height = null) {
   const template = getTemplateById(templateId, tenantId);
   if (!template) throw new Error('Template tidak ditemukan');
 
@@ -108,15 +128,30 @@ export function updateTemplateSlots(templateId, tenantId, slots, layers = null, 
     nextVerNumber
   );
 
+  const updates = ['current_version_id = ?'];
+  const params = [newVersionId];
+
   if (qrPosition) {
-    db.prepare(`
-      UPDATE templates SET current_version_id = ?, qr_position = ? WHERE id = ?
-    `).run(newVersionId, qrPosition, templateId);
-  } else {
-    db.prepare(`
-      UPDATE templates SET current_version_id = ? WHERE id = ?
-    `).run(newVersionId, templateId);
+    updates.push('qr_position = ?');
+    params.push(qrPosition);
   }
+
+  let finalW = parseInt(width);
+  let finalH = parseInt(height);
+  if (!finalW || !finalH) {
+    const detected = detectImageDimensions(template.image_storage_key);
+    if (detected) {
+      finalW = detected.width;
+      finalH = detected.height;
+    }
+  }
+  if (finalW && finalH) {
+    updates.push('width = ?', 'height = ?');
+    params.push(finalW, finalH);
+  }
+
+  params.push(templateId);
+  db.prepare(`UPDATE templates SET ${updates.join(', ')} WHERE id = ?`).run(...params);
 
   return getTemplateById(templateId, tenantId);
 }

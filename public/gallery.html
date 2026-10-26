@@ -429,6 +429,11 @@
       margin-bottom: 14px;
       border: 2px solid var(--border-soft);
       box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 240px;
+      max-height: 520px;
     }
     .speed-btn {
       background: var(--cream-bg);
@@ -824,9 +829,9 @@
 
             <div class="boomerang-viewport" id="bmViewport_${s.id}">
               ${boomerangAsset ? `
-                <video id="bmVideo_${s.id}" src="${boomerangAsset.filePath}" playsinline autoplay loop muted preload="none" style="width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;"></video>
+                <video id="bmVideo_${s.id}" src="${boomerangAsset.filePath}" playsinline autoplay loop muted preload="auto" style="width: 100%; max-height: 520px; object-fit: contain; display: block; border-radius: 14px; margin: 0 auto;"></video>
               ` : `
-                <canvas id="bmCanvas_${s.id}" style="width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;"></canvas>
+                <canvas id="bmCanvas_${s.id}" style="width: 100%; max-height: 520px; object-fit: contain; display: block; border-radius: 14px; margin: 0 auto;"></canvas>
               `}
             </div>
 
@@ -910,7 +915,7 @@
               <canvas class="live-anim-canvas" id="motionCanvas_${s.id}" style="position: absolute; inset:0; width:100%; height:100%; object-fit: contain; display: none; z-index: 2;"></canvas>
 
               ${mainLiveVideoSrc ? `
-                <video id="liveVideo_${s.id}" src="${mainLiveVideoSrc}" playsinline muted loop preload="none" style="display: none;"></video>
+                <video id="liveVideo_${s.id}" src="${mainLiveVideoSrc}" playsinline muted loop preload="auto" style="display: none;"></video>
               ` : ''}
             </div>
 
@@ -932,7 +937,7 @@
       `;
       container.appendChild(card);
 
-      initFramedSessionController(s.id, finalSrc, poseImages, sessionTemplate, mainLiveVideoSrc, boomerangAsset);
+      initFramedSessionController(s.id, finalSrc, poseImages, sessionTemplate, mainLiveVideoSrc, boomerangAsset, liveClips);
       if (poseImages.length >= 2 && !boomerangAsset) {
         initBoomerang(s.id, poseImages);
       }
@@ -1132,7 +1137,7 @@
       }
     }
 
-    function initFramedSessionController(sessionId, stillSrc, poseFrames, template, mainLiveVideoSrc, boomerangAsset) {
+    function initFramedSessionController(sessionId, stillSrc, poseFrames, template, mainLiveVideoSrc, boomerangAsset, liveClips = []) {
       const container = document.getElementById(`liveContainer_${sessionId}`);
       const stillImg = document.getElementById(`stillImg_${sessionId}`);
       const motionCanvas = document.getElementById(`motionCanvas_${sessionId}`);
@@ -1169,15 +1174,71 @@
       }
 
       let keyedFrameCanvas = null;
+      let templateImgObj = null;
       let slots = (template && template.slots && template.slots.length > 0) ? template.slots : [];
+
+      function getNativeResolution(sourceImg) {
+        const w = (sourceImg && sourceImg.naturalWidth) ||
+                  (templateImgObj && templateImgObj.naturalWidth) ||
+                  stillImg.naturalWidth ||
+                  stillImageObj.naturalWidth ||
+                  (template && template.width) || 1024;
+        const h = (sourceImg && sourceImg.naturalHeight) ||
+                  (templateImgObj && templateImgObj.naturalHeight) ||
+                  stillImg.naturalHeight ||
+                  stillImageObj.naturalHeight ||
+                  (template && template.height) || 1536;
+        return { w, h };
+      }
+
+      function getNormalizedSlots(targetW, targetH) {
+        if (!slots || slots.length === 0) {
+          return [{
+            id: 'slot_1',
+            pose_index: 1,
+            x: Math.round(targetW * 0.08),
+            y: Math.round(targetH * 0.14),
+            width: Math.round(targetW * 0.84),
+            height: Math.round(targetH * 0.70)
+          }];
+        }
+
+        const refW = (template && template.width) ? template.width : targetW;
+        const refH = (template && template.height) ? template.height : targetH;
+
+        let scaleX = 1;
+        let scaleY = 1;
+
+        const maxSlotRight = Math.max(...slots.map(s => (s.x || 0) + (s.width || 0)));
+        const maxSlotBottom = Math.max(...slots.map(s => (s.y || 0) + (s.height || 0)));
+
+        if (refW && refW !== targetW && maxSlotRight > targetW) {
+          scaleX = targetW / refW;
+          scaleY = targetH / refH;
+        } else if (refW && refW !== targetW && maxSlotRight <= refW) {
+          const marginRef = Math.abs((refW - maxSlotRight) - Math.min(...slots.map(s => s.x || 0)));
+          const marginTarget = Math.abs((targetW - maxSlotRight) - Math.min(...slots.map(s => s.x || 0)));
+          if (marginRef < marginTarget && maxSlotRight * (targetW / refW) <= targetW) {
+            scaleX = targetW / refW;
+            scaleY = targetH / refH;
+          }
+        }
+
+        return slots.map(s => ({
+          ...s,
+          x: Math.round((s.x || 0) * scaleX),
+          y: Math.round((s.y || 0) * scaleY),
+          width: Math.round((s.width || 100) * scaleX),
+          height: Math.round((s.height || 100) * scaleY)
+        }));
+      }
 
       function validateTemplateMatch() {
         if (!template) return;
-        const sW = stillImg.naturalWidth || stillImageObj.naturalWidth || 1200;
-        const sH = stillImg.naturalHeight || stillImageObj.naturalHeight || 1800;
+        const sW = stillImg.naturalWidth || stillImageObj.naturalWidth || 1024;
+        const sH = stillImg.naturalHeight || stillImageObj.naturalHeight || 1536;
         const sAspect = sW / sH;
         const tAspect = (template.width && template.height) ? (template.width / template.height) : sAspect;
-        // If still image is portrait (aspect < 0.95) but template is landscape (aspect > 1.05), or vice versa:
         if ((sAspect < 0.95 && tAspect > 1.05) || (sAspect > 1.05 && tAspect < 0.95)) {
           console.warn('Template orientation mismatch detected! Discarding mismatched template.', { sAspect, tAspect });
           template = null;
@@ -1187,10 +1248,10 @@
 
       function setupKeyedFrame(sourceImg) {
         if (!sourceImg || !sourceImg.naturalWidth) return;
+        templateImgObj = sourceImg;
         validateTemplateMatch();
         try {
-          const tWidth = (template && template.width) || sourceImg.naturalWidth || stillImg.naturalWidth || 1200;
-          const tHeight = (template && template.height) || sourceImg.naturalHeight || stillImg.naturalHeight || 1800;
+          const { w: tWidth, h: tHeight } = getNativeResolution(sourceImg);
 
           keyedFrameCanvas = document.createElement('canvas');
           keyedFrameCanvas.width = tWidth;
@@ -1229,7 +1290,6 @@
           kCtx.putImageData(imgData, 0, 0);
 
           if (transparentHoleCount > 500) {
-            // For single-photo sessions or 1-slot frames, expand slot to the entire transparent hole
             if (slots.length <= 1) {
               slots = [{
                 id: 'detected_slot_1',
@@ -1268,6 +1328,28 @@
         }
       }
 
+      // Slot-level video clips (iPhone Live Photo per-slot clips)
+      const slotVideos = [];
+      const sessionLiveClips = (liveClips && Array.isArray(liveClips)) ? liveClips : [];
+      slots.forEach((slot, sIdx) => {
+        const poseNum = slot.pose_index || (sIdx + 1);
+        const clip = sessionLiveClips.find(c => c.variant === `pose_${poseNum}`) || sessionLiveClips[sIdx];
+        const clipSrc = clip ? clip.filePath : (mainLiveVideoSrc || '');
+        if (clipSrc) {
+          const v = document.createElement('video');
+          v.src = clipSrc;
+          v.playsInline = true;
+          v.muted = true;
+          v.loop = true;
+          v.preload = 'auto';
+          v.style.display = 'none';
+          document.body.appendChild(v);
+          slotVideos[sIdx] = v;
+        } else {
+          slotVideos[sIdx] = null;
+        }
+      });
+
       const mCtx = motionCanvas.getContext('2d');
       let boomerangTimer = null;
       let liveAnimId = null;
@@ -1283,25 +1365,24 @@
       }
 
       function renderBoomerangSlotFrame() {
-        const tWidth = (template && template.width) || stillImg.naturalWidth || 1200;
-        const tHeight = (template && template.height) || stillImg.naturalHeight || 1800;
+        const { w: tWidth, h: tHeight } = getNativeResolution();
 
         if (motionCanvas.width !== tWidth || motionCanvas.height !== tHeight) {
           motionCanvas.width = tWidth;
           motionCanvas.height = tHeight;
         }
 
-        const activeSlots = (slots && slots.length > 0) ? slots : [{
-          id: 'slot_1',
-          pose_index: 1,
-          x: Math.round(tWidth * 0.08),
-          y: Math.round(tHeight * 0.14),
-          width: Math.round(tWidth * 0.84),
-          height: Math.round(tHeight * 0.70)
-        }];
+        const activeSlots = getNormalizedSlots(tWidth, tHeight);
 
-        mCtx.fillStyle = '#ffffff';
-        mCtx.fillRect(0, 0, tWidth, tHeight);
+        // Solid background base from still photo - NEVER pure white!
+        if (stillImageObj.complete && stillImageObj.naturalWidth > 0) {
+          mCtx.drawImage(stillImageObj, 0, 0, tWidth, tHeight);
+        } else if (stillImg.complete && stillImg.naturalWidth > 0) {
+          mCtx.drawImage(stillImg, 0, 0, tWidth, tHeight);
+        } else {
+          mCtx.fillStyle = '#1C120C';
+          mCtx.fillRect(0, 0, tWidth, tHeight);
+        }
 
         const stepOffset = steps[currentFrameIdx % steps.length];
         for (let sIdx = 0; sIdx < activeSlots.length; sIdx++) {
@@ -1311,7 +1392,7 @@
 
           if (pImg && pImg.complete && pImg.naturalWidth > 0) {
             mCtx.save();
-            const bleed = 35;
+            const bleed = 3;
             const clipX = Math.max(0, slot.x - bleed);
             const clipY = Math.max(0, slot.y - bleed);
             const clipW = Math.min(tWidth - clipX, slot.width + (bleed * 2));
@@ -1344,54 +1425,70 @@
       }
 
       function renderLiveVideoSlotFrame() {
-        if (!controller.isPlaying || !liveVideo) return;
-        const tWidth = (template && template.width) || stillImg.naturalWidth || 1200;
-        const tHeight = (template && template.height) || stillImg.naturalHeight || 1800;
+        if (!controller.isPlaying) return;
+        const { w: tWidth, h: tHeight } = getNativeResolution();
 
         if (motionCanvas.width !== tWidth || motionCanvas.height !== tHeight) {
           motionCanvas.width = tWidth;
           motionCanvas.height = tHeight;
         }
 
-        const activeSlots = (slots && slots.length > 0) ? slots : [{
-          id: 'slot_1',
-          pose_index: 1,
-          x: Math.round(tWidth * 0.08),
-          y: Math.round(tHeight * 0.14),
-          width: Math.round(tWidth * 0.84),
-          height: Math.round(tHeight * 0.70)
-        }];
+        const activeSlots = getNormalizedSlots(tWidth, tHeight);
 
-        mCtx.fillStyle = '#ffffff';
-        mCtx.fillRect(0, 0, tWidth, tHeight);
+        // Draw still photo base layer so slots are NEVER empty or white!
+        if (stillImageObj.complete && stillImageObj.naturalWidth > 0) {
+          mCtx.drawImage(stillImageObj, 0, 0, tWidth, tHeight);
+        } else if (stillImg.complete && stillImg.naturalWidth > 0) {
+          mCtx.drawImage(stillImg, 0, 0, tWidth, tHeight);
+        }
 
         for (let sIdx = 0; sIdx < activeSlots.length; sIdx++) {
           const slot = activeSlots[sIdx];
-          const bleed = 35;
+          const bleed = 3;
           const clipX = Math.max(0, slot.x - bleed);
           const clipY = Math.max(0, slot.y - bleed);
           const clipW = Math.min(tWidth - clipX, slot.width + (bleed * 2));
           const clipH = Math.min(tHeight - clipY, slot.height + (bleed * 2));
 
-          mCtx.save();
-          mCtx.beginPath();
-          mCtx.rect(clipX, clipY, clipW, clipH);
-          mCtx.clip();
+          const v = (slotVideos && slotVideos[sIdx]) || liveVideo;
+          const isVideoReady = v && v.readyState >= 2 && v.videoWidth > 0;
 
-          // Mirror horizontally so video matches the photo
-          mCtx.translate(clipX + clipW, 0);
-          mCtx.scale(-1, 1);
+          if (isVideoReady) {
+            mCtx.save();
+            mCtx.beginPath();
+            mCtx.rect(clipX, clipY, clipW, clipH);
+            mCtx.clip();
 
-          const vW = liveVideo.videoWidth || 1280;
-          const vH = liveVideo.videoHeight || 720;
-          const baseScale = Math.max(clipW / vW, clipH / vH);
-          const drawW = vW * baseScale;
-          const drawH = vH * baseScale;
-          const drawX = (clipW - drawW) / 2;
-          const drawY = clipY + (clipH - drawH) / 2;
+            const vW = v.videoWidth;
+            const vH = v.videoHeight;
+            const baseScale = Math.max(clipW / vW, clipH / vH);
+            const drawW = vW * baseScale;
+            const drawH = vH * baseScale;
+            const drawX = clipX + (clipW - drawW) / 2;
+            const drawY = clipY + (clipH - drawH) / 2;
 
-          mCtx.drawImage(liveVideo, drawX, drawY, drawW, drawH);
-          mCtx.restore();
+            mCtx.drawImage(v, drawX, drawY, drawW, drawH);
+            mCtx.restore();
+          } else {
+            // Smooth Live Photo motion pulse using raw pose image while buffering
+            const pImg = rawImages[sIdx] || rawImages[0];
+            if (pImg && pImg.complete && pImg.naturalWidth > 0) {
+              mCtx.save();
+              mCtx.beginPath();
+              mCtx.rect(clipX, clipY, clipW, clipH);
+              mCtx.clip();
+
+              const pulse = 1.0 + 0.025 * Math.sin(Date.now() / 150);
+              const baseScale = Math.max(clipW / pImg.naturalWidth, clipH / pImg.naturalHeight) * pulse;
+              const drawW = pImg.naturalWidth * baseScale;
+              const drawH = pImg.naturalHeight * baseScale;
+              const drawX = clipX + (clipW - drawW) / 2;
+              const drawY = clipY + (clipH - drawH) / 2;
+
+              mCtx.drawImage(pImg, drawX, drawY, drawW, drawH);
+              mCtx.restore();
+            }
+          }
         }
 
         // Draw STATIC frame overlay on top
@@ -1435,8 +1532,7 @@
               btnShare.onclick = () => shareMedia(stillSrc, 'Foto HD Berframe');
             }
           } else if (mode === 'boomerang') {
-            stillImg.style.visibility = 'hidden';
-            stillImg.style.opacity = '0';
+            stillImg.style.visibility = 'visible';
             motionCanvas.style.display = 'block';
             if (badge) {
               badge.style.display = 'inline-flex';
@@ -1513,33 +1609,47 @@
           if (badge) badge.classList.add('playing');
           if (hint) hint.style.opacity = '0';
 
+          motionCanvas.style.display = 'block';
+
+          slotVideos.forEach(v => {
+            if (v) {
+              v.currentTime = 0;
+              v.play().catch(()=>{});
+            }
+          });
           if (liveVideo && liveVideo.src) {
-            stillImg.style.visibility = 'hidden';
-            stillImg.style.opacity = '0';
-            motionCanvas.style.display = 'block';
             liveVideo.currentTime = 0;
             liveVideo.play().catch(()=>{});
-            if (liveAnimId) cancelAnimationFrame(liveAnimId);
-            renderLiveVideoSlotFrame();
           }
+
+          if (liveAnimId) cancelAnimationFrame(liveAnimId);
+          renderLiveVideoSlotFrame();
         },
 
         stopLiveMotion() {
           if (this.currentMode !== 'live') return;
           this.isPlaying = false;
           if (liveAnimId) cancelAnimationFrame(liveAnimId);
+          slotVideos.forEach(v => { if (v) v.pause(); });
           if (liveVideo) liveVideo.pause();
           if (badge) badge.classList.remove('playing');
           if (hint) hint.style.opacity = '1';
-          stillImg.style.visibility = 'visible';
-          stillImg.style.opacity = '1';
           motionCanvas.style.display = 'none';
+        },
+
+        startMotion() {
+          if (this.currentMode === 'live') this.startLiveMotion();
+          else if (this.currentMode === 'boomerang') this.startBoomerang();
+        },
+
+        stopMotion() {
+          if (this.currentMode === 'live') this.stopLiveMotion();
+          else if (this.currentMode === 'boomerang') this.stopBoomerang();
         },
 
         stopAllMotion() {
           this.stopBoomerang();
-          if (liveAnimId) cancelAnimationFrame(liveAnimId);
-          if (liveVideo) liveVideo.pause();
+          this.stopLiveMotion();
           this.isPlaying = false;
         },
 
@@ -1552,21 +1662,13 @@
           }
 
           try {
+            const { w: tWidth, h: tHeight } = getNativeResolution();
             const exportCanvas = document.createElement('canvas');
-            const tWidth = (template && template.width) || stillImg.naturalWidth || 1200;
-            const tHeight = (template && template.height) || stillImg.naturalHeight || 1800;
             exportCanvas.width = tWidth;
             exportCanvas.height = tHeight;
             const eCtx = exportCanvas.getContext('2d');
 
-            const activeSlots = (slots && slots.length > 0) ? slots : [{
-              id: 'slot_1',
-              pose_index: 1,
-              x: Math.round(tWidth * 0.08),
-              y: Math.round(tHeight * 0.14),
-              width: Math.round(tWidth * 0.84),
-              height: Math.round(tHeight * 0.70)
-            }];
+            const activeSlots = getNormalizedSlots(tWidth, tHeight);
 
             const mimeTypes = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
             const selectedMime = mimeTypes.find(t => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
@@ -1590,45 +1692,72 @@
             recorder.start();
 
             if (mode === 'live') {
-              if (!liveVideo || !liveVideo.src) {
-                alert('Klip video Live Photo tidak tersedia untuk sesi ini.');
-                return;
+              slotVideos.forEach(v => {
+                if (v) {
+                  v.currentTime = 0;
+                  v.play().catch(()=>{});
+                }
+              });
+              if (liveVideo && liveVideo.src) {
+                liveVideo.currentTime = 0;
+                await liveVideo.play().catch(()=>{});
               }
-              liveVideo.currentTime = 0;
-              await liveVideo.play().catch(()=>{});
 
               const totalFrames = 66; // ~2.2s at 30fps
               const frameInterval = 33;
               for (let f = 0; f < totalFrames; f++) {
-                eCtx.fillStyle = '#ffffff';
-                eCtx.fillRect(0, 0, tWidth, tHeight);
+                if (stillImageObj.complete && stillImageObj.naturalWidth > 0) {
+                  eCtx.drawImage(stillImageObj, 0, 0, tWidth, tHeight);
+                } else if (stillImg.complete && stillImg.naturalWidth > 0) {
+                  eCtx.drawImage(stillImg, 0, 0, tWidth, tHeight);
+                }
 
                 for (let sIdx = 0; sIdx < activeSlots.length; sIdx++) {
                   const slot = activeSlots[sIdx];
-                  const bleed = 35;
+                  const bleed = 3;
                   const clipX = Math.max(0, slot.x - bleed);
                   const clipY = Math.max(0, slot.y - bleed);
                   const clipW = Math.min(tWidth - clipX, slot.width + (bleed * 2));
                   const clipH = Math.min(tHeight - clipY, slot.height + (bleed * 2));
 
-                  eCtx.save();
-                  eCtx.beginPath();
-                  eCtx.rect(clipX, clipY, clipW, clipH);
-                  eCtx.clip();
+                  const v = (slotVideos && slotVideos[sIdx]) || liveVideo;
+                  const isVideoReady = v && v.readyState >= 2 && v.videoWidth > 0;
 
-                  eCtx.translate(clipX + clipW, 0);
-                  eCtx.scale(-1, 1);
+                  if (isVideoReady) {
+                    eCtx.save();
+                    eCtx.beginPath();
+                    eCtx.rect(clipX, clipY, clipW, clipH);
+                    eCtx.clip();
 
-                  const vW = liveVideo.videoWidth || 1280;
-                  const vH = liveVideo.videoHeight || 720;
-                  const baseScale = Math.max(clipW / vW, clipH / vH);
-                  const drawW = vW * baseScale;
-                  const drawH = vH * baseScale;
-                  const drawX = (clipW - drawW) / 2;
-                  const drawY = clipY + (clipH - drawH) / 2;
+                    const vW = v.videoWidth;
+                    const vH = v.videoHeight;
+                    const baseScale = Math.max(clipW / vW, clipH / vH);
+                    const drawW = vW * baseScale;
+                    const drawH = vH * baseScale;
+                    const drawX = clipX + (clipW - drawW) / 2;
+                    const drawY = clipY + (clipH - drawH) / 2;
 
-                  eCtx.drawImage(liveVideo, drawX, drawY, drawW, drawH);
-                  eCtx.restore();
+                    eCtx.drawImage(v, drawX, drawY, drawW, drawH);
+                    eCtx.restore();
+                  } else {
+                    const pImg = rawImages[sIdx] || rawImages[0];
+                    if (pImg && pImg.complete && pImg.naturalWidth > 0) {
+                      eCtx.save();
+                      eCtx.beginPath();
+                      eCtx.rect(clipX, clipY, clipW, clipH);
+                      eCtx.clip();
+
+                      const pulse = 1.0 + 0.025 * Math.sin(f * 0.2);
+                      const baseScale = Math.max(clipW / pImg.naturalWidth, clipH / pImg.naturalHeight) * pulse;
+                      const drawW = pImg.naturalWidth * baseScale;
+                      const drawH = pImg.naturalHeight * baseScale;
+                      const drawX = clipX + (clipW - drawW) / 2;
+                      const drawY = clipY + (clipH - drawH) / 2;
+
+                      eCtx.drawImage(pImg, drawX, drawY, drawW, drawH);
+                      eCtx.restore();
+                    }
+                  }
                 }
 
                 if (keyedFrameCanvas) {
@@ -1636,14 +1765,18 @@
                 }
                 await new Promise(r => setTimeout(r, frameInterval));
               }
-              liveVideo.pause();
+              slotVideos.forEach(v => { if (v) v.pause(); });
+              if (liveVideo) liveVideo.pause();
             } else {
               // Boomerang loop
               const totalFrames = steps.length * 3;
               const frameInterval = 120;
               for (let f = 0; f < totalFrames; f++) {
-                eCtx.fillStyle = '#ffffff';
-                eCtx.fillRect(0, 0, tWidth, tHeight);
+                if (stillImageObj.complete && stillImageObj.naturalWidth > 0) {
+                  eCtx.drawImage(stillImageObj, 0, 0, tWidth, tHeight);
+                } else if (stillImg.complete && stillImg.naturalWidth > 0) {
+                  eCtx.drawImage(stillImg, 0, 0, tWidth, tHeight);
+                }
 
                 const stepOffset = steps[f % steps.length];
                 for (let sIdx = 0; sIdx < activeSlots.length; sIdx++) {
@@ -1653,7 +1786,7 @@
 
                   if (pImg && pImg.complete && pImg.naturalWidth > 0) {
                     eCtx.save();
-                    const bleed = 35;
+                    const bleed = 3;
                     const clipX = Math.max(0, slot.x - bleed);
                     const clipY = Math.max(0, slot.y - bleed);
                     const clipW = Math.min(tWidth - clipX, slot.width + (bleed * 2));

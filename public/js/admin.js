@@ -2094,7 +2094,7 @@ async function saveTemplateVersion() {
     const res = await fetch(`/api/templates/${activeTemplate.id}/slots`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slots: editorSlots, qrPosition })
+      body: JSON.stringify({ slots: editorSlots, qrPosition, width: canvas.width, height: canvas.height })
     });
     if (res.ok) {
       alert('✅ Konfigurasi slot pose template berhasil disimpan & dipublikasikan untuk Kiosk Event!');
