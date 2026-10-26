@@ -630,12 +630,35 @@
       <button onclick="closeLightbox()" style="position: absolute; top: -14px; right: -14px; width: 38px; height: 38px; border-radius: 50%; background: #fff; border: 2px solid var(--border-soft); font-size: 18px; font-weight: 800; color: var(--dark-roast); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,0.3); z-index: 10;">✕</button>
       <img id="lightboxImg" src="" style="max-width: 90vw; max-height: 78vh; object-fit: contain; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); background: #fff;">
       <div style="margin-top: 16px; display: flex; gap: 10px;">
-        <a id="lightboxDownloadBtn" href="" download class="btn btn-coral" style="padding: 10px 22px; font-size: 13.5px; font-weight: 700; text-decoration: none; border-radius: var(--radius-pill);">
+        <button id="lightboxDownloadBtn" class="btn btn-coral" onclick="downloadCurrentLightboxPhoto()" style="padding: 10px 22px; font-size: 13.5px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;">
           ⬇️ Unduh File Ini
-        </a>
-        <button class="btn btn-secondary" onclick="closeLightbox()" style="padding: 10px 20px; font-size: 13.5px; font-weight: 700; border-radius: var(--radius-pill);">
+        </button>
+        <button class="btn btn-secondary" onclick="closeLightbox()" style="padding: 10px 20px; font-size: 13.5px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;">
           Tutup
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. Fallback Share Options Modal -->
+  <div id="galleryShareModal" style="display: none; position: fixed; inset: 0; z-index: 10005; background: rgba(30, 15, 10, 0.82); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;">
+    <div class="card-pop" style="max-width: 440px; width: 100%; background: #fff; padding: 26px; position: relative; border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.38); text-align: center;">
+      <button onclick="closeShareModal()" style="position: absolute; top: 18px; right: 18px; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border-soft); background: var(--cream-card); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px;">✕</button>
+
+      <div style="font-size: 38px; margin-bottom: 6px;">📲</div>
+      <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 6px 0;">Bagikan Galeri</h3>
+      <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 18px 0;">Pilih cara membagikan foto &amp; video seru ini:</p>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <button type="button" class="btn btn-teal" onclick="shareToWhatsAppAction()" style="padding: 12px; font-size: 14px; font-weight: 700; width: 100%; border-radius: var(--radius-pill); cursor: pointer;">
+          💬 Bagikan ke WhatsApp
+        </button>
+        <button type="button" class="btn btn-secondary" onclick="copyGalleryShareUrl()" style="padding: 12px; font-size: 14px; font-weight: 700; width: 100%; border-radius: var(--radius-pill); background: #fff; cursor: pointer;">
+          📋 Salin Tautan Galeri
+        </button>
+        <a id="shareModalOpenPhotoBtn" href="#" target="_blank" class="btn btn-coral" style="padding: 12px; font-size: 14px; font-weight: 700; width: 100%; border-radius: var(--radius-pill); text-decoration: none; display: none;">
+          🖼️ Buka File Langsung
+        </a>
       </div>
     </div>
   </div>
@@ -750,10 +773,10 @@
               </div>
 
               <div style="display: flex; gap: 6px;">
-                <a href="${raw.filePath}" download="Pose_${poseNum}_${s.id}.jpg" class="btn btn-secondary" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; text-decoration: none; text-align: center; border-radius: var(--radius-pill);" title="Unduh Foto HD">
+                <button type="button" class="btn btn-secondary" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; text-decoration: none; text-align: center; border-radius: var(--radius-pill); cursor: pointer;" onclick="downloadMediaFile('${raw.filePath}', 'Pose_${poseNum}_${s.id}.jpg', 'image/jpeg')" title="Unduh Foto HD">
                   📸 Foto
-                </a>
-                <button class="btn btn-teal" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; border-radius: var(--radius-pill);" onclick="downloadPoseLiveVideo('${s.id}', ${rIdx}, '${raw.filePath}', '${clipSrc || ''}')" title="Unduh Video Gerak Live Photo">
+                </button>
+                <button class="btn btn-teal" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; border-radius: var(--radius-pill); cursor: pointer;" onclick="downloadPoseLiveVideo('${s.id}', ${rIdx}, '${raw.filePath}', '${clipSrc || ''}')" title="Unduh Video Gerak Live Photo">
                   🎬 Live
                 </button>
               </div>
@@ -817,10 +840,10 @@
             </div>
 
             <div style="display: flex; gap: 8px;">
-              <button class="btn btn-secondary" style="flex: 1; padding: 11px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill);" id="dlBmBtn_${s.id}" onclick="downloadBoomerang('${s.id}')">
-                Boomerang
+              <button class="btn btn-secondary" style="flex: 1; padding: 11px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;" id="dlBmBtn_${s.id}" onclick="downloadBoomerang('${s.id}')">
+                ⬇️ Unduh
               </button>
-              <button class="btn btn-teal" style="padding: 11px 16px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill);" onclick="shareMedia('${(boomerangAsset && boomerangAsset.filePath) || ''}', 'Video Boomerang')">
+              <button class="btn btn-teal" style="padding: 11px 16px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;" onclick="shareBoomerang('${s.id}', '${(boomerangAsset && boomerangAsset.filePath) || ''}')">
                 📲 Bagikan
               </button>
             </div>
@@ -890,10 +913,10 @@
             </div>
 
             <div class="session-main-actions" id="mainActions_${s.id}">
-              <a href="${finalSrc}" download="Photobooth_${s.id}.${/\\.(jpe?g)$/i.test(finalSrc) ? 'jpg' : 'png'}" class="btn btn-coral" id="btnDownloadMain_${s.id}">
+              <button type="button" class="btn btn-coral" id="btnDownloadMain_${s.id}" onclick="downloadMainPhoto('${s.id}', '${finalSrc}')" style="flex: 1; cursor: pointer; text-decoration: none;">
                 ⬇️ Unduh Foto HD
-              </a>
-              <button class="btn btn-teal" id="btnShareMain_${s.id}" onclick="shareMedia('${finalSrc}', 'Foto Photobooth')">
+              </button>
+              <button class="btn btn-teal" id="btnShareMain_${s.id}" onclick="shareMedia('${finalSrc}', 'Foto Photobooth')" style="cursor: pointer;">
                 📲 Bagikan
               </button>
             </div>
@@ -1663,29 +1686,17 @@
 
             recorder.stop();
             await new Promise(resolve => {
-              recorder.onstop = () => {
+              recorder.onstop = async () => {
                 const mime = recorder.mimeType || selectedMime;
                 const ext = mime.includes('mp4') ? 'mp4' : 'webm';
                 const blob = new Blob(chunks, { type: mime });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `Photobooth_${mode === 'boomerang' ? 'Boomerang' : 'LivePhoto'}_Berframe_${sessionId}.${ext}`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(url), 10000);
+                await downloadMediaFile(blob, `Photobooth_${mode === 'boomerang' ? 'Boomerang' : 'LivePhoto'}_Berframe_${sessionId}.${ext}`, mime);
                 resolve();
               };
             });
           } catch(err) {
             console.error('Download framed video error:', err);
-            const a = document.createElement('a');
-            a.href = stillSrc;
-            a.download = `Photobooth_${sessionId}.jpg`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            await downloadMediaFile(stillSrc, `Photobooth_${sessionId}.jpg`, 'image/jpeg');
           } finally {
             if (btn) {
               btn.innerHTML = originalText;
@@ -1852,21 +1863,121 @@
       }
     }
 
+    // Device detection & iOS Photos.app helper
+    const isIOS = (() => {
+      if (typeof navigator === 'undefined') return false;
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    })();
+
+    function showToast(message, duration = 3000) {
+      let toast = document.getElementById('galleryToast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'galleryToast';
+        toast.style.cssText = 'position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(30,15,10,0.92); color: #fff; padding: 12px 22px; border-radius: 999px; font-size: 13.5px; font-weight: 600; z-index: 10009; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center; max-width: 90vw; pointer-events: none; transition: opacity 0.3s ease;';
+        document.body.appendChild(toast);
+      }
+      toast.innerText = message;
+      toast.style.opacity = '1';
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => {
+        toast.style.opacity = '0';
+      }, duration);
+    }
+
+    async function downloadMediaFile(source, filename = 'download', mimeType = '') {
+      try {
+        let blob;
+        let finalMime = mimeType;
+        if (source instanceof Blob) {
+          blob = source;
+          finalMime = finalMime || blob.type || 'application/octet-stream';
+        } else if (typeof source === 'string') {
+          const fullUrl = source.startsWith('http') ? source : (window.location.origin + (source.startsWith('/') ? '' : '/') + source);
+          const res = await fetch(fullUrl, { mode: 'cors' });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          blob = await res.blob();
+          if (!finalMime) {
+            if (filename.endsWith('.mp4')) finalMime = 'video/mp4';
+            else if (filename.endsWith('.webm')) finalMime = 'video/webm';
+            else if (filename.endsWith('.png')) finalMime = 'image/png';
+            else finalMime = blob.type || 'image/jpeg';
+          }
+        } else {
+          return;
+        }
+
+        // Khusus iOS (iPhone / iPad):
+        // Safari iOS secara native tidak menyimpan file via <a download> langsung ke Galeri Foto (Photos.app),
+        // melainkan ke folder 'Unduhan / Files'.
+        // Agar foto/video LANGSUNG masuk ke Galeri Foto iPhone (Camera Roll):
+        // Panggil Web Share API dengan File object. iPhone akan menampilkan menu sheet resmi:
+        // 'Simpan Gambar' (Save Image) atau 'Simpan Video' (Save Video).
+        if (isIOS && typeof navigator !== 'undefined' && navigator.canShare) {
+          const file = new File([blob], filename, { type: finalMime });
+          if (navigator.canShare({ files: [file] })) {
+            const isVid = finalMime.includes('video') || filename.endsWith('.mp4') || filename.endsWith('.webm');
+            showToast(isVid ? "💡 Ketuk 'Simpan Video' agar tersimpan di Galeri iPhone" : "💡 Ketuk 'Simpan Gambar' agar tersimpan di Galeri iPhone", 4500);
+            try {
+              await navigator.share({
+                files: [file]
+              });
+              return;
+            } catch (shareErr) {
+              if (shareErr.name === 'AbortError') return; // User membatalkan sheet
+              console.warn('iOS share sheet dismissed or error, fallback:', shareErr);
+            }
+          }
+        }
+
+        // Untuk Android dan Desktop:
+        // Unduh melalui blob link. Di HP Android, file unduhan otomatis terindeks dan masuk ke Galeri Foto/Google Photos.
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+        showToast('📥 Mengunduh file ke perangkat...');
+      } catch (err) {
+        console.error('Download media file error:', err);
+        if (typeof source === 'string') {
+          window.open(source, '_blank');
+        } else {
+          alert('Gagal mengunduh file. Silakan coba lagi.');
+        }
+      }
+    }
+
+    function downloadMainPhoto(sessionId, stillSrc) {
+      const ext = /\.(jpe?g)$/i.test(stillSrc) ? 'jpg' : 'png';
+      downloadMediaFile(stillSrc, `Photobooth_${sessionId}.${ext}`, ext === 'png' ? 'image/png' : 'image/jpeg');
+    }
+
+    function downloadCurrentLightboxPhoto() {
+      const img = document.getElementById('lightboxImg');
+      if (img && img.src) {
+        const src = img.src;
+        const filename = src.split('/').pop() || 'Photobooth_HD.jpg';
+        downloadMediaFile(src, filename, filename.endsWith('.png') ? 'image/png' : 'image/jpeg');
+      }
+    }
+
     // Export Boomerang to real MP4/WebM video file directly in the browser!
     async function downloadBoomerang(sessionId) {
       const btn = document.getElementById(`dlBmBtn_${sessionId}`);
       const originalText = btn ? btn.innerHTML : '';
       if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '⏳ Merender Video...';
+        btn.innerHTML = '⏳ Menyiapkan Video...';
       }
 
       const video = document.getElementById(`bmVideo_${sessionId}`);
       if (video && video.src) {
-        const a = document.createElement('a');
-        a.href = video.src;
-        a.download = `Boomerang_${sessionId}.mp4`;
-        a.click();
+        await downloadMediaFile(video.src, `Boomerang_${sessionId}.mp4`, 'video/mp4');
         if (btn) {
           btn.disabled = false;
           btn.innerHTML = originalText;
@@ -1920,21 +2031,14 @@
           await new Promise(r => setTimeout(r, durationPerFrame));
         }
 
-        recorder.onstop = () => {
+        recorder.onstop = async () => {
           const ext = selectedMime.includes('mp4') ? 'mp4' : 'webm';
           const blob = new Blob(chunks, { type: selectedMime || 'video/webm' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `Boomerang_Sesi_${sessionId}.${ext}`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+          await downloadMediaFile(blob, `Boomerang_Sesi_${sessionId}.${ext}`, selectedMime || 'video/webm');
 
           if (btn) {
             btn.disabled = false;
-            btn.innerHTML = '✅ Berhasil Diunduh!';
+            btn.innerHTML = '✅ Berhasil!';
             setTimeout(() => {
               btn.innerHTML = originalText;
             }, 2500);
@@ -2101,17 +2205,10 @@
             v.onended = () => {
               if (animId) cancelAnimationFrame(animId);
               recorder.stop();
-              recorder.onstop = () => {
+              recorder.onstop = async () => {
                 const ext = mime.includes('mp4') ? 'mp4' : 'webm';
                 const blob = new Blob(chunks, { type: mime });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `Live_Pose_${poseIndex + 1}_${sessionId}.${ext}`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                setTimeout(() => URL.revokeObjectURL(url), 10000);
+                await downloadMediaFile(blob, `Live_Pose_${poseIndex + 1}_${sessionId}.${ext}`, mime);
               };
             };
             return;
@@ -2120,10 +2217,7 @@
           console.warn('Mirrored pose live download error:', err);
         }
 
-        const a = document.createElement('a');
-        a.href = clipSrc;
-        a.download = `Live_Pose_${poseIndex + 1}_${sessionId}.mp4`;
-        a.click();
+        await downloadMediaFile(clipSrc, `Live_Pose_${poseIndex + 1}_${sessionId}.mp4`, 'video/mp4');
         return;
       }
 
@@ -2144,15 +2238,10 @@
         const chunks = [];
         recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
-        recorder.onstop = () => {
+        recorder.onstop = async () => {
           const ext = mime.includes('mp4') ? 'mp4' : 'webm';
           const blob = new Blob(chunks, { type: mime || 'video/webm' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `Live_Pose_${poseIndex + 1}_${sessionId}.${ext}`;
-          a.click();
-          URL.revokeObjectURL(url);
+          await downloadMediaFile(blob, `Live_Pose_${poseIndex + 1}_${sessionId}.${ext}`, mime || 'video/webm');
         };
 
         recorder.start();
@@ -2177,8 +2266,64 @@
         animLoop();
       } catch (e) {
         console.error('Error generating pose live video:', e);
-        window.open(rawSrc, '_blank');
+        await downloadMediaFile(rawSrc, `Pose_${poseIndex + 1}_${sessionId}.jpg`, 'image/jpeg');
       }
+    }
+
+    // =========================================================================
+    // 4. SHARING & LIGHTBOX
+    // =========================================================================
+    let currentSharePayload = {
+      url: window.location.href,
+      title: 'Galeri Photobooth',
+      text: 'Lihat foto & video seru kita di Photobooth! 🎉📸',
+      fileUrl: ''
+    };
+
+    function openShareModal(fileUrl = '', title = '', text = '') {
+      currentSharePayload.fileUrl = fileUrl || '';
+      currentSharePayload.title = title || `Foto Photobooth - ${currentEventName || 'Acara Spesial'}`;
+      currentSharePayload.url = window.location.href;
+      currentSharePayload.text = text || `Lihat foto & video seru kita di ${currentEventName || 'Photobooth'}! 🎉📸\n${window.location.href}`;
+
+      const modal = document.getElementById('galleryShareModal');
+      const openBtn = document.getElementById('shareModalOpenPhotoBtn');
+      if (openBtn) {
+        if (fileUrl) {
+          openBtn.href = fileUrl;
+          openBtn.style.display = 'block';
+        } else {
+          openBtn.style.display = 'none';
+        }
+      }
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeShareModal() {
+      const modal = document.getElementById('galleryShareModal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function copyGalleryShareUrl() {
+      try {
+        await navigator.clipboard.writeText(currentSharePayload.url);
+        showToast('✅ Tautan galeri disalin ke clipboard!');
+      } catch (e) {
+        const t = document.createElement('textarea');
+        t.value = currentSharePayload.url;
+        document.body.appendChild(t);
+        t.select();
+        document.execCommand('copy');
+        document.body.removeChild(t);
+        showToast('✅ Tautan galeri disalin!');
+      }
+      setTimeout(closeShareModal, 600);
+    }
+
+    function shareToWhatsAppAction() {
+      const waText = encodeURIComponent(`${currentSharePayload.text}\n${currentSharePayload.url}`);
+      window.open(`https://api.whatsapp.com/send?text=${waText}`, '_blank');
+      closeShareModal();
     }
 
     async function shareMedia(photoUrl, title = 'Foto Photobooth', customText = '') {
@@ -2187,38 +2332,19 @@
       }
       const pageUrl = window.location.href;
       const shareTitle = title || `Foto Photobooth - ${currentEventName || 'Acara Spesial'}`;
-      const shareText = customText || `Lihat foto & video seru kita di ${currentEventName || 'Photobooth'}! 🎉📸\nBuka galeri di sini:\n${pageUrl}`;
+      const shareText = customText || `Lihat foto & video seru kita di ${currentEventName || 'Photobooth'}! 🎉📸\n${pageUrl}`;
 
-      // 1. Cek dukungan Native Web Share API (Standar HP Android & iPhone)
-      if (typeof navigator !== 'undefined' && navigator.share) {
+      currentSharePayload = {
+        url: pageUrl,
+        title: shareTitle,
+        text: shareText,
+        fileUrl: photoUrl || ''
+      };
+
+      // Native Web Share API (Android Chrome & iOS Safari)
+      // Dipanggil langsung secara sinkron dalam respon klik agar token gesture user tidak kedaluwarsa.
+      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
         try {
-          // Jika URL foto/video valid, coba kirim langsung file aslinya agar bisa langsung pilih Instagram Story, WhatsApp, TikTok, dll.
-          if (photoUrl && navigator.canShare) {
-            try {
-              const fullUrl = photoUrl.startsWith('http') ? photoUrl : (window.location.origin + photoUrl);
-              const res = await fetch(fullUrl, { mode: 'cors' });
-              if (res.ok) {
-                const blob = await res.blob();
-                const isVideo = photoUrl.endsWith('.mp4') || photoUrl.endsWith('.webm') || (blob.type && blob.type.includes('video'));
-                const ext = isVideo ? 'mp4' : 'jpg';
-                const mime = isVideo ? 'video/mp4' : 'image/jpeg';
-                const file = new File([blob], `Photobooth_${Date.now()}.${ext}`, { type: mime });
-
-                if (navigator.canShare({ files: [file] })) {
-                  await navigator.share({
-                    title: shareTitle,
-                    text: shareText,
-                    files: [file]
-                  });
-                  return;
-                }
-              }
-            } catch (fileErr) {
-              console.warn('Native file share skipped, falling back to URL share:', fileErr);
-            }
-          }
-
-          // Fallback share URL via native share sheet
           await navigator.share({
             title: shareTitle,
             text: shareText,
@@ -2226,23 +2352,19 @@
           });
           return;
         } catch (err) {
-          if (err.name === 'AbortError') return; // User membatalkan menu share
-          console.warn('Native share error, using fallback:', err);
+          if (err.name === 'AbortError') return; // User membatalkan menu share native
+          console.warn('Native share sheet skipped or failed, opening fallback modal:', err);
         }
       }
 
-      // 2. Fallback untuk Desktop / Browser yang tidak mendukung Web Share API:
-      // Salin tautan galeri ke clipboard & buka WhatsApp Web
-      try {
-        await navigator.clipboard.writeText(pageUrl);
-      } catch (e) {}
-      const waText = encodeURIComponent(`${shareText}\n${pageUrl}`);
-      window.open(`https://api.whatsapp.com/send?text=${waText}`, '_blank');
+      // Fallback jika tidak didukung atau dibatalkan browser: buka modal pilihan share
+      openShareModal(photoUrl, shareTitle, shareText);
     }
 
-    function shareBoomerangToWhatsApp(sessionId) {
-      const bm = document.getElementById(`bmVideo_${sessionId}`);
-      shareMedia(bm ? bm.src : '', 'Video Boomerang');
+    function shareBoomerang(sessionId, filePath) {
+      const vid = document.getElementById(`bmVideo_${sessionId}`);
+      const src = filePath || (vid ? vid.src : '');
+      shareMedia(src, 'Video Boomerang');
     }
 
     function shareToWhatsApp(photoUrl) {
@@ -2253,13 +2375,8 @@
     function openLightbox(src) {
       const modal = document.getElementById('galleryLightboxModal');
       const img = document.getElementById('lightboxImg');
-      const dl = document.getElementById('lightboxDownloadBtn');
       if (modal && img) {
         img.src = src;
-        if (dl) {
-          dl.href = src;
-          dl.download = src.split('/').pop() || 'photo.jpg';
-        }
         modal.style.display = 'flex';
       } else {
         window.open(src, '_blank');
