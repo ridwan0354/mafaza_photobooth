@@ -1019,9 +1019,8 @@ class KioskEngine {
     const trigger = (e) => {
       // Hanya aktif ketika layar kamera (screenCapture) sedang aktif
       const screenCapture = document.getElementById('screenCapture');
-      if (!screenCapture || !screenCapture.classList.contains('active')) {
-        return;
-      }
+      const isCaptureActive = screenCapture && screenCapture.classList.contains('active');
+      if (!isCaptureActive) return;
 
       // Abaikan jika user sedang mengetik di input/textarea
       if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
@@ -1032,31 +1031,49 @@ class KioskEngine {
       const codeName = (e.code || '').toLowerCase();
       const keyCode = e.keyCode || e.which;
 
-      // Cek tombol perkecil volume (Volume Down) & perbesar volume (Volume Up) pada Bluetooth remote shutter
+      // 1. Tombol Perkecil Volume (AudioVolumeDown / VolumeDown / 174)
       const isVolumeDown = keyName === 'audiovolumedown' ||
                            keyName === 'volumedown' ||
                            codeName === 'audiovolumedown' ||
                            codeName === 'volumedown' ||
                            keyCode === 174;
 
+      // 2. Tombol Perbesar Volume (AudioVolumeUp / VolumeUp / 175)
       const isVolumeUp = keyName === 'audiovolumeup' ||
                          keyName === 'volumeup' ||
                          codeName === 'audiovolumeup' ||
                          codeName === 'volumeup' ||
                          keyCode === 175;
 
-      if (isVolumeDown || isVolumeUp) {
+      // 3. Tombol Enter / Return (banyak remote Bluetooth mengirimkan Enter untuk mode Android)
+      const isEnter = keyName === 'enter' || codeName === 'enter' || keyCode === 13;
+
+      // 4. Tombol Spasi (banyak remote selfie / presenter clicker mengirimkan Space)
+      const isSpace = keyName === ' ' || keyName === 'space' || codeName === 'space' || keyCode === 32;
+
+      // 5. Tombol Media / Camera shutter hardware
+      const isMediaShutter = keyName.includes('media') ||
+                             codeName.includes('media') ||
+                             keyName === 'camera' ||
+                             codeName === 'camera' ||
+                             keyCode === 27;
+
+      if (isVolumeDown || isVolumeUp || isEnter || isSpace || isMediaShutter) {
         e.preventDefault();
         e.stopPropagation();
 
-        // Debounce 350ms untuk mencegah double trigger keydown + keyup dari remote bluetooth
+        // Debounce 300ms untuk mencegah double trigger keydown + keyup dari remote bluetooth
         const now = Date.now();
-        if (this._lastRemoteTriggerTime && (now - this._lastRemoteTriggerTime < 350)) {
+        if (this._lastRemoteTriggerTime && (now - this._lastRemoteTriggerTime < 300)) {
           return;
         }
         this._lastRemoteTriggerTime = now;
 
+        console.log('📸 [Remote Shutter Triggered]:', { key: e.key, code: e.code, keyCode });
+        this.showToast('📸 Sinyal Shutter Diterima!', '⚡', 900);
         this.handleShutterClick();
+      } else {
+        console.log('ℹ️ [Kiosk Key Pressed]:', { key: e.key, code: e.code, keyCode });
       }
     };
 
