@@ -812,52 +812,6 @@
         `;
       }
 
-      // 2. BOOMERANG SECTION
-      let boomerangHtml = '';
-      if (poseImages.length >= 2 || boomerangAsset) {
-        boomerangHtml = `
-          <div class="gallery-feature-box">
-            <div class="gallery-feature-box-header">
-              <div>
-                <div class="gallery-feature-box-title">
-                  <span>🎬</span> Video Boomerang (Looping)
-                </div>
-                <div class="gallery-feature-box-desc">Gerak maju-mundur bolak-balik untuk story Instagram &amp; TikTok</div>
-              </div>
-              <span class="sticker-badge sticker-pink">BOOMERANG</span>
-            </div>
-
-            <div class="boomerang-viewport" id="bmViewport_${s.id}">
-              ${boomerangAsset ? `
-                <video id="bmVideo_${s.id}" src="${boomerangAsset.filePath}" playsinline autoplay loop muted preload="auto" style="width: 100%; max-height: 520px; object-fit: contain; display: block; border-radius: 14px; margin: 0 auto;"></video>
-              ` : `
-                <canvas id="bmCanvas_${s.id}" style="width: 100%; max-height: 520px; object-fit: contain; display: block; border-radius: 14px; margin: 0 auto;"></canvas>
-              `}
-            </div>
-
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-              <div style="display: flex; gap: 6px;" id="speedControls_${s.id}">
-                <button class="speed-btn" onclick="setBoomerangSpeed('${s.id}', 0.6, this)">🐢 Slow</button>
-                <button class="speed-btn active" onclick="setBoomerangSpeed('${s.id}', 1.0, this)">⚡ 1x</button>
-                <button class="speed-btn" onclick="setBoomerangSpeed('${s.id}', 1.5, this)">🚀 Cepat</button>
-              </div>
-              <button class="speed-btn" id="playToggle_${s.id}" onclick="toggleBoomerangPlay('${s.id}')">
-                ⏸️ Jeda
-              </button>
-            </div>
-
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-secondary" style="flex: 1; padding: 11px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;" id="dlBmBtn_${s.id}" onclick="downloadBoomerang('${s.id}')">
-                ⬇️ Unduh
-              </button>
-              <button class="btn btn-teal" style="padding: 11px 16px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;" onclick="shareBoomerang('${s.id}', '${(boomerangAsset && boomerangAsset.filePath) || ''}')">
-                📲 Bagikan
-              </button>
-            </div>
-          </div>
-        `;
-      }
-
       const sessionTemplate = s.template || currentEventTemplate || null;
 
       // 3. MAIN SESSION CARD
@@ -930,7 +884,6 @@
           </div>
 
           <div class="session-col-side">
-            ${boomerangHtml}
             ${rawPhotosHtml}
           </div>
         </div>
@@ -938,9 +891,6 @@
       container.appendChild(card);
 
       initFramedSessionController(s.id, finalSrc, poseImages, sessionTemplate, mainLiveVideoSrc, boomerangAsset, liveClips);
-      if (poseImages.length >= 2 && !boomerangAsset) {
-        initBoomerang(s.id, poseImages);
-      }
 
       rawCaptures.forEach((raw, rIdx) => {
         const clip = liveClips.find(c => c.variant === `pose_${rIdx + 1}`);
@@ -1577,7 +1527,7 @@
           }
         },
 
-        startBoomerang(intervalMs = 130) {
+        startBoomerang(intervalMs = 320) {
           if (boomerangTimer) clearInterval(boomerangTimer);
           this.isPlaying = true;
           renderBoomerangSlotFrame();
@@ -1768,9 +1718,9 @@
               slotVideos.forEach(v => { if (v) v.pause(); });
               if (liveVideo) liveVideo.pause();
             } else {
-              // Boomerang loop
+              // Boomerang loop (slow & smooth)
               const totalFrames = steps.length * 3;
-              const frameInterval = 120;
+              const frameInterval = 320;
               for (let f = 0; f < totalFrames; f++) {
                 if (stillImageObj.complete && stillImageObj.naturalWidth > 0) {
                   eCtx.drawImage(stillImageObj, 0, 0, tWidth, tHeight);
