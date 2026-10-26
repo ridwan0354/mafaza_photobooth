@@ -413,14 +413,14 @@ h1, h2, h3, h4, .font-heading {
   display: block;
 }
 
-/* Expanded Studio Camera Frame - Sleek & Professional Compact Size (+10% Scaled) */
+/* Expanded Studio Camera Frame - Sleek & Professional Compact Size (+25% Scaled) */
 .camera-retro-frame {
-  width: min(78vw, 710px);
-  max-width: 710px;
-  height: clamp(285px, 42vh, 430px);
+  width: min(86vw, 890px);
+  max-width: 890px;
+  height: clamp(320px, 50vh, 540px);
   aspect-ratio: 16 / 10;
-  border-radius: 24px;
-  border: 5px solid #FFFBF5;
+  border-radius: 26px;
+  border: 5.5px solid #FFFBF5;
   box-shadow: 0 16px 45px rgba(0, 0, 0, 0.32);
   overflow: hidden;
   position: relative;
@@ -434,18 +434,18 @@ h1, h2, h3, h4, .font-heading {
 /* Sleek Corner photo brackets (Framing the camera view) */
 .camera-bracket-tl, .camera-bracket-tr, .camera-bracket-bl, .camera-bracket-br {
   position: absolute;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border-color: rgba(255, 255, 255, 0.85);
   border-style: solid;
   pointer-events: none;
   z-index: 25;
   filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
 }
-.camera-bracket-tl { top: 14px; left: 14px; border-width: 3px 0 0 3px; border-top-left-radius: 9px; }
-.camera-bracket-tr { top: 14px; right: 14px; border-width: 3px 3px 0 0; border-top-right-radius: 9px; }
-.camera-bracket-bl { bottom: 14px; left: 14px; border-width: 0 0 3px 3px; border-bottom-left-radius: 9px; }
-.camera-bracket-br { bottom: 14px; right: 14px; border-width: 0 3px 3px 0; border-bottom-right-radius: 9px; }
+.camera-bracket-tl { top: 16px; left: 16px; border-width: 3.5px 0 0 3.5px; border-top-left-radius: 10px; }
+.camera-bracket-tr { top: 16px; right: 16px; border-width: 3.5px 3.5px 0 0; border-top-right-radius: 10px; }
+.camera-bracket-bl { bottom: 16px; left: 16px; border-width: 0 0 3.5px 3.5px; border-bottom-left-radius: 10px; }
+.camera-bracket-br { bottom: 16px; right: 16px; border-width: 0 3.5px 3.5px 0; border-bottom-right-radius: 10px; }
 
 /* Subtle Center Guide / Composition Frame */
 .camera-center-guide {
