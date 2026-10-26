@@ -686,10 +686,12 @@
               document.getElementById('eventTitle').innerText = data.guestPass.eventName;
               document.title = `Mafaza — ${data.guestPass.eventName}`;
             }
+            const expEl = document.getElementById('eventExpiryText');
             if (data.guestPass.expiresAt) {
               const expDate = new Date(data.guestPass.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-              const expEl = document.getElementById('eventExpiryText');
               if (expEl) expEl.innerText = `📅 Berlaku hingga: ${expDate}`;
+            } else if (expEl) {
+              expEl.innerText = `♾️ Akses Galeri Aktif Selamanya`;
             }
             const tenantEl = document.getElementById('tenantBrandName');
             if (tenantEl) {
@@ -863,7 +865,6 @@
                       <span style="font-size: 13px; font-weight: 800; color: var(--caramel-brown); display: flex; align-items: center; gap: 6px;">
                         <span>🖼️</span> Foto Jadi (Dengan Frame Acara)
                       </span>
-                      <span class="sticker-badge sticker-purple" style="font-size: 10.5px;">RESOLUSI CETAK</span>
                     </div>
 
                     <!-- Pilihan Tampilan Berframe: Foto Jadi / Boomerang / Live Photo -->

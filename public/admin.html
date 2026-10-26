@@ -527,6 +527,20 @@
               <label style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px; color: var(--caramel-brown);">PIN Kunci Kiosk Operator</label>
               <input type="text" id="cfgPinLock" value="1234" maxlength="6" style="width: 100%; padding: 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 16px; font-weight: 700; color: var(--dark-roast);">
             </div>
+
+            <div>
+              <label style="display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 8px; color: var(--caramel-brown);">📅 Masa Berlaku Galeri Foto &amp; QR</label>
+              <select id="cfgGalleryExpiry" onchange="onGalleryExpiryChange(this.value)" style="width: 100%; padding: 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 14px; font-weight: 700; color: var(--caramel-brown);">
+                <option value="forever">♾️ Selamanya (Tanpa Batas Waktu)</option>
+                <option value="365" selected>📅 1 Tahun (365 Hari)</option>
+                <option value="90">📅 3 Bulan (90 Hari)</option>
+                <option value="30">📅 1 Bulan (30 Hari)</option>
+                <option value="14">📅 2 Minggu (14 Hari)</option>
+                <option value="7">📅 1 Minggu (7 Hari)</option>
+                <option value="custom">🗓️ Pilih Tanggal Kedaluwarsa Sendiri...</option>
+              </select>
+              <input type="date" id="cfgGalleryExpiryDate" style="display: none; width: 100%; margin-top: 8px; padding: 10px; background: #fff; border: 2px solid var(--border-soft); border-radius: 12px; font-size: 14px; font-weight: 700; color: var(--dark-roast);">
+            </div>
           </div>
 
           <!-- CUSTOM KIOSK BACKGROUND PER EVENT (GAMBAR / YOUTUBE / S3 VIDEO) -->

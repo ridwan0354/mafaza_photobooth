@@ -123,6 +123,16 @@ export function updateEventConfig(eventId, tenantId, newConfig) {
     WHERE id = ? AND tenant_id = ?
   `).run(JSON.stringify(mergedConfig), newVersion, timezone, startsAt, endsAt, eventId, tenantId);
 
+  // Sinkronkan pembaruan masa berlaku ke semua guest_passes yang sudah dibuat pada event ini
+  if (newConfig.galleryExpiryMode === 'forever' || newConfig.galleryExpiry === 'forever') {
+    db.prepare("UPDATE guest_passes SET expires_at = NULL WHERE event_id = ?").run(eventId);
+  } else if (newConfig.galleryExpiryDate) {
+    db.prepare("UPDATE guest_passes SET expires_at = ? WHERE event_id = ?").run(`${newConfig.galleryExpiryDate} 23:59:59`, eventId);
+  } else if (newConfig.galleryExpiryDays) {
+    const days = parseInt(newConfig.galleryExpiryDays);
+    db.prepare(`UPDATE guest_passes SET expires_at = datetime('now', '+${days} days') WHERE event_id = ?`).run(eventId);
+  }
+
   return getEventById(eventId, tenantId);
 }
 

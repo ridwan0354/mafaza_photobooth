@@ -434,6 +434,28 @@ function populateSelectedEventConfig() {
   if (document.getElementById('cfgQrRequirement')) document.getElementById('cfgQrRequirement').value = cfg.qrRequirement || 'disabled';
   if (document.getElementById('cfgPinLock')) document.getElementById('cfgPinLock').value = cfg.pinLock || '1234';
 
+  // Set Masa Berlaku Galeri Foto & QR
+  const expSelect = document.getElementById('cfgGalleryExpiry');
+  const expDateInput = document.getElementById('cfgGalleryExpiryDate');
+  if (expSelect) {
+    if (cfg.galleryExpiryMode === 'forever' || cfg.galleryExpiry === 'forever') {
+      expSelect.value = 'forever';
+      if (expDateInput) expDateInput.style.display = 'none';
+    } else if (cfg.galleryExpiryDate) {
+      expSelect.value = 'custom';
+      if (expDateInput) {
+        expDateInput.value = cfg.galleryExpiryDate;
+        expDateInput.style.display = 'block';
+      }
+    } else if (cfg.galleryExpiryDays) {
+      expSelect.value = String(cfg.galleryExpiryDays);
+      if (expDateInput) expDateInput.style.display = 'none';
+    } else {
+      expSelect.value = '365';
+      if (expDateInput) expDateInput.style.display = 'none';
+    }
+  }
+
   // Populate Kiosk Background settings for this Event
   const bgCfg = cfg.kioskBackground || { type: 'default', url: '', overlayOpacity: 35 };
   const initialBgType = bgCfg.type || 'default';
@@ -962,6 +984,17 @@ async function createNewEvent(event) {
   }
 }
 
+function onGalleryExpiryChange(val) {
+  const dateInput = document.getElementById('cfgGalleryExpiryDate');
+  if (dateInput) {
+    if (val === 'custom') {
+      dateInput.style.display = 'block';
+    } else {
+      dateInput.style.display = 'none';
+    }
+  }
+}
+
 async function saveEventConfig() {
   const shotsCount = parseInt(document.getElementById('cfgShotsCount').value) || 3;
   const bgType = document.getElementById('cfgBgType')?.value || 'default';
@@ -979,10 +1012,17 @@ async function saveEventConfig() {
   const eventDate = document.getElementById('cfgEventDate')?.value || '';
   const eventTime = document.getElementById('cfgEventTime')?.value || '08:00';
 
+  const galleryExpiry = document.getElementById('cfgGalleryExpiry')?.value || '365';
+  const galleryExpiryDate = document.getElementById('cfgGalleryExpiryDate')?.value || '';
+
   const payload = {
     timezone: timezone,
     eventDate: eventDate,
     eventTime: eventTime,
+    galleryExpiry: galleryExpiry,
+    galleryExpiryMode: (galleryExpiry === 'forever') ? 'forever' : (galleryExpiry === 'custom' ? 'custom' : 'days'),
+    galleryExpiryDays: (galleryExpiry !== 'forever' && galleryExpiry !== 'custom') ? parseInt(galleryExpiry) : null,
+    galleryExpiryDate: (galleryExpiry === 'custom') ? galleryExpiryDate : null,
     shotsCount: shotsCount,
     countdownSeconds: parseInt(document.getElementById('cfgCountdown').value) || 3,
     maxCopiesPerSession: parseInt(document.getElementById('cfgMaxCopies').value) || 2,

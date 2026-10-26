@@ -9,10 +9,10 @@ export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', ba
 
   // Verify event exists; if not, fallback to first active event for tenant
   let validEventId = eventId;
-  const ev = db.prepare('SELECT id, tenant_id FROM events WHERE id = ?').get(validEventId);
+  const ev = db.prepare('SELECT id, tenant_id, config_json FROM events WHERE id = ?').get(validEventId);
   let validTenantId = tenantId || (ev ? ev.tenant_id : 'tenant_studiokeren_01');
   if (!ev) {
-    const fallbackEv = db.prepare('SELECT id, tenant_id FROM events ORDER BY created_at DESC LIMIT 1').get();
+    const fallbackEv = db.prepare('SELECT id, tenant_id, config_json FROM events ORDER BY created_at DESC LIMIT 1').get();
     if (fallbackEv) {
       validEventId = fallbackEv.id;
       validTenantId = fallbackEv.tenant_id;
@@ -21,10 +21,29 @@ export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', ba
     validTenantId = ev.tenant_id;
   }
 
+  // Tentukan masa berlaku berdasarkan konfigurasi event
+  let expiresAtClause = "datetime('now', '+365 days')";
+  const expiryParams = [];
+  const targetEv = ev || db.prepare('SELECT config_json FROM events WHERE id = ?').get(validEventId);
+  if (targetEv && targetEv.config_json) {
+    try {
+      const cfg = JSON.parse(targetEv.config_json);
+      if (cfg.galleryExpiryMode === 'forever' || cfg.galleryExpiry === 'forever') {
+        expiresAtClause = "NULL";
+      } else if (cfg.galleryExpiryDate) {
+        expiresAtClause = "?";
+        expiryParams.push(`${cfg.galleryExpiryDate} 23:59:59`);
+      } else if (cfg.galleryExpiryDays) {
+        const days = parseInt(cfg.galleryExpiryDays) || 365;
+        expiresAtClause = `datetime('now', '+${days} days')`;
+      }
+    } catch (e) {}
+  }
+
   db.prepare(`
     INSERT INTO guest_passes (id, tenant_id, event_id, opaque_token_hash, token_plain, status, issued_via, expires_at)
-    VALUES (?, ?, ?, ?, ?, 'active', ?, datetime('now', '+7 days'))
-  `).run(passId, validTenantId, validEventId, tokenHash, tokenPlain, issuedVia);
+    VALUES (?, ?, ?, ?, ?, 'active', ?, ${expiresAtClause})
+  `).run(passId, validTenantId, validEventId, tokenHash, tokenPlain, issuedVia, ...expiryParams);
 
   // Universal URL: e.g. /gallery/g/:tokenPlain
   const galleryUrl = `/gallery/g/${tokenPlain}`;
