@@ -665,7 +665,7 @@ apiRouter.get('/templates', (req, res) => {
 
 apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (req, res) => {
   try {
-    const { name, eventId, width, height, orientation, slotsJson } = req.body;
+    const { name, eventId, width, height, orientation, slotsJson, qrPosition } = req.body;
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : '/assets/templates/single-green-template.svg';
     const slots = slotsJson ? JSON.parse(slotsJson) : [];
 
@@ -675,6 +675,7 @@ apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (r
       width: parseInt(width) || 1200,
       height: parseInt(height) || 1800,
       orientation: orientation || 'portrait',
+      qrPosition: qrPosition || 'bottom-right',
       imageUrl,
       slots
     });
@@ -686,8 +687,17 @@ apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (r
 
 apiRouter.patch('/templates/:id/slots', authMiddleware(), (req, res) => {
   try {
-    const { slots, layers } = req.body;
-    const updated = templateService.updateTemplateSlots(req.params.id, req.user.tenantId, slots, layers);
+    const { slots, layers, qrPosition } = req.body;
+    const updated = templateService.updateTemplateSlots(req.params.id, req.user.tenantId, slots, layers, qrPosition);
+    res.json(updated);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.patch('/templates/:id', authMiddleware(), (req, res) => {
+  try {
+    const updated = templateService.updateTemplateConfig(req.params.id, req.user.tenantId, req.body);
     res.json(updated);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -912,13 +922,15 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
     let printJob = null;
     if (req.body.printRequested === 'true' && finalAssetId) {
       const copies = parseInt(req.body.printCopies) || 1;
+      const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
       printJob = printService.createPrintJob(
         session.tenant_id,
         session.event_id,
         session.device_id,
         sessionId,
         finalAssetId,
-        copies
+        copies,
+        { baseUrl }
       );
     }
 
@@ -1294,13 +1306,15 @@ apiRouter.post('/photos/:assetId/print', authMiddleware(), (req, res) => {
     if (!asset) return res.status(404).json({ error: 'Foto tidak ditemukan' });
 
     const copies = parseInt(req.body.copies) || 1;
+    const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
     const printJob = printService.createPrintJob(
       tenantId,
       asset.event_id,
       null,
       asset.photo_session_id,
       asset.id,
-      copies
+      copies,
+      { baseUrl }
     );
     res.json({
       success: true,

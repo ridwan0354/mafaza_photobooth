@@ -487,12 +487,51 @@ export function getPrintSheetForJob(jobId) {
   return { path: buildPrintSheetFile(abs, options, job.id), options };
 }
 
-export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, mediaAssetId, copies = 1) {
+export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, mediaAssetId, copies = 1, extraOptions = {}) {
   const printJobId = 'pjob_' + crypto.randomBytes(8).toString('hex');
   const idempotencyKey = `print_${photoSessionId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
   // Ambil seluruh pengaturan cetak aktif (printer, jenis kertas, ukuran kertas, borderless, kualitas)
   const options = buildPrintOptions(tenantId, copies);
+
+  // Cari token galeri dan posisi QR template untuk ditempelkan khusus pada lembar cetak
+  let qrUrl = extraOptions.qrUrl || null;
+  let qrPosition = extraOptions.qrPosition || null;
+
+  if (photoSessionId) {
+    const session = db.prepare(`
+      SELECT ps.id, ps.guest_pass_id, ps.template_id, ps.event_id,
+             gp.token_plain,
+             t.qr_position
+      FROM photo_sessions ps
+      LEFT JOIN guest_passes gp ON ps.guest_pass_id = gp.id
+      LEFT JOIN templates t ON ps.template_id = t.id
+      WHERE ps.id = ?
+    `).get(photoSessionId);
+
+    if (session) {
+      if (!qrPosition) qrPosition = session.qr_position || 'bottom-right';
+      if (!qrUrl) {
+        let token = session.token_plain;
+        if (!token && session.guest_pass_id) {
+          const pass = db.prepare('SELECT token_plain FROM guest_passes WHERE id = ?').get(session.guest_pass_id);
+          if (pass) token = pass.token_plain;
+        }
+        if (!token && (session.event_id || eventId)) {
+          const pass = db.prepare('SELECT token_plain FROM guest_passes WHERE event_id = ? ORDER BY created_at DESC LIMIT 1').get(session.event_id || eventId);
+          if (pass) token = pass.token_plain;
+        }
+        if (token) {
+          const baseUrl = extraOptions.baseUrl || process.env.BASE_URL || 'https://mafaza.galipatsistem.com';
+          qrUrl = `${baseUrl.replace(/\/+$/, '')}/gallery/g/${token}`;
+        }
+      }
+    }
+  }
+
+  options.qrUrl = qrUrl;
+  options.qrPosition = qrPosition || 'bottom-right';
+
   const printerName = options.printerName;
   const driverName = options.driverName;
   const mediaType = options.mediaType;

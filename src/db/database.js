@@ -119,6 +119,8 @@ function runMigrations() {
   ensureColumn('tenants', 'agent_key', 'TEXT');
   // Template ID yang digunakan saat sesi foto di Kiosk
   ensureColumn('photo_sessions', 'template_id', 'TEXT');
+  // Posisi QR Galeri pada hasil cetak (bottom-right, bottom-left, top-right, top-left, none)
+  ensureColumn('templates', 'qr_position', "TEXT DEFAULT 'bottom-right'");
 }
 
 function seedDatabase() {

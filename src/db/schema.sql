@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS templates (
   height INTEGER NOT NULL DEFAULT 1800, -- px
   dpi INTEGER NOT NULL DEFAULT 300,
   orientation TEXT NOT NULL DEFAULT 'portrait', -- 'portrait', 'landscape', 'strip'
+  qr_position TEXT NOT NULL DEFAULT 'bottom-right', -- 'bottom-right', 'bottom-left', 'top-right', 'top-left', 'none'
   current_version_id TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

@@ -2574,12 +2574,63 @@ class KioskEngine {
     }, 'image/jpeg', 0.88);
   }
 
+  drawQrOnCanvas(ctx, w, h, qrImg, position = 'bottom-right') {
+    if (!qrImg || position === 'none') return;
+    const isStrip = (w <= 700);
+    const qrSize = isStrip ? 100 : 140;
+    const pad = Math.max(4, Math.round(qrSize * 0.05));
+    const cardSize = qrSize + pad * 2;
+    const marginX = isStrip ? 18 : 32;
+    const marginY = isStrip ? 18 : 32;
+
+    let sx = 0, sy = 0;
+    switch (position) {
+      case 'bottom-left': sx = marginX; sy = h - cardSize - marginY; break;
+      case 'top-right': sx = w - cardSize - marginX; sy = marginY; break;
+      case 'top-left': sx = marginX; sy = marginY; break;
+      case 'bottom-right':
+      default: sx = w - cardSize - marginX; sy = h - cardSize - marginY; break;
+    }
+
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(sx, sy, cardSize, cardSize, 8);
+    } else {
+      ctx.rect(sx, sy, cardSize, cardSize);
+    }
+    ctx.fill();
+    ctx.drawImage(qrImg, sx + pad, sy + pad, qrSize, qrSize);
+    ctx.restore();
+  }
+
   printViaChromeDialog(job = null) {
     const finalCanvas = document.getElementById('finalCanvas');
     if (!finalCanvas) return;
     this.resetAutoReturnTimer(60);
 
-    const dataUrl = finalCanvas.toDataURL('image/png');
+    let dataUrl = finalCanvas.toDataURL('image/png');
+    const qrPos = (this.selectedTemplate && this.selectedTemplate.qr_position) || 'bottom-right';
+
+    // Jika job.sheetUrl belum ada (misal cetak perangkat langsung sebelum job selesai),
+    // tempelkan QR khusus pada kanvas cetak cadangan tanpa mengubah finalCanvas asli
+    if ((!job || !job.sheetUrl) && qrPos !== 'none' && this.guestPass) {
+      try {
+        const printCanvas = document.createElement('canvas');
+        printCanvas.width = finalCanvas.width;
+        printCanvas.height = finalCanvas.height;
+        const pCtx = printCanvas.getContext('2d');
+        pCtx.drawImage(finalCanvas, 0, 0);
+
+        const qrImg = document.getElementById('guestQrCodeImg');
+        if (qrImg && qrImg.src && qrImg.complete && qrImg.naturalWidth > 0) {
+          this.drawQrOnCanvas(pCtx, printCanvas.width, printCanvas.height, qrImg, qrPos);
+          dataUrl = printCanvas.toDataURL('image/png');
+        }
+      } catch (e) {}
+    }
+
     const copies = parseInt(document.getElementById('printCopiesSelect')?.value || '1', 10);
     window.pbPrintViaBrowser({ imageUrl: dataUrl, copies, job });
   }

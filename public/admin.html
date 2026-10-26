@@ -857,6 +857,23 @@
                 </div>
               </div>
 
+              <!-- Pengaturan Posisi QR Cetak untuk Template Ini -->
+              <div style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px;">
+                <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">
+                  🎟️ Posisi QR Galeri saat Dicetak (Print):
+                </label>
+                <select id="editorTemplateQrPos" class="form-control" style="width: 100%; font-size: 12.5px; font-weight: 700; padding: 7px 10px; border-radius: 8px;" onchange="onEditorQrPositionChange(this.value)">
+                  <option value="bottom-right">↘️ Pojok Kanan Bawah (Bawaan)</option>
+                  <option value="bottom-left">↙️ Pojok Kiri Bawah</option>
+                  <option value="top-right">↗️ Pojok Kanan Atas</option>
+                  <option value="top-left">↖️ Pojok Kiri Atas</option>
+                  <option value="none">🚫 Tanpa QR pada Hasil Cetak</option>
+                </select>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                  * Tampil otomatis di kertas cetak; foto digital tetap bersih.
+                </div>
+              </div>
+
               <div style="display: flex; flex-direction: column; gap: 8px;">
                 <button class="btn btn-teal" style="font-size: 13px; width: 100%;" onclick="runAutoGreenDetection()">🔍 Jalankan Deteksi Hijau Otomatis</button>
                 <button class="btn btn-secondary" style="font-size: 13px; width: 100%;" onclick="addManualSlot()">+ Tambah Slot Pose Manual</button>
@@ -1671,6 +1688,23 @@
               <option value="portrait">Single Photo 4×6 (1200×1800 px)</option>
               <option value="square">Square 4×4 (1200×1200 px)</option>
             </select>
+          </div>
+        </div>
+
+        <!-- Pilihan Posisi QR Galeri pada Hasil Cetak -->
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+            🎟️ Posisi QR Galeri pada Hasil Cetak (Print)
+          </label>
+          <select id="tplModalQrPosition" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--dark-roast);">
+            <option value="bottom-right" selected>↘️ Pojok Kanan Bawah (Rekomendasi / Bawaan)</option>
+            <option value="bottom-left">↙️ Pojok Kiri Bawah</option>
+            <option value="top-right">↗️ Pojok Kanan Atas</option>
+            <option value="top-left">↖️ Pojok Kiri Atas</option>
+            <option value="none">🚫 Tanpa QR pada Hasil Cetak</option>
+          </select>
+          <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">
+            * QR hanya dicetak di lembar kertas fisik agar discan customer; file foto asli digital di galeri tetap 100% bersih tanpa QR.
           </div>
         </div>
 

@@ -1171,6 +1171,9 @@ function renderTemplatesGallery() {
         <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
           <span class="sticker-badge sticker-mustard" style="font-size: 10.5px; padding: 3px 8px;">${formatLabel}</span>
           <span class="sticker-badge sticker-teal" style="font-size: 10.5px; padding: 3px 8px;">📸 ${slotsCount} Slot</span>
+          <span class="sticker-badge sticker-mustard" style="font-size: 10px; padding: 3px 7px; background: rgba(212,167,84,0.18); border-color: rgba(212,167,84,0.4); color: #7a581a;">
+            ${t.qr_position === 'bottom-left' ? '↙️ QR Kiri Bawah' : t.qr_position === 'top-right' ? '↗️ QR Kanan Atas' : t.qr_position === 'top-left' ? '↖️ QR Kiri Atas' : t.qr_position === 'none' ? '🚫 Tanpa QR' : '↘️ QR Kanan Bawah'}
+          </span>
           ${isEventSpecific ? `
             <span class="sticker-badge sticker-purple" style="font-size: 10.5px; padding: 3px 8px;">📌 Event Ini</span>
           ` : isGlobal ? `
@@ -1227,6 +1230,11 @@ function selectTemplateForEditor(templateId, scroll = true) {
     typeEl.innerText = activeTemplate.orientation === 'strip' ? 'Photo Strip 2×6 (600×1800)' : 'Single Photo 4×6 (1200×1800)';
   }
 
+  const qrSelect = document.getElementById('editorTemplateQrPos');
+  if (qrSelect) {
+    qrSelect.value = activeTemplate.qr_position || 'bottom-right';
+  }
+
   renderSlotsList();
   updateSlotInspector();
   renderEditorCanvas();
@@ -1236,6 +1244,13 @@ function selectTemplateForEditor(templateId, scroll = true) {
     const editorEl = document.getElementById('templateEditorCanvas');
     if (editorEl) editorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
+}
+
+function onEditorQrPositionChange(val) {
+  if (!activeTemplate) return;
+  activeTemplate.qr_position = val;
+  renderEditorCanvas();
+  renderTemplatesGallery();
 }
 
 // ==========================================
@@ -1398,6 +1413,7 @@ async function submitTemplateUpload(event) {
 
   const eventTarget = document.getElementById('tplModalEventTarget').value;
   const format = document.getElementById('tplModalFormat').value;
+  const qrPosition = document.getElementById('tplModalQrPosition')?.value || 'bottom-right';
 
   const btnSubmit = document.getElementById('btnSubmitUploadTemplate');
   const originalText = btnSubmit ? btnSubmit.innerText : '🚀 Unggah & Buka di Canvas';
@@ -1412,6 +1428,7 @@ async function submitTemplateUpload(event) {
     formData.append('name', name);
     if (eventTarget) formData.append('eventId', eventTarget);
     formData.append('orientation', format);
+    formData.append('qrPosition', qrPosition);
     formData.append('width', format === 'strip' ? '600' : '1200');
     formData.append('height', '1800');
 
@@ -1692,6 +1709,40 @@ function renderEditorCanvas() {
         }
       }
     });
+
+    // Indikator Posisi QR Galeri pada Hasil Cetak (Visual Preview di Canvas Editor)
+    const qrPos = activeTemplate.qr_position || 'bottom-right';
+    if (qrPos !== 'none') {
+      const isStrip = (canvas.width <= 700);
+      const qrW = isStrip ? 110 : 150;
+      const qrH = isStrip ? 110 : 150;
+      const padX = isStrip ? 18 : 32;
+      const padY = isStrip ? 18 : 32;
+      let qx = 0, qy = 0;
+      switch (qrPos) {
+        case 'bottom-left': qx = padX; qy = canvas.height - qrH - padY; break;
+        case 'top-right': qx = canvas.width - qrW - padX; qy = padY; break;
+        case 'top-left': qx = padX; qy = padY; break;
+        case 'bottom-right':
+        default: qx = canvas.width - qrW - padX; qy = canvas.height - qrH - padY; break;
+      }
+      ctx.save();
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.fillRect(qx, qy, qrW, qrH);
+      ctx.strokeStyle = '#D4A754';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 4]);
+      ctx.strokeRect(qx, qy, qrW, qrH);
+      ctx.fillStyle = '#7a581a';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🎟️ QR Cetak', qx + qrW / 2, qy + qrH / 2 - 10);
+      ctx.font = '11.5px sans-serif';
+      ctx.fillStyle = '#666';
+      ctx.fillText('(Galeri Tamu)', qx + qrW / 2, qy + qrH / 2 + 12);
+      ctx.restore();
+    }
   };
   tplImg.onerror = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1889,11 +1940,12 @@ async function saveTemplateVersion() {
     alert('Pilih template terlebih dahulu');
     return;
   }
+  const qrPosition = document.getElementById('editorTemplateQrPos')?.value || activeTemplate.qr_position || 'bottom-right';
   try {
     const res = await fetch(`/api/templates/${activeTemplate.id}/slots`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slots: editorSlots })
+      body: JSON.stringify({ slots: editorSlots, qrPosition })
     });
     if (res.ok) {
       alert('✅ Konfigurasi slot pose template berhasil disimpan & dipublikasikan untuk Kiosk Event!');
@@ -3869,7 +3921,8 @@ function printModalPhotoViaDevice() {
     return;
   }
   const copies = parseInt(document.getElementById('modalPrintCopies')?.value || '1', 10);
-  window.pbPrintViaBrowser({ imageUrl: imgSrc, copies });
+  const job = activeModalPhoto.print_job_id ? { sheetUrl: `/api/print-jobs/${activeModalPhoto.print_job_id}/sheet` } : null;
+  window.pbPrintViaBrowser({ imageUrl: imgSrc, copies, job });
 }
 
 // ==============================================================

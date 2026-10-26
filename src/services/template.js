@@ -57,10 +57,11 @@ export function getTemplateById(templateId, tenantId = null) {
 export function createTemplate(tenantId, data) {
   const templateId = 'tpl_' + crypto.randomBytes(8).toString('hex');
   const versionId = 'ver_' + crypto.randomBytes(8).toString('hex');
+  const qrPosition = data.qrPosition || data.qr_position || 'bottom-right';
 
   db.prepare(`
-    INSERT INTO templates (id, tenant_id, event_id, name, status, width, height, dpi, orientation, current_version_id)
-    VALUES (?, ?, ?, ?, 'published', ?, ?, ?, ?, ?)
+    INSERT INTO templates (id, tenant_id, event_id, name, status, width, height, dpi, orientation, qr_position, current_version_id)
+    VALUES (?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?)
   `).run(
     templateId,
     tenantId,
@@ -70,6 +71,7 @@ export function createTemplate(tenantId, data) {
     data.height || 1800,
     data.dpi || 300,
     data.orientation || 'portrait',
+    qrPosition,
     versionId
   );
 
@@ -87,7 +89,7 @@ export function createTemplate(tenantId, data) {
   return getTemplateById(templateId, tenantId);
 }
 
-export function updateTemplateSlots(templateId, tenantId, slots, layers = null) {
+export function updateTemplateSlots(templateId, tenantId, slots, layers = null, qrPosition = null) {
   const template = getTemplateById(templateId, tenantId);
   if (!template) throw new Error('Template tidak ditemukan');
 
@@ -106,9 +108,36 @@ export function updateTemplateSlots(templateId, tenantId, slots, layers = null) 
     nextVerNumber
   );
 
-  db.prepare(`
-    UPDATE templates SET current_version_id = ? WHERE id = ?
-  `).run(newVersionId, templateId);
+  if (qrPosition) {
+    db.prepare(`
+      UPDATE templates SET current_version_id = ?, qr_position = ? WHERE id = ?
+    `).run(newVersionId, qrPosition, templateId);
+  } else {
+    db.prepare(`
+      UPDATE templates SET current_version_id = ? WHERE id = ?
+    `).run(newVersionId, templateId);
+  }
 
+  return getTemplateById(templateId, tenantId);
+}
+
+export function updateTemplateConfig(templateId, tenantId, updates = {}) {
+  const template = getTemplateById(templateId, tenantId);
+  if (!template) throw new Error('Template tidak ditemukan');
+
+  const fields = [];
+  const params = [];
+  if (updates.name !== undefined) { fields.push('name = ?'); params.push(updates.name); }
+  if (updates.eventId !== undefined) { fields.push('event_id = ?'); params.push(updates.eventId || null); }
+  if (updates.qrPosition !== undefined || updates.qr_position !== undefined) {
+    fields.push('qr_position = ?');
+    params.push(updates.qrPosition || updates.qr_position || 'bottom-right');
+  }
+  if (updates.orientation !== undefined) { fields.push('orientation = ?'); params.push(updates.orientation); }
+
+  if (fields.length > 0) {
+    params.push(templateId, tenantId);
+    db.prepare(`UPDATE templates SET ${fields.join(', ')} WHERE id = ? AND tenant_id = ?`).run(...params);
+  }
   return getTemplateById(templateId, tenantId);
 }

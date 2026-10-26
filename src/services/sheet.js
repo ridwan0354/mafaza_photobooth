@@ -2,7 +2,9 @@ import zlib from 'node:zlib';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import jpeg from 'jpeg-js';
+import QRCode from 'qrcode';
 
 /**
  * Zero-dependency PNG sheet composer.
@@ -251,11 +253,140 @@ export function applySafeMargin(img, targetW = 1200, targetH = 1800, scale = 0.9
 }
 
 /**
+ * Tempelkan QR Code Galeri Tamu khusus pada lembar cetak (printed sheet).
+ * File digital asli di gallery tetap bersih tanpa watermark QR.
+ * @param {object} img - Decoded image { width, height, channels, data }
+ * @param {string} qrUrl - URL galeri tamu lengkap (https://.../gallery/g/:token)
+ * @param {string} position - 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'none'
+ * @param {boolean} isStrip - Apakah gambar berbentuk strip photobooth
+ */
+export function overlayQrCodeOnImage(img, qrUrl, position = 'bottom-right', isStrip = false) {
+  if (!img || !qrUrl || position === 'none') return img;
+
+  try {
+    const qr = QRCode.create(qrUrl, { errorCorrectionLevel: 'M' });
+    const modCount = qr.modules.size;
+    const marginMods = 1; // 1 modul quiet zone di sekitar matriks
+    const totalMods = modCount + marginMods * 2;
+
+    // Ukuran target: ~96-108px untuk photo strip (lebar 600px), ~140-155px untuk single photo (lebar 1200px)
+    const modulePx = isStrip
+      ? Math.max(2, Math.floor(100 / totalMods))
+      : Math.max(3, Math.floor(145 / totalMods));
+
+    const qrInnerSize = totalMods * modulePx;
+    // Padding kartu putih di sekeliling QR
+    const cardPad = Math.max(4, Math.round(modulePx * 1.5));
+    const cardW = qrInnerSize + cardPad * 2;
+    const cardH = qrInnerSize + cardPad * 2;
+
+    const padX = isStrip ? 18 : 32;
+    const padY = isStrip ? 18 : 32;
+
+    let startX = 0;
+    let startY = 0;
+
+    switch (position) {
+      case 'bottom-left':
+        startX = padX;
+        startY = img.height - cardH - padY;
+        break;
+      case 'top-right':
+        startX = img.width - cardW - padX;
+        startY = padY;
+        break;
+      case 'top-left':
+        startX = padX;
+        startY = padY;
+        break;
+      case 'bottom-right':
+      default:
+        startX = img.width - cardW - padX;
+        startY = img.height - cardH - padY;
+        break;
+    }
+
+    startX = Math.max(0, Math.min(img.width - cardW, startX));
+    startY = Math.max(0, Math.min(img.height - cardH, startY));
+
+    // Salin buffer agar data gambar asli tidak termodifikasi
+    const outData = Buffer.from(img.data);
+    const { width: imgW, height: imgH, channels } = img;
+
+    // 1. Gambar kartu putih bersih dengan sudut melengkung lembut
+    const radius = Math.min(8, Math.round(cardPad * 1.2));
+    for (let cy = 0; cy < cardH; cy++) {
+      const py = startY + cy;
+      if (py < 0 || py >= imgH) continue;
+      for (let cx = 0; cx < cardW; cx++) {
+        const px = startX + cx;
+        if (px < 0 || px >= imgW) continue;
+
+        let isCorner = false;
+        if (cx < radius && cy < radius) {
+          const dx = radius - cx, dy = radius - cy;
+          if (dx * dx + dy * dy > radius * radius) isCorner = true;
+        } else if (cx >= cardW - radius && cy < radius) {
+          const dx = cx - (cardW - radius - 1), dy = radius - cy;
+          if (dx * dx + dy * dy > radius * radius) isCorner = true;
+        } else if (cx < radius && cy >= cardH - radius) {
+          const dx = radius - cx, dy = cy - (cardH - radius - 1);
+          if (dx * dx + dy * dy > radius * radius) isCorner = true;
+        } else if (cx >= cardW - radius && cy >= cardH - radius) {
+          const dx = cx - (cardW - radius - 1), dy = cy - (cardH - radius - 1);
+          if (dx * dx + dy * dy > radius * radius) isCorner = true;
+        }
+        if (isCorner) continue;
+
+        const idx = (py * imgW + px) * channels;
+        outData[idx + 0] = 255;
+        outData[idx + 1] = 255;
+        outData[idx + 2] = 255;
+        if (channels === 4) outData[idx + 3] = 255;
+      }
+    }
+
+    // 2. Gambar modul hitam QR
+    const qrOffsetX = startX + cardPad;
+    const qrOffsetY = startY + cardPad;
+
+    for (let r = 0; r < modCount; r++) {
+      for (let c = 0; c < modCount; c++) {
+        if (qr.modules.get(r, c) === 1) {
+          const modX0 = qrOffsetX + (c + marginMods) * modulePx;
+          const modY0 = qrOffsetY + (r + marginMods) * modulePx;
+
+          for (let my = 0; my < modulePx; my++) {
+            const py = modY0 + my;
+            if (py < 0 || py >= imgH) continue;
+            for (let mx = 0; mx < modulePx; mx++) {
+              const px = modX0 + mx;
+              if (px < 0 || px >= imgW) continue;
+              const idx = (py * imgW + px) * channels;
+              outData[idx + 0] = 0;
+              outData[idx + 1] = 0;
+              outData[idx + 2] = 0;
+              if (channels === 4) outData[idx + 3] = 255;
+            }
+          }
+        }
+      }
+    }
+
+    return { width: imgW, height: imgH, channels, data: outData };
+  } catch (err) {
+    console.warn('overlayQrCodeOnImage failed:', err);
+    return img;
+  }
+}
+
+/**
  * Hasilkan file lembar siap cetak sesuai opsi job.
  * 1) Jika strip 2x6: otomatis susun 2 strip berdampingan di kertas 4x6 (1200x1800).
  * 2) Terapkan Auto Safe Margin kustom pengguna dengan ekstensi warna tepi agar teks & objek
  *    di pinggir tidak terpotong oleh hardware bleed printer Epson.
- * File asli digital di /uploads tetap 100% utuh tanpa margin.
+ * 3) Stempel QR Galeri Tamu sesuai konfigurasi posisi template (kanan bawah, kiri bawah, dll).
+ * File asli digital di /uploads tetap 100% utuh tanpa margin dan tanpa watermark QR.
  */
 export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
   if (!srcPath || !/\.(png|jpe?g)$/i.test(srcPath) || !fs.existsSync(srcPath)) return srcPath;
@@ -282,16 +413,24 @@ export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
       : 0.90;
 
     const marginKey = Math.round(scale * 100);
-    const outPath = path.join(os.tmpdir(), `mafaza_sheet_${cacheKey}_m${marginKey}.png`);
+    const qrKey = options.qrPosition && options.qrPosition !== 'none' && options.qrUrl
+      ? `_qr_${options.qrPosition}_${crypto.createHash('md5').update(options.qrUrl).digest('hex').slice(0, 8)}`
+      : '';
+    const outPath = path.join(os.tmpdir(), `mafaza_sheet_${cacheKey}_m${marginKey}${qrKey}.png`);
     if (fs.existsSync(outPath) && fs.statSync(outPath).mtimeMs >= fs.statSync(srcPath).mtimeMs) {
       return outPath;
     }
 
     let baseImg = img;
 
+    // Stempel QR code jika dikonfigurasi (ditempelkan pada tiap strip sebelum disusun 2up agar kedua strip ada QR-nya)
+    if (options.qrUrl && options.qrPosition && options.qrPosition !== 'none') {
+      baseImg = overlayQrCodeOnImage(baseImg, options.qrUrl, options.qrPosition, isStrip);
+    }
+
     // Jika format photo strip: susun 2 strip berdampingan terlebih dahulu
     if (shouldTwoUp) {
-      const { width, height, channels, data } = img;
+      const { width, height, channels, data } = baseImg;
       const outW = width * 2;
       const outStride = outW * channels;
       const inStride = width * channels;

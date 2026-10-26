@@ -466,4 +466,48 @@ test('PHOTOBOOTH SAAS FULL SYSTEM - COMPREHENSIVE TEST SUITE', async (t) => {
     assert.ok(liveClip, 'Live clip exists in session media');
     assert.strictEqual(liveClip.filePath, '/uploads/live_pose1.mp4', 'Live clip file path is genuine video clip');
   });
+
+  await t.test('13. Custom Template QR Position Selection & Print-Only QR Overlay Pipeline', async () => {
+    const tenantId = 'tenant_studiokeren_01';
+    const { overlayQrCodeOnImage } = await import('../src/services/sheet.js');
+
+    // 1. Create a Template with custom QR position: 'bottom-left'
+    const tpl = templateService.createTemplate(tenantId, {
+      name: 'Strip QR Custom Test ' + Date.now(),
+      orientation: 'strip',
+      width: 600,
+      height: 1800,
+      qrPosition: 'bottom-left',
+      slots: [{ id: 's1', pose_index: 1, x: 50, y: 50, width: 500, height: 400 }]
+    });
+
+    assert.ok(tpl && tpl.id, 'Template created');
+    assert.strictEqual(tpl.qr_position, 'bottom-left', 'QR position must match specified value');
+
+    // 2. Update QR position to 'top-right'
+    const updated = templateService.updateTemplateSlots(tpl.id, tenantId, tpl.slots, tpl.layers, 'top-right');
+    assert.strictEqual(updated.qr_position, 'top-right', 'QR position must be updated to top-right');
+
+    // 3. Test overlayQrCodeOnImage: Stamping QR on print output without modifying original buffer
+    const testImg = {
+      width: 600,
+      height: 1800,
+      channels: 4,
+      data: Buffer.alloc(600 * 1800 * 4, 100) // gray image
+    };
+    const stamped = overlayQrCodeOnImage(testImg, 'https://mafaza.galipatsistem.com/gallery/g/gst_test_token', 'bottom-right', true);
+    assert.strictEqual(stamped.width, 600);
+    assert.strictEqual(stamped.height, 1800);
+    // Original buffer must not be modified
+    assert.strictEqual(testImg.data[testImg.data.length - 1], 100, 'Original image data untouched');
+    // Stamped image must contain modified QR pixels near bottom right inside the QR card bounding box
+    const cardCheckX = 600 - 18 - 25;
+    const cardCheckY = 1800 - 18 - 25;
+    const checkIdx = (cardCheckY * 600 + cardCheckX) * 4;
+    assert.notStrictEqual(stamped.data[checkIdx], 100, 'Stamped output contains modified QR card pixels');
+
+    // 4. Test none position: must return untouched
+    const noneStamped = overlayQrCodeOnImage(testImg, 'https://mafaza.galipatsistem.com', 'none', true);
+    assert.strictEqual(noneStamped.data, testImg.data, 'When qr_position is none, image remains untouched');
+  });
 });
