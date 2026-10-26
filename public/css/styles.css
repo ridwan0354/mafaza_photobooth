@@ -852,14 +852,17 @@ h1, h2, h3, h4, .font-heading {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 /* Card States */
 .dock-slot-card {
-  width: 190px;
-  height: 124px;
+  width: clamp(140px, calc((100% - 48px) / 5), 180px);
+  aspect-ratio: 16 / 10.5;
+  height: auto;
+  min-height: 105px;
   border-radius: 18px;
   position: relative;
   overflow: hidden;
@@ -1138,8 +1141,8 @@ h1, h2, h3, h4, .font-heading {
   border: 2px dashed var(--border-soft);
   border-radius: 20px;
   margin: 4px auto 0;
-  width: min(92vw, 840px);
-  max-width: 840px;
+  width: min(94vw, 1080px);
+  max-width: 1080px;
   box-shadow: 0 6px 20px rgba(123, 72, 46, 0.07);
   box-sizing: border-box;
 }
