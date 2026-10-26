@@ -413,15 +413,15 @@ h1, h2, h3, h4, .font-heading {
   display: block;
 }
 
-/* Expanded Studio Camera Frame - Sleek & Professional Compact Size (+25% Scaled) */
+/* Expanded Studio Camera Frame - Sleek & Professional Compact Size (+30% Scaled) */
 .camera-retro-frame {
-  width: min(86vw, 890px);
-  max-width: 890px;
-  height: clamp(320px, 50vh, 540px);
+  width: min(90vw, 1160px);
+  max-width: 1160px;
+  height: clamp(360px, 58vh, 680px);
   aspect-ratio: 16 / 10;
-  border-radius: 26px;
-  border: 5.5px solid #FFFBF5;
-  box-shadow: 0 16px 45px rgba(0, 0, 0, 0.32);
+  border-radius: 28px;
+  border: 6px solid #FFFBF5;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
   overflow: hidden;
   position: relative;
   margin: 4px auto 8px;
@@ -434,18 +434,18 @@ h1, h2, h3, h4, .font-heading {
 /* Sleek Corner photo brackets (Framing the camera view) */
 .camera-bracket-tl, .camera-bracket-tr, .camera-bracket-bl, .camera-bracket-br {
   position: absolute;
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   border-color: rgba(255, 255, 255, 0.85);
   border-style: solid;
   pointer-events: none;
   z-index: 25;
   filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
 }
-.camera-bracket-tl { top: 16px; left: 16px; border-width: 3.5px 0 0 3.5px; border-top-left-radius: 10px; }
-.camera-bracket-tr { top: 16px; right: 16px; border-width: 3.5px 3.5px 0 0; border-top-right-radius: 10px; }
-.camera-bracket-bl { bottom: 16px; left: 16px; border-width: 0 0 3.5px 3.5px; border-bottom-left-radius: 10px; }
-.camera-bracket-br { bottom: 16px; right: 16px; border-width: 0 3.5px 3.5px 0; border-bottom-right-radius: 10px; }
+.camera-bracket-tl { top: 18px; left: 18px; border-width: 3.5px 0 0 3.5px; border-top-left-radius: 12px; }
+.camera-bracket-tr { top: 18px; right: 18px; border-width: 3.5px 3.5px 0 0; border-top-right-radius: 12px; }
+.camera-bracket-bl { bottom: 18px; left: 18px; border-width: 0 0 3.5px 3.5px; border-bottom-left-radius: 12px; }
+.camera-bracket-br { bottom: 18px; right: 18px; border-width: 0 3.5px 3.5px 0; border-bottom-right-radius: 12px; }
 
 /* Subtle Center Guide / Composition Frame */
 .camera-center-guide {
