@@ -366,6 +366,10 @@ h1, h2, h3, h4, .font-heading {
   animation: retroFade 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+#kioskGlobalControls {
+  top: 80px !important;
+}
+
 .kiosk-screen.active {
   display: flex;
 }
