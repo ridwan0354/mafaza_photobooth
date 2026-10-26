@@ -1010,9 +1010,11 @@ apiRouter.get('/gallery/g/:token', (req, res) => {
   res.json(data);
 });
 
-// Master Event Gallery Route (seluruh foto tamu di acara)
+// Master Event Gallery Route (seluruh foto tamu di acara dengan sistem pagination)
 apiRouter.get(['/gallery/e/:eventId', '/gallery/event/:eventId'], (req, res) => {
-  const data = qrService.getEventGalleryData(req.params.eventId);
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 12;
+  const data = qrService.getEventGalleryData(req.params.eventId, { page, limit });
   if (!data) {
     return res.status(404).json({ error: 'Galeri event tidak ditemukan atau belum memiliki foto' });
   }

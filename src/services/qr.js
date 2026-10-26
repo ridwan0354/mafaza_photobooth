@@ -499,11 +499,13 @@ export function getGuestGalleryData(token) {
 }
 
 /**
- * Mengambil galeri lengkap seluruh foto dalam sebuah Event.
- * Memuat semua sesi tamu (foto jadi berbingkai, foto asli/raw tanpa bingkai, live video & boomerang).
+ * Mengambil galeri lengkap seluruh foto dalam sebuah Event dengan sistem pagination & lazy loading.
+ * Memuat sesi tamu (foto jadi berbingkai, foto asli/raw tanpa bingkai, live video & boomerang) secara bertahap
+ * agar server dan HP pengunjung tetap sangat ringan dan cepat.
  * @param {string} eventId
+ * @param {object} options - { page: 1, limit: 12 }
  */
-export function getEventGalleryData(eventId) {
+export function getEventGalleryData(eventId, options = {}) {
   if (!eventId) return null;
 
   const ev = db.prepare(`
@@ -532,7 +534,20 @@ export function getEventGalleryData(eventId) {
     } catch (e) {}
   }
 
-  // Ambil semua sesi foto dalam event ini yang memiliki minimal satu aset media
+  // Hitung total sesi yang memiliki foto pada event ini
+  const totalCountRow = db.prepare(`
+    SELECT COUNT(*) as total
+    FROM photo_sessions ps
+    WHERE ps.event_id = ?
+      AND EXISTS (SELECT 1 FROM media_assets WHERE photo_session_id = ps.id)
+  `).get(ev.id);
+  const totalSessions = totalCountRow?.total || 0;
+
+  const page = Math.max(1, parseInt(options.page) || 1);
+  const limit = options.limit !== undefined ? Math.max(1, parseInt(options.limit)) : 12;
+  const offset = (page - 1) * limit;
+
+  // Ambil sesi foto secara bertahap (pagination)
   const rawSessions = db.prepare(`
     SELECT ps.*,
            (SELECT json_group_array(json_object('id', ma.id, 'type', ma.type, 'variant', ma.variant, 'filePath', ma.file_path, 'createdAt', ma.created_at))
@@ -553,7 +568,8 @@ export function getEventGalleryData(eventId) {
     WHERE ps.event_id = ?
       AND EXISTS (SELECT 1 FROM media_assets WHERE photo_session_id = ps.id)
     ORDER BY ps.started_at DESC
-  `).all(ev.id);
+    LIMIT ? OFFSET ?
+  `).all(ev.id, limit, offset);
 
   const defaultTpl = getEventTemplate(ev.id, 'portrait');
 
@@ -577,6 +593,13 @@ export function getEventGalleryData(eventId) {
       startsAt: ev.starts_at,
       expiresAt: expiresAt,
       template: defaultTpl
+    },
+    pagination: {
+      page,
+      limit,
+      totalSessions,
+      totalPages: Math.ceil(totalSessions / limit),
+      hasMore: page * limit < totalSessions
     },
     sessions
   };

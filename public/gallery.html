@@ -689,6 +689,295 @@
     const liveControllers = {};
     const boomerangControllers = {};
     const frameSessionControllers = {};
+    let currentGalleryPage = 1;
+    let galleryPagination = null;
+    let currentEventTimezone = 'Asia/Makassar';
+    let currentEventTemplate = null;
+
+    function renderSingleSessionCard(s, sIndex, totalCount, container) {
+      const finalPhoto = (s.media && s.media.find(m => m.type === 'final_photo')) || (s.media && s.media[0]);
+      const rawCaptures = (s.media && s.media.filter(m => m.type === 'raw_capture')) || [];
+      const liveClips = (s.media && s.media.filter(m => m.type === 'live_clip')) || [];
+      const boomerangAsset = s.media && s.media.find(m => m.type === 'boomerang');
+      const livePhotoAsset = s.media && s.media.find(m => m.type === 'live_photo');
+      const finalSrc = finalPhoto ? finalPhoto.filePath : '/assets/templates/strip-green-template.svg';
+      const genuineLiveClip = (liveClips.length > 0) ? liveClips[0].filePath : null;
+      const mainLiveVideoSrc = genuineLiveClip || ((livePhotoAsset && livePhotoAsset.filePath && (!boomerangAsset || livePhotoAsset.filePath !== boomerangAsset.filePath)) ? livePhotoAsset.filePath : null) || null;
+
+      // Frame images for live photo & boomerang synthesis
+      const poseImages = rawCaptures.map(r => r.filePath);
+      if (poseImages.length === 0 && finalSrc) {
+        poseImages.push(finalSrc);
+      }
+
+      // 1. RAW PHOTOS SECTION (WITH IPHONE LIVE PHOTO PER POSE)
+      let rawPhotosHtml = '';
+      if (rawCaptures.length > 0) {
+        const rawItems = rawCaptures.map((raw, rIdx) => {
+          const poseNum = rIdx + 1;
+          const clip = liveClips.find(c => c.variant === `pose_${poseNum}`);
+          const clipSrc = clip ? clip.filePath : null;
+
+          return `
+            <div class="pose-card">
+              <div class="pose-media-container" id="poseContainer_${s.id}_${rIdx}" style="position: relative; width: 100%; aspect-ratio: 4/3; border-radius: 12px; overflow: hidden; margin-bottom: 8px; cursor: pointer; background: #1C120C; user-select: none; -webkit-user-select: none; border: 1px solid var(--border-soft);">
+                <div class="apple-live-badge-mini" id="poseBadge_${s.id}_${rIdx}" onclick="toggleSinglePoseLive('${s.id}', ${rIdx}, event)">
+                  <span class="live-icon">
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                      <circle cx="12" cy="12" r="9" stroke-dasharray="2.5 2.5"/>
+                      <circle cx="12" cy="12" r="5"/>
+                      <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                    </svg>
+                  </span>
+                  <span>LIVE</span>
+                </div>
+
+                <img src="${raw.filePath}" id="poseImg_${s.id}_${rIdx}" loading="lazy" alt="Pose ${poseNum}" style="width: 100%; height: 100%; object-fit: cover; display: block;" onclick="openLightbox('${raw.filePath}')">
+                
+                ${clipSrc ? `
+                  <video id="poseVid_${s.id}_${rIdx}" src="${clipSrc}" playsinline loop muted preload="none" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; transform: scaleX(-1); display: none; z-index: 4;"></video>
+                ` : `
+                  <canvas id="poseCanvas_${s.id}_${rIdx}" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; transform: scaleX(-1); display: none; z-index: 4;"></canvas>
+                `}
+
+                <div class="pose-touch-hint" id="poseHint_${s.id}_${rIdx}">
+                  👆 Tahan
+                </div>
+              </div>
+
+              <div style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">
+                Pose #${poseNum}
+              </div>
+
+              <div style="display: flex; gap: 6px;">
+                <a href="${raw.filePath}" download="Pose_${poseNum}_${s.id}.jpg" class="btn btn-secondary" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; text-decoration: none; text-align: center; border-radius: var(--radius-pill);" title="Unduh Foto HD">
+                  📸 Foto
+                </a>
+                <button class="btn btn-teal" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; border-radius: var(--radius-pill);" onclick="downloadPoseLiveVideo('${s.id}', ${rIdx}, '${raw.filePath}', '${clipSrc || ''}')" title="Unduh Video Gerak Live Photo">
+                  🎬 Live
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        rawPhotosHtml = `
+          <div class="gallery-feature-box">
+            <div class="gallery-feature-box-header">
+              <div>
+                <div class="gallery-feature-box-title">
+                  <span>📸</span> Foto Asli &amp; Live Photo (${rawCaptures.length} Pose)
+                </div>
+                <div class="gallery-feature-box-desc">
+                  Tahan foto atau klik <strong>LIVE</strong> untuk melihat video sebelum foto diambil!
+                </div>
+              </div>
+              <span class="sticker-badge sticker-yellow">◎ LIVE</span>
+            </div>
+
+            <div class="raw-poses-grid">
+              ${rawItems}
+            </div>
+          </div>
+        `;
+      }
+
+      // 2. BOOMERANG SECTION
+      let boomerangHtml = '';
+      if (poseImages.length >= 2 || boomerangAsset) {
+        boomerangHtml = `
+          <div class="gallery-feature-box">
+            <div class="gallery-feature-box-header">
+              <div>
+                <div class="gallery-feature-box-title">
+                  <span>🎬</span> Video Boomerang (Looping)
+                </div>
+                <div class="gallery-feature-box-desc">Gerak maju-mundur bolak-balik untuk story Instagram &amp; TikTok</div>
+              </div>
+              <span class="sticker-badge sticker-pink">BOOMERANG</span>
+            </div>
+
+            <div class="boomerang-viewport" id="bmViewport_${s.id}">
+              ${boomerangAsset ? `
+                <video id="bmVideo_${s.id}" src="${boomerangAsset.filePath}" playsinline autoplay loop muted preload="none" style="width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;"></video>
+              ` : `
+                <canvas id="bmCanvas_${s.id}" style="width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;"></canvas>
+              `}
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+              <div style="display: flex; gap: 6px;" id="speedControls_${s.id}">
+                <button class="speed-btn" onclick="setBoomerangSpeed('${s.id}', 0.6, this)">🐢 Slow</button>
+                <button class="speed-btn active" onclick="setBoomerangSpeed('${s.id}', 1.0, this)">⚡ 1x</button>
+                <button class="speed-btn" onclick="setBoomerangSpeed('${s.id}', 1.5, this)">🚀 Cepat</button>
+              </div>
+              <button class="speed-btn" id="playToggle_${s.id}" onclick="toggleBoomerangPlay('${s.id}')">
+                ⏸️ Jeda
+              </button>
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary" style="flex: 1; padding: 11px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill);" id="dlBmBtn_${s.id}" onclick="downloadBoomerang('${s.id}')">
+                Boomerang
+              </button>
+              <button class="btn btn-teal" style="padding: 11px 16px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill);" onclick="shareMedia('${(boomerangAsset && boomerangAsset.filePath) || ''}', 'Video Boomerang')">
+                📲 Bagikan
+              </button>
+            </div>
+          </div>
+        `;
+      }
+
+      const sessionTemplate = s.template || currentEventTemplate || null;
+
+      // 3. MAIN SESSION CARD
+      const card = document.createElement('div');
+      card.className = 'session-card';
+      card.id = `card_${s.id}`;
+      card.innerHTML = `
+        <div class="session-header">
+          <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <span class="sticker-badge sticker-coral" style="font-size: 13px;">Sesi #${sIndex} • ${(s.mode || 'single').toUpperCase()}</span>
+            <span style="font-size: 12.5px; font-weight: 700; color: var(--text-muted);">
+              🕒 ${formatSessionTime(s.started_at, currentEventTimezone)}
+            </span>
+          </div>
+        </div>
+
+        <div class="session-grid">
+          <div class="session-col-main">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+              <span style="font-size: 13px; font-weight: 800; color: var(--caramel-brown); display: flex; align-items: center; gap: 6px;">
+                <span>🖼️</span> Foto Jadi (Dengan Frame Acara)
+              </span>
+            </div>
+
+            <div class="frame-mode-toggle" id="modeToggle_${s.id}">
+              <button type="button" class="frame-mode-btn active" id="btnModeStill_${s.id}" onclick="setSessionViewMode('${s.id}', 'still')">
+                <span>🖼️</span> Foto Jadi
+              </button>
+              <button type="button" class="frame-mode-btn" id="btnModeBoomerang_${s.id}" onclick="setSessionViewMode('${s.id}', 'boomerang')">
+                <span>🎬</span> Boomerang
+              </button>
+              <button type="button" class="frame-mode-btn" id="btnModeLive_${s.id}" onclick="setSessionViewMode('${s.id}', 'live')">
+                <span>⚡</span> Live Photo
+              </button>
+            </div>
+
+            <div class="apple-live-container" id="liveContainer_${s.id}">
+              <div class="apple-live-badge" id="liveBadge_${s.id}" style="display: none;" onclick="toggleLivePhoto('${s.id}', event)">
+                <span class="live-icon">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                    <circle cx="12" cy="12" r="9" stroke-dasharray="2.5 2.5"/>
+                    <circle cx="12" cy="12" r="5"/>
+                    <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
+                  </svg>
+                </span>
+                <span id="badgeText_${s.id}">LIVE</span>
+              </div>
+
+              <div class="apple-live-hint" id="liveHint_${s.id}" style="display: none;">
+                👆 Tahan foto untuk gerak
+              </div>
+
+              <img src="${finalSrc}" id="stillImg_${s.id}" loading="lazy" alt="Foto Sesi" onclick="handleMainPhotoClick('${s.id}', '${finalSrc}')" title="Klik untuk memperbesar">
+              
+              <canvas class="live-anim-canvas" id="motionCanvas_${s.id}" style="position: absolute; inset:0; width:100%; height:100%; object-fit: contain; display: none; z-index: 2;"></canvas>
+
+              ${mainLiveVideoSrc ? `
+                <video id="liveVideo_${s.id}" src="${mainLiveVideoSrc}" playsinline muted loop preload="none" style="display: none;"></video>
+              ` : ''}
+            </div>
+
+            <div class="session-main-actions" id="mainActions_${s.id}">
+              <a href="${finalSrc}" download="Photobooth_${s.id}.${/\\.(jpe?g)$/i.test(finalSrc) ? 'jpg' : 'png'}" class="btn btn-coral" id="btnDownloadMain_${s.id}">
+                ⬇️ Unduh Foto HD
+              </a>
+              <button class="btn btn-teal" id="btnShareMain_${s.id}" onclick="shareMedia('${finalSrc}', 'Foto Photobooth')">
+                📲 Bagikan
+              </button>
+            </div>
+          </div>
+
+          <div class="session-col-side">
+            ${boomerangHtml}
+            ${rawPhotosHtml}
+          </div>
+        </div>
+      `;
+      container.appendChild(card);
+
+      initFramedSessionController(s.id, finalSrc, poseImages, sessionTemplate, mainLiveVideoSrc, boomerangAsset);
+      if (poseImages.length >= 2 && !boomerangAsset) {
+        initBoomerang(s.id, poseImages);
+      }
+
+      rawCaptures.forEach((raw, rIdx) => {
+        const clip = liveClips.find(c => c.variant === `pose_${rIdx + 1}`);
+        initPoseLivePhoto(s.id, rIdx, raw.filePath, clip ? clip.filePath : null);
+      });
+    }
+
+    function updateLoadMoreButton() {
+      let btnContainer = document.getElementById('loadMoreContainer');
+      const mainWrap = document.querySelector('.gallery-main-wrap');
+      if (!btnContainer && mainWrap) {
+        btnContainer = document.createElement('div');
+        btnContainer.id = 'loadMoreContainer';
+        btnContainer.style.textAlign = 'center';
+        btnContainer.style.marginTop = '36px';
+        btnContainer.style.marginBottom = '30px';
+        mainWrap.appendChild(btnContainer);
+      }
+      if (!btnContainer) return;
+
+      if (galleryPagination && galleryPagination.hasMore) {
+        const remaining = galleryPagination.totalSessions - (galleryPagination.page * galleryPagination.limit);
+        btnContainer.innerHTML = `
+          <button id="btnLoadMore" class="btn btn-coral" style="padding: 14px 34px; font-size: 15px; font-weight: 700; border-radius: var(--radius-pill); box-shadow: 0 10px 24px rgba(230, 120, 107, 0.35); cursor: pointer;" onclick="loadMoreSessions()">
+            ⬇️ Muat Sesi Foto Berikutnya (${remaining > 0 ? remaining : ''} Tersisa)
+          </button>
+        `;
+        btnContainer.style.display = 'block';
+      } else {
+        btnContainer.style.display = 'none';
+      }
+    }
+
+    async function loadMoreSessions() {
+      const btn = document.getElementById('btnLoadMore');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳ Memuat sesi foto...';
+      }
+
+      try {
+        const nextPage = currentGalleryPage + 1;
+        const separator = resolvedApiUrl.includes('?') ? '&' : '?';
+        const res = await fetch(`${resolvedApiUrl}${separator}page=${nextPage}&limit=12`);
+        if (res.ok) {
+          const data = await res.json();
+          currentGalleryPage = nextPage;
+          galleryPagination = data.pagination;
+
+          const container = document.getElementById('galleryContainer');
+          const totalSoFar = (nextPage - 1) * 12;
+          if (data.sessions && data.sessions.length > 0) {
+            data.sessions.forEach((s, idx) => {
+              const sessionNum = (galleryPagination.totalSessions || 100) - (totalSoFar + idx);
+              renderSingleSessionCard(s, sessionNum, galleryPagination.totalSessions, container);
+            });
+          }
+          updateLoadMoreButton();
+        }
+      } catch (err) {
+        console.error('loadMoreSessions error:', err);
+        if (btn) {
+          btn.disabled = false;
+          btn.innerText = '⚠️ Gagal memuat. Coba lagi ⬇️';
+        }
+      }
+    }
 
     window.addEventListener('DOMContentLoaded', async () => {
       if (!resolvedApiUrl) {
@@ -705,10 +994,18 @@
       }
 
       try {
-        const res = await fetch(resolvedApiUrl);
+        const separator = resolvedApiUrl.includes('?') ? '&' : '?';
+        const fetchUrl = isEventGalleryMode ? `${resolvedApiUrl}${separator}page=1&limit=12` : resolvedApiUrl;
+        const res = await fetch(fetchUrl);
         if (res.ok) {
           const data = await res.json();
+          galleryPagination = data.pagination || null;
+          currentGalleryPage = 1;
+
           if (data.guestPass) {
+            currentEventTimezone = data.guestPass.timezone || 'Asia/Makassar';
+            currentEventTemplate = data.guestPass.template || null;
+
             if (data.guestPass.eventName) {
               currentEventName = data.guestPass.eventName;
               document.getElementById('eventTitle').innerText = data.guestPass.eventName;
@@ -718,7 +1015,8 @@
             const typeBadge = document.getElementById('galleryTypeBadge');
             const subTitleEl = document.getElementById('eventSubtitle');
             if (data.isEventGallery && typeBadge) {
-              typeBadge.innerHTML = `🎪 Galeri Acara • ${data.sessions ? data.sessions.length : 0} Sesi Foto`;
+              const totalSessions = (data.pagination && data.pagination.totalSessions) || (data.sessions ? data.sessions.length : 0);
+              typeBadge.innerHTML = `🎪 Galeri Acara • ${totalSessions} Sesi Foto`;
               if (subTitleEl) subTitleEl.innerText = 'Semua foto tamu yang diambil di acara ini (foto frame & foto asli tanpa frame)';
             }
 
@@ -738,245 +1036,16 @@
           const container = document.getElementById('galleryContainer');
           if (data.sessions && data.sessions.length > 0) {
             container.innerHTML = '';
+            const totalSessions = (galleryPagination && galleryPagination.totalSessions) || data.sessions.length;
 
             data.sessions.forEach((s, idx) => {
-              const finalPhoto = (s.media && s.media.find(m => m.type === 'final_photo')) || (s.media && s.media[0]);
-              const rawCaptures = (s.media && s.media.filter(m => m.type === 'raw_capture')) || [];
-              const liveClips = (s.media && s.media.filter(m => m.type === 'live_clip')) || [];
-              const boomerangAsset = s.media && s.media.find(m => m.type === 'boomerang');
-              const livePhotoAsset = s.media && s.media.find(m => m.type === 'live_photo');
-              const finalSrc = finalPhoto ? finalPhoto.filePath : '/assets/templates/strip-green-template.svg';
-              const genuineLiveClip = (liveClips.length > 0) ? liveClips[0].filePath : null;
-              const mainLiveVideoSrc = genuineLiveClip || ((livePhotoAsset && livePhotoAsset.filePath && (!boomerangAsset || livePhotoAsset.filePath !== boomerangAsset.filePath)) ? livePhotoAsset.filePath : null) || null;
-
-              // Frame images for live photo & boomerang synthesis
-              const poseImages = rawCaptures.map(r => r.filePath);
-              if (poseImages.length === 0 && finalSrc) {
-                poseImages.push(finalSrc);
-              }
-
-              // 1. RAW PHOTOS SECTION (WITH IPHONE LIVE PHOTO PER POSE)
-              let rawPhotosHtml = '';
-              if (rawCaptures.length > 0) {
-                const rawItems = rawCaptures.map((raw, rIdx) => {
-                  const poseNum = rIdx + 1;
-                  const clip = liveClips.find(c => c.variant === `pose_${poseNum}`);
-                  const clipSrc = clip ? clip.filePath : null;
-
-                  return `
-                    <div class="pose-card">
-                      <!-- Pose Media Container with Live Photo Touch-and-Hold -->
-                      <div class="pose-media-container" id="poseContainer_${s.id}_${rIdx}" style="position: relative; width: 100%; aspect-ratio: 4/3; border-radius: 12px; overflow: hidden; margin-bottom: 8px; cursor: pointer; background: #1C120C; user-select: none; -webkit-user-select: none; border: 1px solid var(--border-soft);">
-                        
-                        <!-- Apple Live Photo Badge Mini -->
-                        <div class="apple-live-badge-mini" id="poseBadge_${s.id}_${rIdx}" onclick="toggleSinglePoseLive('${s.id}', ${rIdx}, event)">
-                          <span class="live-icon">
-                            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-                              <circle cx="12" cy="12" r="9" stroke-dasharray="2.5 2.5"/>
-                              <circle cx="12" cy="12" r="5"/>
-                              <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
-                            </svg>
-                          </span>
-                          <span>LIVE</span>
-                        </div>
-
-                        <img src="${raw.filePath}" id="poseImg_${s.id}_${rIdx}" alt="Pose ${poseNum}" style="width: 100%; height: 100%; object-fit: cover; display: block;" onclick="openLightbox('${raw.filePath}')">
-                        
-                        ${clipSrc ? `
-                          <video id="poseVid_${s.id}_${rIdx}" src="${clipSrc}" playsinline loop muted preload="auto" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; transform: scaleX(-1); display: none; z-index: 4;"></video>
-                        ` : `
-                          <canvas id="poseCanvas_${s.id}_${rIdx}" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; transform: scaleX(-1); display: none; z-index: 4;"></canvas>
-                        `}
-
-                        <div class="pose-touch-hint" id="poseHint_${s.id}_${rIdx}">
-                          👆 Tahan
-                        </div>
-                      </div>
-
-                      <div style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">
-                        Pose #${poseNum}
-                      </div>
-
-                      <div style="display: flex; gap: 6px;">
-                        <a href="${raw.filePath}" download="Pose_${poseNum}_${s.id}.jpg" class="btn btn-secondary" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; text-decoration: none; text-align: center; border-radius: var(--radius-pill);" title="Unduh Foto HD">
-                          📸 Foto
-                        </a>
-                        <button class="btn btn-teal" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; border-radius: var(--radius-pill);" onclick="downloadPoseLiveVideo('${s.id}', ${rIdx}, '${raw.filePath}', '${clipSrc || ''}')" title="Unduh Video Gerak Live Photo">
-                          🎬 Live
-                        </button>
-                      </div>
-                    </div>
-                  `;
-                }).join('');
-
-                rawPhotosHtml = `
-                  <div class="gallery-feature-box">
-                    <div class="gallery-feature-box-header">
-                      <div>
-                        <div class="gallery-feature-box-title">
-                          <span>📸</span> Foto Asli &amp; Live Photo (${rawCaptures.length} Pose)
-                        </div>
-                        <div class="gallery-feature-box-desc">
-                          Tahan foto atau klik <strong>LIVE</strong> untuk melihat video sebelum foto diambil!
-                        </div>
-                      </div>
-                      <span class="sticker-badge sticker-yellow">◎ LIVE</span>
-                    </div>
-
-                    <div class="raw-poses-grid">
-                      ${rawItems}
-                    </div>
-                  </div>
-                `;
-              }
-
-              // 2. BOOMERANG SECTION
-              let boomerangHtml = '';
-              if (poseImages.length >= 2 || boomerangAsset) {
-                boomerangHtml = `
-                  <div class="gallery-feature-box">
-                    <div class="gallery-feature-box-header">
-                      <div>
-                        <div class="gallery-feature-box-title">
-                          <span>🎬</span> Video Boomerang (Looping)
-                        </div>
-                        <div class="gallery-feature-box-desc">Gerak maju-mundur bolak-balik untuk story Instagram &amp; TikTok</div>
-                      </div>
-                      <span class="sticker-badge sticker-pink">BOOMERANG</span>
-                    </div>
-
-                    <div class="boomerang-viewport" id="bmViewport_${s.id}">
-                      ${boomerangAsset ? `
-                        <video id="bmVideo_${s.id}" src="${boomerangAsset.filePath}" playsinline autoplay loop muted style="width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;"></video>
-                      ` : `
-                        <canvas id="bmCanvas_${s.id}" style="width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;"></canvas>
-                      `}
-                    </div>
-
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
-                      <div style="display: flex; gap: 6px;" id="speedControls_${s.id}">
-                        <button class="speed-btn" onclick="setBoomerangSpeed('${s.id}', 0.6, this)">🐢 Slow</button>
-                        <button class="speed-btn active" onclick="setBoomerangSpeed('${s.id}', 1.0, this)">⚡ 1x</button>
-                        <button class="speed-btn" onclick="setBoomerangSpeed('${s.id}', 1.5, this)">🚀 Cepat</button>
-                      </div>
-                      <button class="speed-btn" id="playToggle_${s.id}" onclick="toggleBoomerangPlay('${s.id}')">
-                        ⏸️ Jeda
-                      </button>
-                    </div>
-
-                    <div style="display: flex; gap: 8px;">
-                      <button class="btn btn-secondary" style="flex: 1; padding: 11px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill);" id="dlBmBtn_${s.id}" onclick="downloadBoomerang('${s.id}')">
-                        Boomerang
-                      </button>
-                      <button class="btn btn-teal" style="padding: 11px 16px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill);" onclick="shareMedia('${(boomerangAsset && boomerangAsset.filePath) || ''}', 'Video Boomerang')">
-                        📲 Bagikan
-                      </button>
-                    </div>
-                  </div>
-                `;
-              }
-
-              const eventTimezone = (data.guestPass && data.guestPass.timezone) || 'Asia/Makassar';
-              const eventTemplate = s.template || (data.guestPass && data.guestPass.template) || null;
-
-              // 3. MAIN SESSION CARD (ELEGANT WARM RETRO SHOWCASE)
-              const card = document.createElement('div');
-              card.className = 'session-card';
-              card.innerHTML = `
-                <!-- Top Session Header -->
-                <div class="session-header">
-                  <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                    <span class="sticker-badge sticker-coral" style="font-size: 13px;">Sesi #${data.sessions.length - idx} • ${s.mode.toUpperCase()}</span>
-                    <span style="font-size: 12.5px; font-weight: 700; color: var(--text-muted);">
-                      🕒 ${formatSessionTime(s.started_at, eventTimezone)}
-                    </span>
-                  </div>
-                </div>
-
-                <!-- Session Grid: 2 Columns on Desktop, 1 Column on Mobile -->
-                <div class="session-grid">
-                  <!-- LEFT COLUMN: Main Framed Photo -->
-                  <div class="session-col-main">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
-                      <span style="font-size: 13px; font-weight: 800; color: var(--caramel-brown); display: flex; align-items: center; gap: 6px;">
-                        <span>🖼️</span> Foto Jadi (Dengan Frame Acara)
-                      </span>
-                    </div>
-
-                    <!-- Pilihan Tampilan Berframe: Foto Jadi / Boomerang / Live Photo -->
-                    <div class="frame-mode-toggle" id="modeToggle_${s.id}">
-                      <button type="button" class="frame-mode-btn active" id="btnModeStill_${s.id}" onclick="setSessionViewMode('${s.id}', 'still')">
-                        <span>🖼️</span> Foto Jadi
-                      </button>
-                      <button type="button" class="frame-mode-btn" id="btnModeBoomerang_${s.id}" onclick="setSessionViewMode('${s.id}', 'boomerang')">
-                        <span>🎬</span> Boomerang
-                      </button>
-                      <button type="button" class="frame-mode-btn" id="btnModeLive_${s.id}" onclick="setSessionViewMode('${s.id}', 'live')">
-                        <span>⚡</span> Live Photo
-                      </button>
-                    </div>
-
-                    <!-- Apple Live Photo Container -->
-                    <div class="apple-live-container" id="liveContainer_${s.id}">
-                      <!-- Apple Live Photo Badge -->
-                      <div class="apple-live-badge" id="liveBadge_${s.id}" style="display: none;" onclick="toggleLivePhoto('${s.id}', event)">
-                        <span class="live-icon">
-                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-                            <circle cx="12" cy="12" r="9" stroke-dasharray="2.5 2.5"/>
-                            <circle cx="12" cy="12" r="5"/>
-                            <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
-                          </svg>
-                        </span>
-                        <span id="badgeText_${s.id}">LIVE</span>
-                      </div>
-
-                      <div class="apple-live-hint" id="liveHint_${s.id}" style="display: none;">
-                        👆 Tahan foto untuk gerak
-                      </div>
-
-                      <img src="${finalSrc}" id="stillImg_${s.id}" alt="Foto Sesi" onclick="handleMainPhotoClick('${s.id}', '${finalSrc}')" title="Klik untuk memperbesar">
-                      
-                      <canvas class="live-anim-canvas" id="motionCanvas_${s.id}" style="position: absolute; inset:0; width:100%; height:100%; object-fit: contain; display: none; z-index: 2;"></canvas>
-
-                      ${mainLiveVideoSrc ? `
-                        <video id="liveVideo_${s.id}" src="${mainLiveVideoSrc}" playsinline muted loop preload="auto" style="display: none;"></video>
-                      ` : ''}
-                    </div>
-
-                    <!-- Main Action Buttons -->
-                    <div class="session-main-actions" id="mainActions_${s.id}">
-                      <a href="${finalSrc}" download="Photobooth_${s.id}.${/\\.(jpe?g)$/i.test(finalSrc) ? 'jpg' : 'png'}" class="btn btn-coral" id="btnDownloadMain_${s.id}">
-                        ⬇️ Unduh Foto HD
-                      </a>
-                      <button class="btn btn-teal" id="btnShareMain_${s.id}" onclick="shareMedia('${finalSrc}', 'Foto Photobooth')">
-                        📲 Bagikan
-                      </button>
-                    </div>
-                  </div>
-
-                  <!-- RIGHT COLUMN: Side Content (Boomerang & Raw Captures) -->
-                  <div class="session-col-side">
-                    ${boomerangHtml}
-                    ${rawPhotosHtml}
-                  </div>
-                </div>
-              `;
-              container.appendChild(card);
-
-              // Initialize Apple Live Photo and Framed Boomerang Controller for this session
-              initFramedSessionController(s.id, finalSrc, poseImages, eventTemplate, mainLiveVideoSrc, boomerangAsset);
-              if (poseImages.length >= 2 && !boomerangAsset) {
-                initBoomerang(s.id, poseImages);
-              }
-
-              // Initialize Apple Live Photo Controllers for each individual pose
-              rawCaptures.forEach((raw, rIdx) => {
-                const clip = liveClips.find(c => c.variant === `pose_${rIdx + 1}`);
-                initPoseLivePhoto(s.id, rIdx, raw.filePath, clip ? clip.filePath : null);
-              });
+              const sessionNum = totalSessions - idx;
+              renderSingleSessionCard(s, sessionNum, totalSessions, container);
             });
+
+            updateLoadMoreButton();
           } else {
-            // EMPTY STATE JIKA QR INI BELUM PERNAH DIGUNAKAN FOTO
+            // EMPTY STATE JIKA BELUM ADA FOTO
             container.innerHTML = `
               <div class="session-card" style="text-align: center; padding: 56px 28px; background: #ffffff;">
                 <div style="font-size: 64px; margin-bottom: 16px;">📸</div>
@@ -984,10 +1053,10 @@
                   Belum Ada Foto Tersimpan
                 </h3>
                 <p style="font-size: 14.5px; color: var(--text-muted); line-height: 1.6; max-width: 440px; margin: 0 auto 24px auto;">
-                  Kartu QR ini belum digunakan di bilik photobooth. Foto berframe, video Live Photo, dan Boomerang Anda akan otomatis muncul di sini begitu sesi foto selesai!
+                  Foto berframe, video Live Photo, dan Boomerang Anda akan otomatis muncul di sini begitu sesi foto di Kiosk selesai!
                 </p>
                 <div style="display: inline-flex; align-items: center; gap: 8px; background: rgba(230, 120, 107, 0.12); padding: 10px 24px; border-radius: var(--radius-pill); font-size: 14px; font-weight: 700; color: var(--coral); border: 1.5px solid var(--coral);">
-                  <span>🎟️</span> Kartu QR Siap Digunakan di Kiosk Booth
+                  <span>🎟️</span> Galeri Siap Menampung Foto
                 </div>
               </div>
             `;
