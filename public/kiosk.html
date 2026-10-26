@@ -166,16 +166,16 @@
       padding: 12px;
       border: 2px solid #ead8c7;
       box-shadow: inset 0 4px 14px rgba(0, 0, 0, 0.35);
-      margin: 6px 0 10px;
-      min-height: 290px;
-      max-height: 44vh;
+      margin: 4px 0 0;
+      min-height: 320px;
+      max-height: 48vh;
       overflow: hidden;
       touch-action: none;
       user-select: none;
       -webkit-user-select: none;
     }
     .preview-canvas-stage canvas {
-      max-height: 40vh;
+      max-height: 45vh;
       max-width: 100%;
       width: auto;
       height: auto;
@@ -357,6 +357,16 @@
       <div id="kioskBgOverlay" class="kiosk-bg-overlay"></div>
     </div>
 
+    <!-- Persistent Global Controls (Selalu Tampil di Pojok Kanan Atas Semua Layar Kiosk) -->
+    <div id="kioskGlobalControls" style="position: absolute; top: 24px; right: 28px; z-index: 1000; display: flex; gap: 10px; align-items: center;">
+      <button id="btnKioskFullscreen" type="button" onclick="kiosk.toggleFullScreen()" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--coral); font-size: 13px; font-weight: 800; color: var(--coral); cursor: pointer; box-shadow: 0 4px 12px rgba(230,120,107,0.18); transition: transform 0.15s ease;">
+        ⛶ Layar Penuh
+      </button>
+      <a href="/admin?tab=photos" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 700; color: var(--caramel-brown); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(123,72,46,0.06); transition: transform 0.15s ease;">
+        📷 Dasbor Admin
+      </a>
+    </div>
+
     <!-- Warm Corner Accents -->
     <div class="retro-corner-tl"></div>
     <div class="retro-corner-br"></div>
@@ -364,19 +374,10 @@
     <!-- 1. SCREEN: WELCOME (Halaman Utama Konsep C) -->
     <div id="screenWelcome" class="kiosk-screen active">
       <!-- Top Small Brand & Language Pill -->
-      <div style="position: absolute; top: 56px; left: 40px; right: 40px; display: flex; justify-content: space-between; align-items: center; z-index: 20;">
+      <div style="position: absolute; top: 24px; left: 28px; display: flex; align-items: center; z-index: 20;">
         <div style="display: flex; align-items: center; gap: 8px; background: var(--cream-card); padding: 8px 18px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); box-shadow: 0 4px 12px rgba(123,72,46,0.06);">
           <span style="font-size: 18px;">📷</span>
           <span id="kioskBrandTitle" style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; color: var(--caramel-brown); letter-spacing: 0.8px;">MAFAZA</span>
-        </div>
-        
-        <div style="display: flex; gap: 10px; align-items: center;">
-          <button id="btnKioskFullscreen" type="button" onclick="kiosk.toggleFullScreen()" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--coral); font-size: 13px; font-weight: 800; color: var(--coral); cursor: pointer; box-shadow: 0 4px 12px rgba(230,120,107,0.18);">
-            ⛶ Layar Penuh
-          </button>
-          <a href="/admin?tab=photos" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 700; color: var(--caramel-brown); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(123,72,46,0.06);">
-            📷 Dasbor Admin
-          </a>
         </div>
       </div>
 
@@ -397,7 +398,7 @@
 
     <!-- 2. SCREEN: QR SCAN / GUEST CHECK -->
     <div id="screenQR" class="kiosk-screen">
-      <div style="position: absolute; top: 56px; left: 40px; z-index: 25;">
+      <div style="position: absolute; top: 24px; left: 28px; z-index: 25;">
         <button class="btn btn-secondary" style="padding: 8px 18px; font-size: 13.5px;" onclick="kiosk.stopQrScannerLoop(); kiosk.showScreen('screenWelcome')">
           ❮ Kembali
         </button>
@@ -468,7 +469,7 @@
 
     <!-- 3. SCREEN: PILIH TEMPLATE FAVORITMU -->
     <div id="screenTemplate" class="kiosk-screen">
-      <div style="position: absolute; top: 56px; left: 40px; z-index: 25;">
+      <div style="position: absolute; top: 24px; left: 28px; z-index: 25;">
         <button class="btn btn-secondary" style="padding: 8px 18px; font-size: 13.5px;" onclick="kiosk.goBackFromTemplate()">
           ❮ Kembali
         </button>
@@ -505,7 +506,7 @@
     </div>
 
     <!-- 4. SCREEN: KAMERA & COUNTDOWN (Konsep C: Warm Playful Retro dari Gambar 2) -->
-    <div id="screenCapture" class="kiosk-screen" style="padding: 12px 24px 14px; justify-content: space-between; overflow-y: auto;">
+    <div id="screenCapture" class="kiosk-screen" style="padding: 10px 24px 12px; justify-content: center; gap: 6px; overflow-y: auto;">
       <!-- Top Header Group: Step Progress + Pose Indicator -->
       <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30;">
         <!-- Step progress: Foto ACTIVE -->
@@ -667,33 +668,13 @@
       <div class="preview-studio-grid">
         <!-- CARD 1: Frame Preview & Interactive Pan/Zoom -->
         <div class="preview-col-card">
-          <div>
-            <div class="preview-card-header">
-              <h3 class="preview-card-title">🖼️ Frame Hasil</h3>
-              <span id="activeSlotBadge" class="preview-badge-pill">Slot #1 Aktif</span>
-            </div>
-            <p style="font-size: 11.5px; color: var(--coral); font-weight: 700; margin-bottom: 4px;">
-              👆 Geser foto dengan jari • Cubit 2 jari untuk Zoom (Perbesar / Perkecil)
-            </p>
+          <div class="preview-card-header" style="margin-bottom: 6px;">
+            <h3 class="preview-card-title">🖼️ Frame Hasil</h3>
+            <span id="activeSlotBadge" class="preview-badge-pill">Slot #1 Aktif</span>
           </div>
 
           <div class="preview-canvas-stage">
             <canvas id="finalCanvas"></canvas>
-          </div>
-
-          <!-- Unified Pan & Zoom Toolbar -->
-          <div class="preview-pan-toolbar">
-            <div class="preview-tool-group">
-              <button type="button" class="preview-tool-btn" onclick="kiosk.panActiveSlot(-25, 0)" title="Geser Kiri">⬅️</button>
-              <button type="button" class="preview-tool-btn" onclick="kiosk.panActiveSlot(0, -25)" title="Geser Atas">⬆️</button>
-              <button type="button" class="preview-tool-btn" onclick="kiosk.panActiveSlot(0, 25)" title="Geser Bawah">⬇️</button>
-              <button type="button" class="preview-tool-btn" onclick="kiosk.panActiveSlot(25, 0)" title="Geser Kanan">➡️</button>
-            </div>
-            <div class="preview-tool-group">
-              <button type="button" class="preview-tool-btn" onclick="kiosk.zoomActiveSlot(0.15)" title="Perbesar">🔍+</button>
-              <button type="button" class="preview-tool-btn" onclick="kiosk.zoomActiveSlot(-0.15)" title="Perkecil">🔍-</button>
-            </div>
-            <button type="button" class="preview-tool-btn" onclick="kiosk.resetActiveSlotTransform()" title="Reset Posisi">↺ Reset</button>
           </div>
         </div>
 
