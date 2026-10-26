@@ -436,18 +436,19 @@ test('PHOTOBOOTH SAAS FULL SYSTEM - COMPREHENSIVE TEST SUITE', async (t) => {
     `).run(sessionId, tenantId, ev.id, guestPass.id);
 
     // Save final photo, raw capture, and genuine live clip
+    const ts = Date.now();
     db.prepare(`
       INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
-      VALUES ('asset_f1', ?, ?, ?, 'final_photo', 'print_hires', '/uploads/final_test.jpg', 'ready')
-    `).run(tenantId, ev.id, sessionId);
+      VALUES (?, ?, ?, ?, 'final_photo', 'print_hires', '/uploads/final_test.jpg', 'ready')
+    `).run('asset_f1_' + ts, tenantId, ev.id, sessionId);
     db.prepare(`
       INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
-      VALUES ('asset_r1', ?, ?, ?, 'raw_capture', 'pose_1', '/uploads/raw_pose1.jpg', 'ready')
-    `).run(tenantId, ev.id, sessionId);
+      VALUES (?, ?, ?, ?, 'raw_capture', 'pose_1', '/uploads/raw_pose1.jpg', 'ready')
+    `).run('asset_r1_' + ts, tenantId, ev.id, sessionId);
     db.prepare(`
       INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
-      VALUES ('asset_lc1', ?, ?, ?, 'live_clip', 'pose_1', '/uploads/live_pose1.mp4', 'ready')
-    `).run(tenantId, ev.id, sessionId);
+      VALUES (?, ?, ?, ?, 'live_clip', 'pose_1', '/uploads/live_pose1.mp4', 'ready')
+    `).run('asset_lc1_' + ts, tenantId, ev.id, sessionId);
 
     // 4. Resolve Gallery Data
     const gallery = qrService.getGuestGalleryData(guestPass.token);

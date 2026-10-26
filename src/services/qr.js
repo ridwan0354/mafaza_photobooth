@@ -136,7 +136,7 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, 
     const isLandscape = (sessionMode === 'landscape');
     const targetOrientation = isStrip ? 'strip' : (isLandscape ? 'landscape' : 'portrait');
 
-    // 2. By event_id AND matching orientation/aspect-ratio (prevents landscape template on portrait session)
+    // 2. By event_id AND matching orientation/aspect-ratio & slot count preference
     if (!tpl && eventId) {
       tpl = db.prepare(`
         SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
@@ -149,8 +149,15 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, 
             OR (? = 'landscape' AND (t.orientation = 'landscape' OR t.width > t.height))
             OR (? = 'strip' AND t.orientation = 'strip')
           )
-        ORDER BY t.created_at DESC LIMIT 1
-      `).get(eventId, targetOrientation, targetOrientation, targetOrientation, targetOrientation);
+        ORDER BY 
+          CASE 
+            WHEN ? = 'single' THEN ABS(COALESCE(json_array_length(tv.slots_json), 1) - 1)
+            WHEN ? = 'strip' THEN ABS(COALESCE(json_array_length(tv.slots_json), 3) - 3)
+            ELSE 0
+          END ASC,
+          t.created_at DESC
+        LIMIT 1
+      `).get(eventId, targetOrientation, targetOrientation, targetOrientation, targetOrientation, sessionMode, sessionMode);
     }
 
     // 3. Match by matching orientation across non-archived templates
@@ -166,8 +173,15 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, 
             OR (? = 'landscape' AND (t.orientation = 'landscape' OR t.width > t.height))
             OR (? = 'strip' AND t.orientation = 'strip')
           )
-        ORDER BY t.created_at DESC LIMIT 1
-      `).get(targetOrientation, targetOrientation, targetOrientation, targetOrientation);
+        ORDER BY 
+          CASE 
+            WHEN ? = 'single' THEN ABS(COALESCE(json_array_length(tv.slots_json), 1) - 1)
+            WHEN ? = 'strip' THEN ABS(COALESCE(json_array_length(tv.slots_json), 3) - 3)
+            ELSE 0
+          END ASC,
+          t.created_at DESC
+        LIMIT 1
+      `).get(targetOrientation, targetOrientation, targetOrientation, targetOrientation, sessionMode, sessionMode);
     }
 
     // 4. Fallback to any template for this event
