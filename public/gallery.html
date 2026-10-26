@@ -590,7 +590,7 @@
       <img src="/assets/logo-mafaza.jpg" alt="Mafaza" style="width: 76px; height: 76px; border-radius: 18px; object-fit: cover; border: 2px solid #D4A754; box-shadow: 0 8px 20px rgba(0,0,0,0.4);">
     </div>
     <div style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 10px;">
-      <span class="sticker-badge sticker-mustard" style="font-size: 12px; background: rgba(212, 167, 84, 0.25); color: #FFFBF5; border-color: rgba(255,255,255,0.4);">
+      <span id="galleryTypeBadge" class="sticker-badge sticker-mustard" style="font-size: 12px; background: rgba(212, 167, 84, 0.25); color: #FFFBF5; border-color: rgba(255,255,255,0.4);">
         🎉 Galeri Foto Eksklusif Tamu
       </span>
     </div>
@@ -641,7 +641,22 @@
   </div>
 
   <script>
-    const token = window.location.pathname.split('/gallery/g/')[1];
+    const currentPath = window.location.pathname;
+    const urlParams = new URLSearchParams(window.location.search);
+    const eventParam = urlParams.get('event') || urlParams.get('e');
+    const tokenParam = urlParams.get('token') || urlParams.get('g');
+
+    const isEventGalleryMode = currentPath.includes('/gallery/e/') || currentPath.includes('/gallery/event/') || Boolean(eventParam);
+    let resolvedApiUrl = '';
+
+    if (isEventGalleryMode) {
+      const eventId = eventParam || currentPath.split(/\/gallery\/(?:e|event)\//)[1]?.split('?')[0];
+      if (eventId) resolvedApiUrl = `/api/gallery/e/${encodeURIComponent(eventId)}`;
+    } else {
+      const token = tokenParam || currentPath.split('/gallery/g/')[1]?.split('?')[0];
+      if (token) resolvedApiUrl = `/api/gallery/g/${encodeURIComponent(token)}`;
+    }
+
     let currentEventName = 'Photobooth Event';
 
     function formatSessionTime(timestamp, timezone = 'Asia/Makassar') {
@@ -676,9 +691,21 @@
     const frameSessionControllers = {};
 
     window.addEventListener('DOMContentLoaded', async () => {
-      if (!token) return;
+      if (!resolvedApiUrl) {
+        const container = document.getElementById('galleryContainer');
+        if (container) {
+          container.innerHTML = `
+            <div style="text-align: center; padding: 60px 20px; color: var(--text-muted); background: #fff; border-radius: 24px; border: 2px dashed var(--border-soft);">
+              <span style="font-size: 38px; display: block; margin-bottom: 12px;">🎟️</span>
+              <span style="font-size: 16px; font-weight: 700; color: var(--caramel-brown);">Silakan scan QR Code Anda untuk mengakses galeri foto.</span>
+            </div>
+          `;
+        }
+        return;
+      }
+
       try {
-        const res = await fetch(`/api/gallery/g/${token}`);
+        const res = await fetch(resolvedApiUrl);
         if (res.ok) {
           const data = await res.json();
           if (data.guestPass) {
@@ -687,6 +714,14 @@
               document.getElementById('eventTitle').innerText = data.guestPass.eventName;
               document.title = `Mafaza — ${data.guestPass.eventName}`;
             }
+
+            const typeBadge = document.getElementById('galleryTypeBadge');
+            const subTitleEl = document.getElementById('eventSubtitle');
+            if (data.isEventGallery && typeBadge) {
+              typeBadge.innerHTML = `🎪 Galeri Acara • ${data.sessions ? data.sessions.length : 0} Sesi Foto`;
+              if (subTitleEl) subTitleEl.innerText = 'Semua foto tamu yang diambil di acara ini (foto frame & foto asli tanpa frame)';
+            }
+
             const expEl = document.getElementById('eventExpiryText');
             if (data.guestPass.expiresAt) {
               const expDate = new Date(data.guestPass.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });

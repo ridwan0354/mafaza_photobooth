@@ -1858,6 +1858,65 @@
     </div>
   </div>
 
+  <!-- 4B. EVENT MASTER GALLERY QR MODAL (SEMUA FOTO ACARA) -->
+  <div id="eventQrModal" style="display: none; position: fixed; inset: 0; z-index: 10001; background: rgba(30, 15, 10, 0.82); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;">
+    <div class="card-pop" style="max-width: 520px; width: 100%; max-height: 94vh; overflow-y: auto; background: #fff; padding: 28px; position: relative; border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.38); text-align: center;">
+      <button onclick="closeEventQrModal()" style="position: absolute; top: 18px; right: 18px; width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--border-soft); background: var(--cream-card); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">✕</button>
+
+      <div style="font-size: 34px; margin-bottom: 4px;">🎪</div>
+      <h3 style="font-size: 22px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 6px 0;" id="eventQrModalTitle">
+        QR Galeri Acara
+      </h3>
+      <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 16px 0;" id="eventQrModalSubtitle">
+        Scan QR ini untuk melihat seluruh foto tamu di acara ini (foto jadi berbingkai &amp; foto asli)
+      </p>
+
+      <!-- Event Summary Box -->
+      <div style="background: var(--cream-card); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 12px 16px; margin-bottom: 18px; display: flex; justify-content: space-around; text-align: center;">
+        <div>
+          <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Total Sesi Tamu</div>
+          <div id="eventQrModalSessionCount" style="font-size: 22px; font-weight: 900; color: var(--coral-pink);">-</div>
+        </div>
+        <div style="border-right: 1.5px solid var(--border-soft);"></div>
+        <div>
+          <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;">Total File Foto</div>
+          <div id="eventQrModalPhotoCount" style="font-size: 22px; font-weight: 900; color: var(--dusty-teal);">-</div>
+        </div>
+      </div>
+
+      <!-- Big QR Code Display Box with Logo Badge -->
+      <div style="background: #fff; border: 2.5px solid var(--border-soft); border-radius: 20px; padding: 18px; display: inline-block; margin-bottom: 16px; box-shadow: 0 8px 24px rgba(123, 72, 46, 0.1);">
+        <img id="eventQrModalImg" src="" alt="QR Galeri Acara" style="width: 240px; height: 240px; display: block; border-radius: 12px; margin: 0 auto;">
+        <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 10px; font-weight: 700;">
+          ✨ Memuat seluruh foto tamu (foto frame &amp; foto raw tanpa frame)
+        </div>
+      </div>
+
+      <!-- Gallery Link & Copy Box -->
+      <div style="background: var(--cream-bg); border-radius: 12px; padding: 10px 14px; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+        <div style="text-align: left; overflow: hidden; flex: 1;">
+          <div style="font-size: 10.5px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Link Galeri Acara</div>
+          <div id="eventQrModalUrlText" style="font-family: monospace; font-size: 11.5px; color: var(--coral); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            -
+          </div>
+        </div>
+        <button type="button" class="btn btn-sm btn-secondary" onclick="copyEventQrGalleryLink()" style="padding: 6px 12px; font-size: 12px; font-weight: 700; white-space: nowrap; background: #fff;">
+          📋 Salin Link
+        </button>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+        <a id="eventQrModalBtnOpenGallery" href="#" target="_blank" class="btn btn-coral" style="flex: 1; min-width: 160px; padding: 11px; font-size: 13.5px; font-weight: 700; text-decoration: none; text-align: center;">
+          📱 Buka Galeri HP ↗
+        </a>
+        <a id="eventQrModalBtnDownloadQr" href="#" download="QR_Galeri_Acara.png" class="btn btn-secondary" style="flex: 1; min-width: 160px; padding: 11px; font-size: 13.5px; font-weight: 700; text-decoration: none; text-align: center; background: #fff;">
+          💾 Simpan Gambar QR
+        </a>
+      </div>
+    </div>
+  </div>
+
   <!-- 5. QUICK PRINT COPIES POPUP MODAL -->
   <div id="quickPrintModal" style="display: none; position: fixed; inset: 0; z-index: 10002; background: rgba(30, 15, 10, 0.82); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;">
     <div class="card-pop" style="max-width: 440px; width: 100%; background: #fff; padding: 26px; position: relative; border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.38); text-align: center;">

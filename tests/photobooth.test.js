@@ -542,4 +542,78 @@ test('PHOTOBOOTH SAAS FULL SYSTEM - COMPREHENSIVE TEST SUITE', async (t) => {
     // Ensure center is not pure blank white (255, 255, 255)
     assert.ok(!(r === 255 && g === 255 && b === 255), 'Center contains brand logo pixels instead of empty space');
   });
+
+  await t.test('15. Master Event Gallery & QR Action for Framed and Unframed Photos', async () => {
+    const { getEventGalleryData } = await import('../src/services/qr.js');
+    const tenantId = 'tenant_studiokeren_01';
+
+    // 1. Create a dedicated test event
+    const ev = eventService.createEvent(tenantId, {
+      name: 'Event Akikah & Tasyakuran ' + Date.now(),
+      timezone: 'Asia/Makassar'
+    });
+
+    // 2. Create 2 photo sessions for this event with framed and unframed captures
+    const sess1Id = 'sess_ev_test_1_' + Date.now();
+    const sess2Id = 'sess_ev_test_2_' + Date.now();
+
+    db.prepare(`
+      INSERT INTO photo_sessions (id, tenant_id, event_id, mode, status, started_at)
+      VALUES (?, ?, ?, 'strip', 'completed', datetime('now', '-10 minutes'))
+    `).run(sess1Id, tenantId, ev.id);
+
+    db.prepare(`
+      INSERT INTO photo_sessions (id, tenant_id, event_id, mode, status, started_at)
+      VALUES (?, ?, ?, 'single', 'completed', datetime('now'))
+    `).run(sess2Id, tenantId, ev.id);
+
+    // Seed session 1: framed photo + 2 raw unframed captures
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path)
+      VALUES (?, ?, ?, ?, 'final_photo', 'print_hires', '/uploads/final_s1.jpg')
+    `).run('asset_f1_' + Date.now(), tenantId, ev.id, sess1Id);
+
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path)
+      VALUES (?, ?, ?, ?, 'raw_capture', 'pose_1', '/uploads/raw_s1_p1.jpg')
+    `).run('asset_r1_' + Date.now(), tenantId, ev.id, sess1Id);
+
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path)
+      VALUES (?, ?, ?, ?, 'raw_capture', 'pose_2', '/uploads/raw_s1_p2.jpg')
+    `).run('asset_r2_' + Date.now(), tenantId, ev.id, sess1Id);
+
+    // Seed session 2: framed photo + 1 raw unframed capture
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path)
+      VALUES (?, ?, ?, ?, 'final_photo', 'print_hires', '/uploads/final_s2.jpg')
+    `).run('asset_f2_' + Date.now(), tenantId, ev.id, sess2Id);
+
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path)
+      VALUES (?, ?, ?, ?, 'raw_capture', 'pose_1', '/uploads/raw_s2_p1.jpg')
+    `).run('asset_r3_' + Date.now(), tenantId, ev.id, sess2Id);
+
+    // 3. Query Master Event Gallery Data
+    const gallery = getEventGalleryData(ev.id);
+    assert.ok(gallery, 'Gallery data should load for event');
+    assert.strictEqual(gallery.isEventGallery, true, 'isEventGallery flag is true');
+    assert.strictEqual(gallery.guestPass.eventName, ev.name);
+    assert.strictEqual(gallery.sessions.length, 2, 'Both photo sessions returned');
+
+    // 4. Verify framed and unframed assets per session
+    const s1 = gallery.sessions.find(s => s.id === sess1Id);
+    assert.ok(s1, 'Session 1 present in event gallery');
+    const s1Framed = s1.media.find(m => m.type === 'final_photo');
+    const s1Raw = s1.media.filter(m => m.type === 'raw_capture');
+    assert.ok(s1Framed && s1Framed.filePath === '/uploads/final_s1.jpg', 'Framed photo present in session 1');
+    assert.strictEqual(s1Raw.length, 2, 'Session 1 has 2 unframed raw captures');
+
+    const s2 = gallery.sessions.find(s => s.id === sess2Id);
+    assert.ok(s2, 'Session 2 present in event gallery');
+    const s2Framed = s2.media.find(m => m.type === 'final_photo');
+    const s2Raw = s2.media.filter(m => m.type === 'raw_capture');
+    assert.ok(s2Framed && s2Framed.filePath === '/uploads/final_s2.jpg', 'Framed photo present in session 2');
+    assert.strictEqual(s2Raw.length, 1, 'Session 2 has 1 unframed raw capture');
+  });
 });

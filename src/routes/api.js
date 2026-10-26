@@ -326,6 +326,48 @@ apiRouter.get('/events/:id', (req, res) => {
   res.json(event);
 });
 
+// Endpoint untuk mendapatkan QR code galeri lengkap sebuah Event (memuat seluruh foto tamu)
+apiRouter.get('/events/:id/qr', async (req, res) => {
+  try {
+    const eventId = req.params.id;
+    const ev = db.prepare(`
+      SELECT e.*, t.name as tenant_name 
+      FROM events e 
+      JOIN tenants t ON e.tenant_id = t.id 
+      WHERE e.id = ?
+    `).get(eventId);
+
+    if (!ev) return res.status(404).json({ error: 'Event tidak ditemukan' });
+
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const galleryUrl = `/gallery/e/${ev.id}`;
+    const fullQrUrl = `${baseUrl.replace(/\/$/, '')}${galleryUrl}`;
+    const qrDataUrl = await qrService.createQrWithLogoDataUrl(fullQrUrl, { size: 360 });
+
+    const stats = db.prepare(`
+      SELECT 
+        COUNT(DISTINCT ps.id) as session_count,
+        COUNT(DISTINCT ma.id) as media_count
+      FROM photo_sessions ps
+      LEFT JOIN media_assets ma ON ma.photo_session_id = ps.id
+      WHERE ps.event_id = ?
+    `).get(ev.id);
+
+    res.json({
+      eventId: ev.id,
+      eventName: ev.name,
+      tenantName: ev.tenant_name,
+      galleryUrl,
+      fullQrUrl,
+      qrDataUrl,
+      sessionCount: stats?.session_count || 0,
+      photoCount: stats?.media_count || 0
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 apiRouter.patch('/events/:id', authMiddleware(), (req, res) => {
   try {
     const event = eventService.updateEventConfig(req.params.id, req.user.tenantId, req.body);
@@ -964,6 +1006,15 @@ apiRouter.get('/gallery/g/:token', (req, res) => {
   const data = qrService.getGuestGalleryData(req.params.token);
   if (!data) {
     return res.status(404).json({ error: 'Galeri tidak ditemukan atau QR telah kedaluwarsa' });
+  }
+  res.json(data);
+});
+
+// Master Event Gallery Route (seluruh foto tamu di acara)
+apiRouter.get(['/gallery/e/:eventId', '/gallery/event/:eventId'], (req, res) => {
+  const data = qrService.getEventGalleryData(req.params.eventId);
+  if (!data) {
+    return res.status(404).json({ error: 'Galeri event tidak ditemukan atau belum memiliki foto' });
   }
   res.json(data);
 });

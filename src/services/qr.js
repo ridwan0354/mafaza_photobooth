@@ -379,8 +379,16 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, 
 }
 
 export function getGuestGalleryData(token) {
-  let pass = resolveGuestPass(token);
-  const cleanToken = token && token.includes('/gallery/g/') ? token.split('/gallery/g/')[1].split('?')[0] : token;
+  if (!token) return null;
+  const cleanToken = token.includes('/gallery/g/') ? token.split('/gallery/g/')[1].split('?')[0] : (token.includes('/gallery/e/') ? token.split('/gallery/e/')[1].split('?')[0] : token);
+
+  // Jika token mengarah ke event (misal event_...) arahkan langsung ke getEventGalleryData
+  if (cleanToken.startsWith('event_')) {
+    const evGallery = getEventGalleryData(cleanToken);
+    if (evGallery) return evGallery;
+  }
+
+  let pass = resolveGuestPass(cleanToken);
 
   if (!pass && cleanToken) {
     const session = db.prepare(`
@@ -485,6 +493,90 @@ export function getGuestGalleryData(token) {
       startsAt: pass.event_starts_at,
       expiresAt: pass.expires_at,
       template: tpl
+    },
+    sessions
+  };
+}
+
+/**
+ * Mengambil galeri lengkap seluruh foto dalam sebuah Event.
+ * Memuat semua sesi tamu (foto jadi berbingkai, foto asli/raw tanpa bingkai, live video & boomerang).
+ * @param {string} eventId
+ */
+export function getEventGalleryData(eventId) {
+  if (!eventId) return null;
+
+  const ev = db.prepare(`
+    SELECT e.*, t.name as tenant_name
+    FROM events e
+    JOIN tenants t ON e.tenant_id = t.id
+    WHERE e.id = ?
+  `).get(eventId);
+
+  if (!ev) return null;
+
+  let expiresAt = null;
+  if (ev.config_json) {
+    try {
+      const cfg = JSON.parse(ev.config_json);
+      if (cfg.galleryExpiryMode === 'forever' || cfg.galleryExpiry === 'forever') {
+        expiresAt = null;
+      } else if (cfg.galleryExpiryDate) {
+        expiresAt = `${cfg.galleryExpiryDate} 23:59:59`;
+      } else if (cfg.galleryExpiryDays) {
+        const days = parseInt(cfg.galleryExpiryDays) || 365;
+        const d = new Date(ev.created_at || Date.now());
+        d.setDate(d.getDate() + days);
+        expiresAt = d.toISOString();
+      }
+    } catch (e) {}
+  }
+
+  // Ambil semua sesi foto dalam event ini yang memiliki minimal satu aset media
+  const rawSessions = db.prepare(`
+    SELECT ps.*,
+           (SELECT json_group_array(json_object('id', ma.id, 'type', ma.type, 'variant', ma.variant, 'filePath', ma.file_path, 'createdAt', ma.created_at))
+            FROM (
+              SELECT * FROM media_assets 
+              WHERE photo_session_id = ps.id 
+              GROUP BY type, variant
+              ORDER BY CASE 
+                WHEN type = 'final_photo' THEN 1 
+                WHEN type = 'boomerang' THEN 2 
+                WHEN type = 'live_clip' THEN 3
+                WHEN type = 'live_photo' THEN 4 
+                WHEN type = 'raw_capture' THEN 5 
+                ELSE 6 
+              END ASC, variant ASC
+            ) ma) as media_json
+    FROM photo_sessions ps
+    WHERE ps.event_id = ?
+      AND EXISTS (SELECT 1 FROM media_assets WHERE photo_session_id = ps.id)
+    ORDER BY ps.started_at DESC
+  `).all(ev.id);
+
+  const defaultTpl = getEventTemplate(ev.id, 'portrait');
+
+  const sessions = rawSessions.map(s => {
+    const sTpl = getEventTemplate(s.event_id, s.mode, s.template_id) || defaultTpl;
+    return {
+      ...s,
+      template: sTpl,
+      media: JSON.parse(s.media_json || '[]')
+    };
+  });
+
+  return {
+    isEventGallery: true,
+    guestPass: {
+      id: ev.id,
+      token: ev.id,
+      eventName: ev.name,
+      tenantName: ev.tenant_name || 'Mafaza Moments',
+      timezone: ev.timezone || 'Asia/Makassar',
+      startsAt: ev.starts_at,
+      expiresAt: expiresAt,
+      template: defaultTpl
     },
     sessions
   };

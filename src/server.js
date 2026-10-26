@@ -151,6 +151,14 @@ app.get('/gallery/g/:token', (req, res) => {
   res.sendFile(path.join(publicDir, 'gallery.html'));
 });
 
+app.get(['/gallery/e/:eventId', '/gallery/event/:eventId'], (req, res) => {
+  res.sendFile(path.join(publicDir, 'gallery.html'));
+});
+
+app.get('/gallery', (req, res) => {
+  res.sendFile(path.join(publicDir, 'gallery.html'));
+});
+
 app.get('/', (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });

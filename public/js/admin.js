@@ -318,7 +318,10 @@ function renderEventsTable() {
         </td>
         <td><span class="badge-pill badge-active">${ev.status || 'active'}</span></td>
         <td>
-          <div style="display: flex; gap: 8px; align-items: center;">
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button class="btn btn-mustard" style="padding: 6px 12px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;" onclick="showEventQrModal('${ev.id}')" title="Lihat &amp; Unduh QR Galeri Seluruh Foto Event Ini">
+              🎟️ Lihat QR
+            </button>
             <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;" onclick="selectEventForEdit('${ev.id}')">
               ⚙️ Konfigurasi
             </button>
@@ -3112,6 +3115,80 @@ function copyQrGalleryLink() {
     alert('✅ Link galeri tamu berhasil disalin ke clipboard:\n\n' + activeQrData.fullQrUrl);
   }).catch(() => {
     prompt('Salin link galeri tamu:', activeQrData.fullQrUrl);
+  });
+}
+
+// ==========================================
+// EVENT MASTER GALLERY QR MODAL
+// ==========================================
+let currentEventQrData = null;
+
+async function showEventQrModal(eventId) {
+  const modal = document.getElementById('eventQrModal');
+  const titleEl = document.getElementById('eventQrModalTitle');
+  const subtitleEl = document.getElementById('eventQrModalSubtitle');
+  const sessCountEl = document.getElementById('eventQrModalSessionCount');
+  const photoCountEl = document.getElementById('eventQrModalPhotoCount');
+  const qrImg = document.getElementById('eventQrModalImg');
+  const urlText = document.getElementById('eventQrModalUrlText');
+  const btnOpen = document.getElementById('eventQrModalBtnOpenGallery');
+  const btnDownload = document.getElementById('eventQrModalBtnDownloadQr');
+
+  if (modal) modal.style.display = 'flex';
+  if (qrImg) qrImg.src = '';
+  if (urlText) urlText.textContent = 'Memuat QR...';
+  if (sessCountEl) sessCountEl.textContent = '...';
+  if (photoCountEl) photoCountEl.textContent = '...';
+
+  try {
+    const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/qr`, {
+      headers: {
+        'Authorization': `Bearer ${getAuthToken()}`
+      }
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || 'Gagal memuat QR event');
+    }
+
+    const data = await res.json();
+    currentEventQrData = data;
+
+    if (titleEl) titleEl.textContent = `QR Galeri: ${data.eventName || 'Acara'}`;
+    if (subtitleEl) subtitleEl.textContent = `Scan QR ini untuk melihat seluruh foto tamu di acara ${data.eventName || ''}`;
+    if (sessCountEl) sessCountEl.textContent = `${data.sessionCount} Sesi`;
+    if (photoCountEl) photoCountEl.textContent = `${data.photoCount} File`;
+    if (qrImg) qrImg.src = data.qrDataUrl;
+    if (urlText) urlText.textContent = data.fullQrUrl;
+
+    if (btnOpen) {
+      btnOpen.href = data.fullQrUrl;
+    }
+    if (btnDownload) {
+      btnDownload.href = data.qrDataUrl;
+      const cleanName = (data.eventName || 'Acara').replace(/[^a-zA-Z0-9_-]/g, '_');
+      btnDownload.download = `QR_Galeri_${cleanName}.png`;
+    }
+  } catch (err) {
+    console.error('showEventQrModal error:', err);
+    alert('Gagal memuat QR Code Event: ' + err.message);
+    closeEventQrModal();
+  }
+}
+
+function closeEventQrModal() {
+  const modal = document.getElementById('eventQrModal');
+  if (modal) modal.style.display = 'none';
+  currentEventQrData = null;
+}
+
+function copyEventQrGalleryLink() {
+  if (!currentEventQrData || !currentEventQrData.fullQrUrl) return;
+  navigator.clipboard.writeText(currentEventQrData.fullQrUrl).then(() => {
+    alert('✅ Link galeri acara berhasil disalin ke clipboard:\n\n' + currentEventQrData.fullQrUrl);
+  }).catch(() => {
+    prompt('Salin link galeri acara:', currentEventQrData.fullQrUrl);
   });
 }
 
