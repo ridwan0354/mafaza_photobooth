@@ -1097,23 +1097,26 @@
           }
           kCtx.putImageData(imgData, 0, 0);
 
-          if (slots.length === 0 && transparentHoleCount > 500) {
-            slots = [{
-              id: 'detected_slot_1',
-              pose_index: 1,
-              x: minX,
-              y: minY,
-              width: Math.max(100, maxX - minX),
-              height: Math.max(100, maxY - minY)
-            }];
+          if (transparentHoleCount > 500) {
+            // For single-photo sessions or 1-slot frames, expand slot to the entire transparent hole
+            if (slots.length <= 1) {
+              slots = [{
+                id: 'detected_slot_1',
+                pose_index: 1,
+                x: minX,
+                y: minY,
+                width: Math.max(100, maxX - minX),
+                height: Math.max(100, maxY - minY)
+              }];
+            }
           } else if (slots.length === 0) {
             slots = [{
               id: 'default_slot_1',
               pose_index: 1,
-              x: Math.round(tWidth * 0.08),
-              y: Math.round(tHeight * 0.14),
-              width: Math.round(tWidth * 0.84),
-              height: Math.round(tHeight * 0.70)
+              x: Math.round(tWidth * 0.06),
+              y: Math.round(tHeight * 0.12),
+              width: Math.round(tWidth * 0.88),
+              height: Math.round(tHeight * 0.76)
             }];
           }
         } catch(e) {
@@ -1177,18 +1180,24 @@
 
           if (pImg && pImg.complete && pImg.naturalWidth > 0) {
             mCtx.save();
+            const bleed = 35;
+            const clipX = Math.max(0, slot.x - bleed);
+            const clipY = Math.max(0, slot.y - bleed);
+            const clipW = Math.min(tWidth - clipX, slot.width + (bleed * 2));
+            const clipH = Math.min(tHeight - clipY, slot.height + (bleed * 2));
+
             mCtx.beginPath();
-            mCtx.rect(slot.x, slot.y, slot.width, slot.height);
+            mCtx.rect(clipX, clipY, clipW, clipH);
             mCtx.clip();
 
             const pulse = (rawImages.length === 1) ? (1.0 + 0.035 * Math.sin(currentFrameIdx * 0.2)) : 1.0;
-            const baseScale = Math.max(slot.width / pImg.naturalWidth, slot.height / pImg.naturalHeight);
+            const baseScale = Math.max(clipW / pImg.naturalWidth, clipH / pImg.naturalHeight);
             const finalScale = baseScale * pulse;
 
             const drawW = pImg.naturalWidth * finalScale;
             const drawH = pImg.naturalHeight * finalScale;
-            const drawX = slot.x + (slot.width / 2) - (drawW / 2);
-            const drawY = slot.y + (slot.height / 2) - (drawH / 2);
+            const drawX = clipX + (clipW / 2) - (drawW / 2);
+            const drawY = clipY + (clipH / 2) - (drawH / 2);
 
             mCtx.drawImage(pImg, drawX, drawY, drawW, drawH);
             mCtx.restore();
@@ -1227,22 +1236,28 @@
 
         for (let sIdx = 0; sIdx < activeSlots.length; sIdx++) {
           const slot = activeSlots[sIdx];
+          const bleed = 35;
+          const clipX = Math.max(0, slot.x - bleed);
+          const clipY = Math.max(0, slot.y - bleed);
+          const clipW = Math.min(tWidth - clipX, slot.width + (bleed * 2));
+          const clipH = Math.min(tHeight - clipY, slot.height + (bleed * 2));
+
           mCtx.save();
           mCtx.beginPath();
-          mCtx.rect(slot.x, slot.y, slot.width, slot.height);
+          mCtx.rect(clipX, clipY, clipW, clipH);
           mCtx.clip();
 
           // Mirror horizontally so video matches the photo
-          mCtx.translate(slot.x + slot.width, 0);
+          mCtx.translate(clipX + clipW, 0);
           mCtx.scale(-1, 1);
 
           const vW = liveVideo.videoWidth || 1280;
           const vH = liveVideo.videoHeight || 720;
-          const baseScale = Math.max(slot.width / vW, slot.height / vH);
+          const baseScale = Math.max(clipW / vW, clipH / vH);
           const drawW = vW * baseScale;
           const drawH = vH * baseScale;
-          const drawX = (slot.width - drawW) / 2;
-          const drawY = slot.y + (slot.height - drawH) / 2;
+          const drawX = (clipW - drawW) / 2;
+          const drawY = clipY + (clipH - drawH) / 2;
 
           mCtx.drawImage(liveVideo, drawX, drawY, drawW, drawH);
           mCtx.restore();
@@ -1461,21 +1476,27 @@
 
                 for (let sIdx = 0; sIdx < activeSlots.length; sIdx++) {
                   const slot = activeSlots[sIdx];
+                  const bleed = 35;
+                  const clipX = Math.max(0, slot.x - bleed);
+                  const clipY = Math.max(0, slot.y - bleed);
+                  const clipW = Math.min(tWidth - clipX, slot.width + (bleed * 2));
+                  const clipH = Math.min(tHeight - clipY, slot.height + (bleed * 2));
+
                   eCtx.save();
                   eCtx.beginPath();
-                  eCtx.rect(slot.x, slot.y, slot.width, slot.height);
+                  eCtx.rect(clipX, clipY, clipW, clipH);
                   eCtx.clip();
 
-                  eCtx.translate(slot.x + slot.width, 0);
+                  eCtx.translate(clipX + clipW, 0);
                   eCtx.scale(-1, 1);
 
                   const vW = liveVideo.videoWidth || 1280;
                   const vH = liveVideo.videoHeight || 720;
-                  const baseScale = Math.max(slot.width / vW, slot.height / vH);
+                  const baseScale = Math.max(clipW / vW, clipH / vH);
                   const drawW = vW * baseScale;
                   const drawH = vH * baseScale;
-                  const drawX = (slot.width - drawW) / 2;
-                  const drawY = slot.y + (slot.height - drawH) / 2;
+                  const drawX = (clipW - drawW) / 2;
+                  const drawY = clipY + (clipH - drawH) / 2;
 
                   eCtx.drawImage(liveVideo, drawX, drawY, drawW, drawH);
                   eCtx.restore();
@@ -1503,18 +1524,24 @@
 
                   if (pImg && pImg.complete && pImg.naturalWidth > 0) {
                     eCtx.save();
+                    const bleed = 35;
+                    const clipX = Math.max(0, slot.x - bleed);
+                    const clipY = Math.max(0, slot.y - bleed);
+                    const clipW = Math.min(tWidth - clipX, slot.width + (bleed * 2));
+                    const clipH = Math.min(tHeight - clipY, slot.height + (bleed * 2));
+
                     eCtx.beginPath();
-                    eCtx.rect(slot.x, slot.y, slot.width, slot.height);
+                    eCtx.rect(clipX, clipY, clipW, clipH);
                     eCtx.clip();
 
                     const pulse = (rawImages.length === 1) ? (1.0 + 0.035 * Math.sin(f * 0.2)) : 1.0;
-                    const baseScale = Math.max(slot.width / pImg.naturalWidth, slot.height / pImg.naturalHeight);
+                    const baseScale = Math.max(clipW / pImg.naturalWidth, clipH / pImg.naturalHeight);
                     const finalScale = baseScale * pulse;
 
                     const drawW = pImg.naturalWidth * finalScale;
                     const drawH = pImg.naturalHeight * finalScale;
-                    const drawX = slot.x + (slot.width / 2) - (drawW / 2);
-                    const drawY = slot.y + (slot.height / 2) - (drawH / 2);
+                    const drawX = clipX + (clipW / 2) - (drawW / 2);
+                    const drawY = clipY + (clipH / 2) - (drawH / 2);
 
                     eCtx.drawImage(pImg, drawX, drawY, drawW, drawH);
                     eCtx.restore();
