@@ -3118,6 +3118,15 @@ function copyQrGalleryLink() {
   });
 }
 
+// Helper token auth aman
+function getAuthToken() {
+  try {
+    return localStorage.getItem('pb_admin_token') || '';
+  } catch (e) {
+    return '';
+  }
+}
+
 // ==========================================
 // EVENT MASTER GALLERY QR MODAL
 // ==========================================
@@ -3141,11 +3150,7 @@ async function showEventQrModal(eventId) {
   if (photoCountEl) photoCountEl.textContent = '...';
 
   try {
-    const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/qr`, {
-      headers: {
-        'Authorization': `Bearer ${getAuthToken()}`
-      }
-    });
+    const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/qr`);
 
     if (!res.ok) {
       const err = await res.json();
@@ -3191,6 +3196,10 @@ function copyEventQrGalleryLink() {
     prompt('Salin link galeri acara:', currentEventQrData.fullQrUrl);
   });
 }
+
+window.showEventQrModal = showEventQrModal;
+window.closeEventQrModal = closeEventQrModal;
+window.copyEventQrGalleryLink = copyEventQrGalleryLink;
 
 async function executeModalReprint() {
   if (!activeModalPhoto) return;
