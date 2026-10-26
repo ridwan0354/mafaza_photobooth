@@ -641,9 +641,9 @@
   </div>
 
   <!-- 5. Fallback Share Options Modal -->
-  <div id="galleryShareModal" style="display: none; position: fixed; inset: 0; z-index: 10005; background: rgba(30, 15, 10, 0.82); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;">
-    <div class="card-pop" style="max-width: 440px; width: 100%; background: #fff; padding: 26px; position: relative; border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.38); text-align: center;">
-      <button onclick="closeShareModal()" style="position: absolute; top: 18px; right: 18px; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border-soft); background: var(--cream-card); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px;">✕</button>
+  <div id="galleryShareModal" onclick="if (event.target === this) closeShareModal()" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 10005; background: rgba(30, 15, 10, 0.82); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
+    <div class="card-pop" style="max-width: 440px; width: 100%; background: #fff; padding: 26px; position: relative; border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.38); text-align: center; box-sizing: border-box;">
+      <button type="button" onclick="closeShareModal()" style="position: absolute; top: 18px; right: 18px; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border-soft); background: var(--cream-card); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px;">✕</button>
 
       <div style="font-size: 38px; margin-bottom: 6px;">📲</div>
       <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 6px 0;">Bagikan Galeri</h3>
@@ -671,12 +671,14 @@
 
     const isEventGalleryMode = currentPath.includes('/gallery/e/') || currentPath.includes('/gallery/event/') || Boolean(eventParam);
     let resolvedApiUrl = '';
+    let currentGuestToken = '';
 
     if (isEventGalleryMode) {
       const eventId = eventParam || currentPath.split(/\/gallery\/(?:e|event)\//)[1]?.split('?')[0];
       if (eventId) resolvedApiUrl = `/api/gallery/e/${encodeURIComponent(eventId)}`;
     } else {
       const token = tokenParam || currentPath.split('/gallery/g/')[1]?.split('?')[0];
+      currentGuestToken = token || '';
       if (token) resolvedApiUrl = `/api/gallery/g/${encodeURIComponent(token)}`;
     }
 
@@ -1426,10 +1428,8 @@
             if (hint) hint.style.display = 'none';
 
             if (btnDownload) {
-              btnDownload.href = stillSrc;
-              btnDownload.setAttribute('download', `Photobooth_${sessionId}.jpg`);
               btnDownload.innerHTML = '⬇️ Unduh Foto HD';
-              btnDownload.onclick = null;
+              btnDownload.onclick = () => downloadMainPhoto(sessionId, stillSrc);
             }
             if (btnShare) {
               btnShare.onclick = () => shareMedia(stillSrc, 'Foto HD Berframe');
@@ -2281,10 +2281,14 @@
     };
 
     function openShareModal(fileUrl = '', title = '', text = '') {
+      const pageUrl = window.location.href;
+      const shareTitle = title || `Foto Photobooth - ${currentEventName || 'Acara Spesial'}`;
+      const defaultText = `Lihat foto & video seru kita di ${currentEventName || 'Photobooth'}! 🎉📸`;
+
       currentSharePayload.fileUrl = fileUrl || '';
-      currentSharePayload.title = title || `Foto Photobooth - ${currentEventName || 'Acara Spesial'}`;
-      currentSharePayload.url = window.location.href;
-      currentSharePayload.text = text || `Lihat foto & video seru kita di ${currentEventName || 'Photobooth'}! 🎉📸\n${window.location.href}`;
+      currentSharePayload.title = shareTitle;
+      currentSharePayload.url = pageUrl;
+      currentSharePayload.text = text || defaultText;
 
       const modal = document.getElementById('galleryShareModal');
       const openBtn = document.getElementById('shareModalOpenPhotoBtn');
@@ -2305,12 +2309,19 @@
     }
 
     async function copyGalleryShareUrl() {
+      const shareUrl = currentSharePayload.url || window.location.href;
       try {
-        await navigator.clipboard.writeText(currentSharePayload.url);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(shareUrl);
+        } else {
+          throw new Error('Clipboard API fallback');
+        }
         showToast('✅ Tautan galeri disalin ke clipboard!');
       } catch (e) {
         const t = document.createElement('textarea');
-        t.value = currentSharePayload.url;
+        t.value = shareUrl;
+        t.style.position = 'fixed';
+        t.style.opacity = '0';
         document.body.appendChild(t);
         t.select();
         document.execCommand('copy');
@@ -2321,44 +2332,67 @@
     }
 
     function shareToWhatsAppAction() {
-      const waText = encodeURIComponent(`${currentSharePayload.text}\n${currentSharePayload.url}`);
-      window.open(`https://api.whatsapp.com/send?text=${waText}`, '_blank');
+      const shareUrl = currentSharePayload.url || window.location.href;
+      const shareText = currentSharePayload.text || `Lihat foto & video seru kita di ${currentEventName || 'Photobooth'}! 🎉📸`;
+      const fullMsg = `${shareText}\n${shareUrl}`;
+      const waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(fullMsg)}`;
+      window.open(waUrl, '_blank');
       closeShareModal();
     }
 
     async function shareMedia(photoUrl, title = 'Foto Photobooth', customText = '') {
-      if (token) {
-        fetch(`/api/gallery/g/${token}/share-click`, { method: 'POST' }).catch(() => {});
-      }
-      const pageUrl = window.location.href;
-      const shareTitle = title || `Foto Photobooth - ${currentEventName || 'Acara Spesial'}`;
-      const shareText = customText || `Lihat foto & video seru kita di ${currentEventName || 'Photobooth'}! 🎉📸\n${pageUrl}`;
+      try {
+        if (currentGuestToken) {
+          fetch(`/api/gallery/g/${encodeURIComponent(currentGuestToken)}/share-click`, { method: 'POST' }).catch(() => {});
+        }
+        const pageUrl = window.location.href;
+        const shareTitle = title || `Foto Photobooth - ${currentEventName || 'Acara Spesial'}`;
+        const cleanEvent = currentEventName || 'Photobooth';
+        const shareText = customText || `Lihat foto & video seru kita di ${cleanEvent}! 🎉📸`;
 
-      currentSharePayload = {
-        url: pageUrl,
-        title: shareTitle,
-        text: shareText,
-        fileUrl: photoUrl || ''
-      };
+        currentSharePayload = {
+          url: pageUrl,
+          title: shareTitle,
+          text: shareText,
+          fileUrl: photoUrl || ''
+        };
 
-      // Native Web Share API (Android Chrome & iOS Safari)
-      // Dipanggil langsung secara sinkron dalam respon klik agar token gesture user tidak kedaluwarsa.
-      if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-        try {
-          await navigator.share({
+        // 1. Native Web Share API (Android Chrome & iOS Safari)
+        if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+          const shareData = {
             title: shareTitle,
             text: shareText,
             url: pageUrl
-          });
-          return;
-        } catch (err) {
-          if (err.name === 'AbortError') return; // User membatalkan menu share native
-          console.warn('Native share sheet skipped or failed, opening fallback modal:', err);
-        }
-      }
+          };
 
-      // Fallback jika tidak didukung atau dibatalkan browser: buka modal pilihan share
-      openShareModal(photoUrl, shareTitle, shareText);
+          let canShare = true;
+          if (typeof navigator.canShare === 'function') {
+            try {
+              canShare = navigator.canShare(shareData);
+            } catch (csErr) {
+              canShare = true;
+            }
+          }
+
+          if (canShare) {
+            try {
+              await navigator.share(shareData);
+              return;
+            } catch (err) {
+              if (err && (err.name === 'AbortError' || (err.message && err.message.includes('Abort')))) {
+                return; // User membatalkan menu share native
+              }
+              console.warn('Native share sheet skipped or failed, opening fallback modal:', err);
+            }
+          }
+        }
+
+        // 2. Fallback jika tidak didukung atau dibatalkan browser: buka modal pilihan share
+        openShareModal(photoUrl, shareTitle, shareText);
+      } catch (err) {
+        console.error('shareMedia fallback error:', err);
+        openShareModal(photoUrl, title, customText);
+      }
     }
 
     function shareBoomerang(sessionId, filePath) {
