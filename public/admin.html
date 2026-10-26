@@ -1719,36 +1719,48 @@
             <div id="modalPhotoQrInfo" style="font-size: 12px; color: var(--text-muted); line-height: 1.4; margin-top: 4px;">-</div>
           </div>
 
-          <div style="margin-bottom: 18px;">
-            <label style="display: block; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
-              Jumlah Lembar Cetak
-            </label>
-            <select id="modalPrintCopies" style="width: 100%; padding: 10px 14px; background: var(--cream-white); border: 2px solid var(--soft-gray); border-radius: 10px; font-size: 14px; font-weight: 700;">
-              <option value="1">1 Lembar Cetak</option>
-              <option value="2" selected>2 Lembar Cetak (Standard Photostrip)</option>
-              <option value="3">3 Lembar Cetak</option>
-              <option value="4">4 Lembar Cetak</option>
-            </select>
-          </div>
+          <!-- KELOMPOK 1: CETAK FOTO -->
+          <div style="background: var(--cream-card); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 12px 14px; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <span style="font-size: 11.5px; font-weight: 800; color: var(--caramel-brown); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 5px;">
+                <span>🖨️</span> Opsi Cetak
+              </span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <label style="font-size: 11.5px; font-weight: 700; color: var(--text-muted);">Jumlah:</label>
+                <select id="modalPrintCopies" style="padding: 5px 8px; background: #fff; border: 1.5px solid var(--border-soft); border-radius: 8px; font-size: 12.5px; font-weight: 700; color: var(--dark-roast);">
+                  <option value="1">1 Lembar</option>
+                  <option value="2" selected>2 Lembar (Standard)</option>
+                  <option value="3">3 Lembar</option>
+                  <option value="4">4 Lembar</option>
+                </select>
+              </div>
+            </div>
 
-          <div style="display: flex; flex-direction: column; gap: 10px;">
-            <button id="modalBtnReprint" class="btn btn-coral" style="width: 100%; font-size: 15px; padding: 13px; font-weight: 800;" onclick="executeModalReprint()">
-              🖨️ Cetak / Print Ulang Sekarang
+            <button id="modalBtnReprint" class="btn btn-coral" style="width: 100%; font-size: 14px; padding: 11px; font-weight: 800; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 6px;" onclick="executeModalReprint()">
+              🖨️ Kirim Cetak ke Spooler
             </button>
-            <button type="button" class="btn btn-secondary" style="width: 100%; padding: 11px; font-weight: 700; font-size: 13.5px; background: var(--cream-bg); color: var(--caramel-brown);" onclick="printModalPhotoViaDevice()">
+            <button type="button" class="btn" style="width: 100%; padding: 7px 10px; font-weight: 700; font-size: 11.5px; background: rgba(123,72,46,0.06); color: var(--caramel-brown); border: 1px dashed var(--border-soft); border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;" onclick="printModalPhotoViaDevice()" title="Gunakan dialog printer bawaan komputer jika spooler tidak terhubung">
               🖨️ Cetak via Dialog Browser (Cadangan)
             </button>
-            <button type="button" id="modalBtnViewQr" class="btn btn-secondary" style="width: 100%; padding: 11px; font-weight: 800; font-size: 14px; background: #fff; border: 2px solid var(--dusty-teal); color: var(--dusty-teal); display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 2px 8px rgba(45, 122, 122, 0.1);" onclick="openPhotoQrModal()">
-              🎟️ Lihat QR Code &amp; Alur Tamu
+          </div>
+
+          <!-- KELOMPOK 2: AKSES DIGITAL & FILE -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+            <button type="button" id="modalBtnViewQr" class="btn btn-secondary" style="padding: 9px 10px; font-weight: 800; font-size: 12.5px; background: #fff; border: 1.5px solid var(--dusty-teal); color: var(--dusty-teal); border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 6px;" onclick="openPhotoQrModal()">
+              🎟️ Lihat QR Code
             </button>
-            <a id="modalBtnDownload" href="#" download class="btn btn-secondary" style="width: 100%; text-align: center; text-decoration: none; padding: 11px; font-weight: 700; font-size: 14px; background: #fff;">
+            <a id="modalBtnGallery" href="#" target="_blank" class="btn btn-secondary" style="padding: 9px 10px; font-weight: 800; font-size: 12.5px; background: #fff; border: 1.5px solid var(--border-soft); color: var(--caramel-brown); border-radius: 10px; display: none; align-items: center; justify-content: center; gap: 6px; text-decoration: none;">
+              📱 Galeri Tamu ➔
+            </a>
+            <a id="modalBtnDownload" href="#" download class="btn btn-secondary" style="grid-column: span 2; padding: 9px 12px; font-weight: 700; font-size: 12.5px; background: #fff; border: 1.5px solid var(--border-soft); color: var(--caramel-brown); border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none;">
               ⬇️ Unduh File Foto (HD)
             </a>
-            <a id="modalBtnGallery" href="#" target="_blank" class="btn btn-secondary" style="width: 100%; text-align: center; text-decoration: none; padding: 11px; font-weight: 700; font-size: 14px; display: none; background: #fff;">
-              📱 Buka Galeri HP Tamu ➔
-            </a>
-            <button id="modalBtnDelete" type="button" class="btn btn-secondary" style="width: 100%; padding: 11px; font-weight: 800; font-size: 13.5px; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.35); margin-top: 4px;" onclick="deleteActiveModalPhoto()">
-              🗑️ Hapus Foto Ini Secara Permanen
+          </div>
+
+          <!-- KELOMPOK 3: HAPUS FOTO -->
+          <div style="display: flex; justify-content: flex-end; padding-top: 4px; border-top: 1px dashed var(--border-soft);">
+            <button id="modalBtnDelete" type="button" style="background: none; border: none; color: #B3402F; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; opacity: 0.85; padding: 5px 10px; border-radius: 6px; transition: all 0.15s ease;" onmouseover="this.style.opacity='1'; this.style.background='rgba(179,64,47,0.08)'" onmouseout="this.style.opacity='0.85'; this.style.background='none'" onclick="deleteActiveModalPhoto()">
+              🗑️ Hapus Foto Ini Permanen
             </button>
           </div>
         </div>

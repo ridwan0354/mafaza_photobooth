@@ -2972,7 +2972,7 @@ function openPhotoPreviewModal(photo) {
   if (btnGallery) {
     const targetToken = photo.guest_token || photo.guest_pass_id || photo.session_id;
     if (targetToken) {
-      btnGallery.style.display = 'block';
+      btnGallery.style.display = 'flex';
       btnGallery.href = `/gallery/g/${targetToken}`;
     } else {
       btnGallery.style.display = 'none';
