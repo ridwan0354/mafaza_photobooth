@@ -41,6 +41,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     switchTab(initialTab);
   }
 
+  setupAdminOfflineEngine();
   await syncActiveEvent();
   await loadEvents();
   await loadOverview();
@@ -89,6 +90,127 @@ function updateActiveEventUI(event) {
   }
 
   document.title = `Mafaza — ${event.name}`;
+}
+
+// ==========================================
+// OFFLINE ENGINE & HYBRID STORAGE FOR ADMIN
+// ==========================================
+function setupAdminOfflineEngine() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+  }
+
+  const banner = document.getElementById('adminOfflineBanner');
+  const pendingText = document.getElementById('adminOfflinePendingText');
+
+  const updateOfflineUI = async () => {
+    const isOnline = navigator.onLine;
+    let pendingCount = 0;
+    if (window.pbOfflineStore) {
+      try {
+        pendingCount = await window.pbOfflineStore.getPendingCount();
+        renderAdminOfflineQueue();
+      } catch (e) {}
+    }
+
+    if (banner) {
+      if (!isOnline || pendingCount > 0) {
+        banner.style.display = 'flex';
+        if (pendingText) {
+          pendingText.innerText = pendingCount > 0 ? `(${pendingCount} foto antre di perangkat menunggu internet)` : '';
+        }
+      } else {
+        banner.style.display = 'none';
+      }
+    }
+  };
+
+  window.addEventListener('online', () => {
+    updateOfflineUI();
+    if (window.pbToast) window.pbToast('🌐 Koneksi internet kembali aktif!', 'info', 3000);
+  });
+  window.addEventListener('offline', () => {
+    updateOfflineUI();
+    if (window.pbToast) window.pbToast('⚡ Mode Offline: Anda tetap dapat melihat data & cetak foto lokal!', 'warn', 4000);
+  });
+  if (window.pbOfflineStore) {
+    window.pbOfflineStore.subscribe(updateOfflineUI);
+  }
+  updateOfflineUI();
+}
+
+async function renderAdminOfflineQueue() {
+  const box = document.getElementById('offlineQueueBox');
+  const grid = document.getElementById('offlineSessionsGrid');
+  if (!box || !grid || !window.pbOfflineStore) return;
+
+  const sessions = await window.pbOfflineStore.getPendingSessions();
+  if (!sessions || sessions.length === 0) {
+    box.style.display = 'none';
+    grid.innerHTML = '';
+    return;
+  }
+
+  box.style.display = 'block';
+  grid.innerHTML = sessions.map((s) => {
+    const timeStr = new Date(s.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    return `
+      <div style="background: #fff; border: 1.5px solid #E5A823; border-radius: 14px; overflow: hidden; padding: 10px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
+        <div style="position: relative; width: 100%; aspect-ratio: 3/4; border-radius: 8px; overflow: hidden; background: #eee;">
+          <img src="${s.finalImage}" style="width: 100%; height: 100%; object-fit: contain; display: block;" alt="Foto Offline">
+          <span style="position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.72); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 99px;">
+            ⚡ ${timeStr}
+          </span>
+        </div>
+        <div style="font-size: 11.5px; font-weight: 700; color: var(--caramel-brown); display: flex; justify-content: space-between;">
+          <span>Sesi Offline</span>
+          <span style="color: var(--coral);">${s.printCopies || 1} Lembar</span>
+        </div>
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="btn btn-secondary" onclick="printOfflineSessionPhoto('${s.id}')" style="flex: 1; padding: 6px 4px; font-size: 11px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;" title="Cetak ulang ke printer yang terhubung">
+            🖨️ Cetak
+          </button>
+          <button type="button" class="btn btn-teal" onclick="syncSingleOfflineSession('${s.id}')" style="flex: 1; padding: 6px 4px; font-size: 11px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;" title="Unggah sesi ini ke cloud">
+            🚀 Unggah
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function printOfflineSessionPhoto(sessionId) {
+  if (!window.pbOfflineStore) return;
+  const sessions = await window.pbOfflineStore.getPendingSessions();
+  const target = sessions.find(s => s.id === sessionId);
+  if (!target || !target.finalImage) {
+    if (window.pbToast) window.pbToast('Data foto offline tidak ditemukan', 'error');
+    return;
+  }
+  const copies = target.printCopies || 1;
+  window.pbPrintViaBrowser({ imageUrl: target.finalImage, copies });
+}
+
+async function syncSingleOfflineSession(sessionId) {
+  if (!navigator.onLine) {
+    if (window.pbToast) window.pbToast('⚠️ Perangkat masih dalam keadaan offline (tanpa internet).', 'warn');
+    return;
+  }
+  if (!window.pbOfflineStore) return;
+  const sessions = await window.pbOfflineStore.getPendingSessions();
+  const target = sessions.find(s => s.id === sessionId);
+  if (!target) return;
+
+  try {
+    if (window.pbToast) window.pbToast('⏳ Mengunggah foto ke server cloud...', 'info', 2500);
+    await window.pbOfflineStore.uploadSession(target);
+    await window.pbOfflineStore.deleteSession(target.id);
+    if (window.pbToast) window.pbToast('✅ Berhasil mengunggah sesi foto offline!', 'success', 3500);
+    renderAdminOfflineQueue();
+    if (typeof loadRecentPhotos === 'function') await loadRecentPhotos(activeKioskEventId);
+  } catch (err) {
+    if (window.pbToast) window.pbToast('Gagal mengunggah: ' + err.message, 'error', 3500);
+  }
 }
 
 function escapeHtml(str) {
@@ -245,6 +367,24 @@ async function loadEvents() {
     const res = await fetch('/api/events');
     if (res.ok) {
       eventsList = await res.json();
+      try { localStorage.setItem('pb_cached_events', JSON.stringify(eventsList)); } catch (e) {}
+      if (!currentEditingEventId && eventsList.length > 0) {
+        currentEditingEventId = activeKioskEventId || eventsList[0].id;
+      }
+      renderEventsTable();
+      populateSelectedEventConfig();
+      if (typeof populatePrintQueueEventFilter === 'function') populatePrintQueueEventFilter();
+      return;
+    }
+  } catch (e) {
+    console.warn('Gagal memuat event dari jaringan, mencoba cache lokal offline:', e);
+  }
+
+  // Fallback cache offline
+  try {
+    const cached = localStorage.getItem('pb_cached_events');
+    if (cached) {
+      eventsList = JSON.parse(cached);
       if (!currentEditingEventId && eventsList.length > 0) {
         currentEditingEventId = activeKioskEventId || eventsList[0].id;
       }
@@ -252,9 +392,7 @@ async function loadEvents() {
       populateSelectedEventConfig();
       if (typeof populatePrintQueueEventFilter === 'function') populatePrintQueueEventFilter();
     }
-  } catch (e) {
-    console.error('Failed to load events:', e);
-  }
+  } catch (err) {}
 }
 
 function renderEventsTable() {
@@ -1100,6 +1238,7 @@ async function loadTemplates() {
     const res = await fetch(url);
     if (res.ok) {
       templatesList = await res.json();
+      try { localStorage.setItem('pb_cached_templates', JSON.stringify(templatesList)); } catch (e) {}
       renderTemplatesGallery();
 
       if (templatesList.length === 0) {
@@ -1124,7 +1263,14 @@ async function loadTemplates() {
       }
     }
   } catch (e) {
-    console.error('Failed to load templates:', e);
+    console.warn('Gagal memuat template dari jaringan, mencoba cache lokal:', e);
+    try {
+      const cached = localStorage.getItem('pb_cached_templates');
+      if (cached) {
+        templatesList = JSON.parse(cached);
+        renderTemplatesGallery();
+      }
+    } catch (err) {}
   }
 }
 
@@ -2917,6 +3063,10 @@ async function loadRecentPhotos(filterEventId = null) {
           `;
         }).join('');
       }
+    }
+
+    if (typeof renderAdminOfflineQueue === 'function') {
+      renderAdminOfflineQueue();
     }
   } catch (err) {
     console.warn('loadRecentPhotos error:', err);

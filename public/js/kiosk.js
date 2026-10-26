@@ -54,6 +54,7 @@ class KioskEngine {
     const autoToggle = document.getElementById('autoPrintToggle');
     if (autoToggle) autoToggle.checked = this.autoPrintEnabled;
 
+    this.setupOfflineEngine();
     await this.fetchEventConfig();
     await this.fetchCameraConfig();
     await this.fetchPrinterProfile();
@@ -71,6 +72,54 @@ class KioskEngine {
       this.selectedTemplate = this.templates[0] || null;
       this.startCountdownSequence();
     }
+  }
+
+  setupOfflineEngine() {
+    const updateOfflineBadge = () => {
+      const badge = document.getElementById('kioskOfflineBadge');
+      const textEl = document.getElementById('kioskOfflineBadgeText');
+      if (!badge) return;
+
+      const isOnline = navigator.onLine;
+      if (window.pbOfflineStore) {
+        window.pbOfflineStore.getPendingCount().then((count) => {
+          if (!isOnline || count > 0) {
+            badge.style.display = 'inline-flex';
+            if (!isOnline) {
+              badge.style.borderColor = 'var(--coral)';
+              badge.style.color = 'var(--coral)';
+              badge.style.background = 'rgba(230, 120, 107, 0.16)';
+              if (textEl) textEl.innerText = count > 0 ? `Mode Offline (${count} foto tersimpan)` : 'Mode Offline';
+            } else {
+              badge.style.borderColor = 'var(--teal)';
+              badge.style.color = 'var(--teal)';
+              badge.style.background = 'rgba(95, 143, 138, 0.16)';
+              if (textEl) textEl.innerText = `🔄 Menyinkronkan ${count} foto...`;
+            }
+          } else {
+            badge.style.display = 'none';
+          }
+        });
+      } else if (!isOnline) {
+        badge.style.display = 'inline-flex';
+        if (textEl) textEl.innerText = 'Mode Offline';
+      } else {
+        badge.style.display = 'none';
+      }
+    };
+
+    window.addEventListener('online', () => {
+      updateOfflineBadge();
+      if (window.pbToast) window.pbToast('🌐 Koneksi internet aktif kembali', 'info', 3000);
+    });
+    window.addEventListener('offline', () => {
+      updateOfflineBadge();
+      if (window.pbToast) window.pbToast('⚡ Mode Offline: Foto & cetak tetap berfungsi normal!', 'warn', 4000);
+    });
+    if (window.pbOfflineStore) {
+      window.pbOfflineStore.subscribe(updateOfflineBadge);
+    }
+    updateOfflineBadge();
   }
 
   async fetchCameraConfig() {
@@ -149,6 +198,9 @@ class KioskEngine {
       const res = await fetch(`/api/events/${this.eventId}`);
       if (res.ok) {
         this.eventData = await res.json();
+        if (this.eventData && window.pbOfflineStore) {
+          window.pbOfflineStore.cacheConfig('event_' + this.eventId, this.eventData);
+        }
         this.eventConfig = this.eventData.config || {};
         if (this.eventConfig.shotsCount) {
           this.totalPosesRequired = parseInt(this.eventConfig.shotsCount) || 3;
@@ -162,7 +214,26 @@ class KioskEngine {
         this.applyKioskBackground();
         this.renderStepProgressBars();
       }
-    } catch (e) {}
+    } catch (e) {
+      if (window.pbOfflineStore) {
+        const cached = await window.pbOfflineStore.getCachedConfig('event_' + this.eventId);
+        if (cached) {
+          this.eventData = cached;
+          this.eventConfig = this.eventData.config || {};
+          if (this.eventConfig.shotsCount) {
+            this.totalPosesRequired = parseInt(this.eventConfig.shotsCount) || 3;
+          }
+          if (this.eventData && this.eventData.name) {
+            document.title = `Mafaza — ${this.eventData.name}`;
+            const brandEl = document.getElementById('kioskBrandTitle');
+            if (brandEl) brandEl.innerText = `MAFAZA • ${this.eventData.name}`;
+          }
+          this.applyKioskWelcomeText();
+          this.applyKioskBackground();
+          this.renderStepProgressBars();
+        }
+      }
+    }
   }
 
   applyKioskWelcomeText() {
@@ -346,7 +417,7 @@ class KioskEngine {
 
   setupFullScreenSupport() {
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw-kiosk.js').catch(() => {});
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
     }
 
     const updateBtn = () => {
@@ -450,9 +521,22 @@ class KioskEngine {
       const res = await fetch(`/api/templates?eventId=${this.eventId}`);
       if (res.ok) {
         this.templates = await res.json();
+        if (this.templates && this.templates.length > 0 && window.pbOfflineStore) {
+          window.pbOfflineStore.cacheConfig('templates_' + this.eventId, this.templates);
+        }
       }
     } catch (e) {
-      console.warn('Failed to load templates from server, using local defaults');
+      console.warn('Failed to load templates from server, checking local offline cache');
+    }
+
+    if (!this.templates || this.templates.length === 0) {
+      if (window.pbOfflineStore) {
+        const cached = await window.pbOfflineStore.getCachedConfig('templates_' + this.eventId);
+        if (cached && cached.length > 0) {
+          this.templates = cached;
+          console.log(`✅ Memuat ${this.templates.length} template dari cache offline lokal!`);
+        }
+      }
     }
 
     if (!this.templates || this.templates.length === 0) {
@@ -1719,6 +1803,12 @@ class KioskEngine {
           this.sessionId = sessData.sessionId;
         }
       } catch (e) {}
+
+      // Fallback: Jika offline atau server tidak merespon, buat session ID offline lokal
+      if (!this.sessionId) {
+        this.sessionId = 'sess_off_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        console.log('⚡ Menggunakan sesi offline lokal:', this.sessionId);
+      }
     }
 
     // Load template image
@@ -2478,6 +2568,28 @@ class KioskEngine {
         }
       }
 
+      if (!navigator.onLine) {
+        if (window.pbOfflineStore) {
+          window.pbOfflineStore.saveSession({
+            id: this.sessionId,
+            tenantId: this.tenantId,
+            eventId: this.eventId,
+            deviceId: this.deviceId,
+            guestPassId: this.guestPass ? this.guestPass.id : null,
+            templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+            mode: this.selectedMode,
+            finalImageBlob: blob,
+            captures: rawBlobs,
+            liveClips: this.liveClips,
+            boomerangBlob: bmResult ? bmResult.blob : null,
+            boomerangExt: bmResult ? bmResult.ext : 'mp4',
+            printRequested: false,
+            printCopies: 1
+          }).catch(err => console.warn('Offline session save error:', err));
+        }
+        return;
+      }
+
       try {
         const res = await fetch(`/api/kiosk/sessions/${this.sessionId}/complete`, {
           method: 'POST',
@@ -2487,7 +2599,25 @@ class KioskEngine {
           this.rawPosesSyncedForSession = this.sessionId;
         }
       } catch (e) {
-        console.warn('Error syncing session:', e);
+        console.warn('Error syncing session, saving offline:', e);
+        if (window.pbOfflineStore) {
+          window.pbOfflineStore.saveSession({
+            id: this.sessionId,
+            tenantId: this.tenantId,
+            eventId: this.eventId,
+            deviceId: this.deviceId,
+            guestPassId: this.guestPass ? this.guestPass.id : null,
+            templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+            mode: this.selectedMode,
+            finalImageBlob: blob,
+            captures: rawBlobs,
+            liveClips: this.liveClips,
+            boomerangBlob: bmResult ? bmResult.blob : null,
+            boomerangExt: bmResult ? bmResult.ext : 'mp4',
+            printRequested: false,
+            printCopies: 1
+          }).catch(err => console.warn('Offline session save error:', err));
+        }
       }
     }, 'image/jpeg', 0.88);
   }
@@ -2508,6 +2638,41 @@ class KioskEngine {
     }
 
     finalCanvas.toBlob(async (blob) => {
+      // 1. Jika Offline (Mode Pesawat / Jaringan Terputus):
+      if (!navigator.onLine) {
+        if (window.pbOfflineStore) {
+          window.pbOfflineStore.saveSession({
+            id: this.sessionId,
+            tenantId: this.tenantId,
+            eventId: this.eventId,
+            deviceId: this.deviceId,
+            guestPassId: this.guestPass ? this.guestPass.id : null,
+            templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+            mode: this.selectedMode,
+            finalImageBlob: blob,
+            captures: this.posesCaptured.map((p, idx) => ({ poseIndex: idx + 1, blob: p })),
+            liveClips: this.liveClips,
+            printRequested: true,
+            printCopies: parseInt(copies, 10) || 1
+          }).catch(err => console.warn('Offline print session save error:', err));
+        }
+
+        if (btn) btn.innerHTML = `✅ ${copies} Lembar Dicetak!`;
+        if (banner) {
+          banner.style.display = 'block';
+          banner.innerHTML = `⚡ <strong>Mode Offline:</strong> Foto berhasil disimpan di perangkat &amp; langsung dicetak <strong>${copies} lembar</strong>!`;
+        }
+        setTimeout(() => this.printViaChromeDialog(), 250);
+        setTimeout(() => {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '🖨️ Cetak Foto Sekarang';
+          }
+        }, 3000);
+        return;
+      }
+
+      // 2. Jika Online:
       const formData = new FormData();
       formData.append('finalImage', blob, `print_${Date.now()}.jpg`);
       formData.append('printRequested', 'true');
@@ -2528,8 +2693,6 @@ class KioskEngine {
           const data = await res.json();
           const pName = (data.printJob && data.printJob.printerName) || this.activePrinterName || 'Printer';
           const dispatchedToOs = !!(data.printJob && data.printJob.dispatchedToOs);
-          const isAndroid = /Android/i.test(navigator.userAgent);
-
           const awaitingAgent = !!(data.printJob && data.printJob.awaitingAgent);
 
           if (btn) btn.innerHTML = `✅ ${copies} Lembar Dicetak!`;
@@ -2540,8 +2703,6 @@ class KioskEngine {
               : `✅ <strong>${copies} lembar</strong> siap dicetak! Membuka layanan cetak perangkat...`;
           }
 
-          // Print Agent / printer lokal: sudah dicetak otomatis sesuai pengaturan (tanpa popup).
-          // Cadangan: dialog cetak browser dengan ukuran kertas sesuai pengaturan.
           if (!dispatchedToOs && !awaitingAgent) {
             setTimeout(() => this.printViaChromeDialog(data.printJob), 250);
           }
@@ -2552,24 +2713,39 @@ class KioskEngine {
             }
           }, 3000);
         } else {
+          throw new Error('Server response not ok');
+        }
+      } catch (e) {
+        console.warn('Print fetch failed, switching to offline fallback:', e);
+        if (window.pbOfflineStore) {
+          window.pbOfflineStore.saveSession({
+            id: this.sessionId,
+            tenantId: this.tenantId,
+            eventId: this.eventId,
+            deviceId: this.deviceId,
+            guestPassId: this.guestPass ? this.guestPass.id : null,
+            templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+            mode: this.selectedMode,
+            finalImageBlob: blob,
+            captures: this.posesCaptured.map((p, idx) => ({ poseIndex: idx + 1, blob: p })),
+            liveClips: this.liveClips,
+            printRequested: true,
+            printCopies: parseInt(copies, 10) || 1
+          }).catch(() => {});
+        }
+
+        if (btn) btn.innerHTML = `✅ ${copies} Lembar Dicetak!`;
+        if (banner) {
+          banner.style.display = 'block';
+          banner.innerHTML = `⚡ <strong>Mode Offline:</strong> Foto disimpan lokal &amp; membuka cetak perangkat <strong>${copies} lembar</strong>...`;
+        }
+        setTimeout(() => this.printViaChromeDialog(), 250);
+        setTimeout(() => {
           if (btn) {
             btn.disabled = false;
             btn.innerHTML = '🖨️ Cetak Foto Sekarang';
           }
-          if (banner) {
-            banner.style.display = 'block';
-            banner.innerText = '⚠️ Gagal mengirim ke antrean printer.';
-          }
-        }
-      } catch (e) {
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = '🖨️ Cetak Foto Sekarang';
-        }
-        if (banner) {
-          banner.style.display = 'block';
-          banner.innerText = '⚠️ Gagal menghubungi server cetak.';
-        }
+        }, 3000);
       }
     }, 'image/jpeg', 0.88);
   }

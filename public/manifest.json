@@ -1,0 +1,26 @@
+{
+  "name": "Mafaza Photobooth SaaS",
+  "short_name": "Mafaza",
+  "description": "Mafaza Photobooth — Offline-First Hybrid Cloud Photobooth",
+  "start_url": "/kiosk?app=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#1C120C",
+  "theme_color": "#381E11",
+  "icons": [
+    {
+      "src": "/assets/icons/logo-mafaza.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/logo-mafaza.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ]
+}

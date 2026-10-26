@@ -98,6 +98,14 @@ app.get('/admin/login', (req, res) => {
   res.sendFile(path.join(publicDir, 'admin-login.html'));
 });
 
+// Service Worker headers: allow root scope & prevent browser caching SW file
+app.get(['/sw.js', '/sw-kiosk.js'], (req, res) => {
+  res.setHeader('Service-Worker-Allowed', '/');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.setHeader('Content-Type', 'application/javascript');
+  res.sendFile(path.join(publicDir, 'sw.js'));
+});
+
 // Static files (admin.html sudah dilindungi di atas)
 app.use(express.static(publicDir));
 

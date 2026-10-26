@@ -845,7 +845,25 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
 ]), (req, res) => {
   try {
     const sessionId = req.params.id;
-    const session = db.prepare('SELECT * FROM photo_sessions WHERE id = ?').get(sessionId);
+    let session = db.prepare('SELECT * FROM photo_sessions WHERE id = ?').get(sessionId);
+    if (!session) {
+      // Rekonsiliasi otomatis jika sesi ini dibuat saat mode offline (tanpa koneksi internet)
+      const tenantId = req.body.tenantId || 'tenant_studiokeren_01';
+      const eventId = req.body.eventId || 'event_wedding_dimas_sarah';
+      const deviceId = req.body.deviceId || 'dev_kiosk_win_01';
+      const guestPassId = req.body.guestPassId || null;
+      const mode = req.body.mode || 'single';
+      const templateId = req.body.templateId || null;
+      const startedAt = req.body.startedAt || new Date().toISOString();
+      const localSessionId = req.body.localSessionId || sessionId;
+
+      db.prepare(`
+        INSERT INTO photo_sessions (id, tenant_id, event_id, device_id, guest_pass_id, mode, status, started_at, template_id, local_session_id)
+        VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?, ?, ?)
+      `).run(sessionId, tenantId, eventId, deviceId, guestPassId, mode, startedAt, templateId, localSessionId);
+
+      session = db.prepare('SELECT * FROM photo_sessions WHERE id = ?').get(sessionId);
+    }
     if (!session) return res.status(404).json({ error: 'Session tidak ditemukan' });
 
     if (req.body && req.body.templateId) {
