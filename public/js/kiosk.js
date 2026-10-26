@@ -62,6 +62,7 @@ class KioskEngine {
     this.setupAudio();
     this.setupFullScreenSupport();
     this.setupVirtualCameraFallback();
+    this.setupKeyboardRemoteListeners();
 
     // Support direct testing of screens via hash (e.g. #template, #camera)
     const hash = window.location.hash.toLowerCase();
@@ -980,10 +981,15 @@ class KioskEngine {
 
   // Camera 3-Button Control Bar Handlers (Gambar 2 Screen 3)
   handleShutterClick() {
-    // 1. Jika preview foto barusan sedang tampil, klik shutter = tutup preview dan bersiap ke pose berikutnya di live camera
+    // 1. Jika preview foto barusan sedang tampil (seperti di screenshot user):
+    // Klik tombol merah, layar live photo, atau tombol perkecil volume = tutup preview dan MULAI HITUNG MUNDUR pose berikutnya!
     const holdOverlay = document.getElementById('postCapturePreviewOverlay');
     if (holdOverlay && holdOverlay.style.display !== 'none') {
+      const nextEmptyIndex = this.posesCaptured.findIndex(p => p === null);
       this.finishPostCaptureHold();
+      if (nextEmptyIndex !== -1) {
+        this.startCountdown(nextEmptyIndex);
+      }
       return;
     }
 
@@ -993,7 +999,7 @@ class KioskEngine {
       return;
     }
 
-    // 3. Jika standby di live camera, klik shutter / live photo = mulai countdown untuk pose aktif
+    // 3. Jika standby di live camera, klik shutter / live photo / volume down = mulai countdown untuk pose aktif
     let target = this.activePoseIndex;
     if (target === null || target === undefined || target >= this.totalPosesRequired) {
       target = this.posesCaptured.findIndex(p => p === null);
@@ -1007,6 +1013,55 @@ class KioskEngine {
       return; // Jangan override tombol retake atau lanjut di dalam overlay
     }
     this.handleShutterClick();
+  }
+
+  setupKeyboardRemoteListeners() {
+    const trigger = (e) => {
+      // Hanya aktif ketika layar kamera (screenCapture) sedang aktif
+      const screenCapture = document.getElementById('screenCapture');
+      if (!screenCapture || !screenCapture.classList.contains('active')) {
+        return;
+      }
+
+      // Abaikan jika user sedang mengetik di input/textarea
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        return;
+      }
+
+      const keyName = (e.key || '').toLowerCase();
+      const codeName = (e.code || '').toLowerCase();
+      const keyCode = e.keyCode || e.which;
+
+      // Cek tombol perkecil volume (Volume Down) & perbesar volume (Volume Up) pada Bluetooth remote shutter
+      const isVolumeDown = keyName === 'audiovolumedown' ||
+                           keyName === 'volumedown' ||
+                           codeName === 'audiovolumedown' ||
+                           codeName === 'volumedown' ||
+                           keyCode === 174;
+
+      const isVolumeUp = keyName === 'audiovolumeup' ||
+                         keyName === 'volumeup' ||
+                         codeName === 'audiovolumeup' ||
+                         codeName === 'volumeup' ||
+                         keyCode === 175;
+
+      if (isVolumeDown || isVolumeUp) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Debounce 350ms untuk mencegah double trigger keydown + keyup dari remote bluetooth
+        const now = Date.now();
+        if (this._lastRemoteTriggerTime && (now - this._lastRemoteTriggerTime < 350)) {
+          return;
+        }
+        this._lastRemoteTriggerTime = now;
+
+        this.handleShutterClick();
+      }
+    };
+
+    window.addEventListener('keydown', trigger, { capture: true });
+    window.addEventListener('keyup', trigger, { capture: true });
   }
 
   handleQuickRetake() {
@@ -1546,7 +1601,7 @@ class KioskEngine {
 
     if (nextEmptyIndex !== -1) {
       if (holdTimerText) {
-        holdTimerText.innerText = `👉 Klik foto atau tombol merah untuk lanjut Pose ${nextEmptyIndex + 1}`;
+        holdTimerText.innerText = `👉 Klik foto, tombol merah, atau remote volume untuk Pose ${nextEmptyIndex + 1}`;
       }
       if (holdBtnNext) {
         holdBtnNext.innerText = `Lanjut ke Pose ${nextEmptyIndex + 1} ➔`;
@@ -1630,7 +1685,11 @@ class KioskEngine {
   }
 
   skipHoldOverlay() {
+    const nextEmptyIndex = this.posesCaptured.findIndex(p => p === null);
     this.finishPostCaptureHold();
+    if (nextEmptyIndex !== -1) {
+      this.startCountdown(nextEmptyIndex);
+    }
   }
 
   renderFilmstripDock() {
