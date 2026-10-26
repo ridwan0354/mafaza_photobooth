@@ -1,6 +1,142 @@
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
 import { db } from '../db/database.js';
+import { encodePng, getMafazaLogoImage } from './sheet.js';
+
+/**
+ * Buat Data URL gambar QR Code beresolusi tinggi dengan logo Mafaza tercetak presisi di bagian tengah.
+ * Menggunakan QR Error Correction Level H (daya pulih 30%) sehingga penempatan logo di tengah
+ * tidak mengganggu pemindaian kamera HP sama sekali.
+ */
+export async function createQrWithLogoDataUrl(url, options = {}) {
+  const targetSize = options.size || options.width || 340;
+  const qr = QRCode.create(url, { errorCorrectionLevel: 'H' });
+  const modCount = qr.modules.size;
+  const marginMods = options.margin !== undefined ? options.margin : 2;
+  const totalMods = modCount + marginMods * 2;
+  const modulePx = Math.max(1, Math.floor(targetSize / totalMods));
+  const innerSize = totalMods * modulePx;
+  const outW = innerSize;
+  const outH = innerSize;
+
+  const data = Buffer.alloc(outW * outH * 4, 255); // Background putih bersih
+
+  // 1. Gambar modul-modul hitam QR
+  for (let r = 0; r < modCount; r++) {
+    for (let c = 0; c < modCount; c++) {
+      if (qr.modules.get(r, c) === 1) {
+        const startX = (c + marginMods) * modulePx;
+        const startY = (r + marginMods) * modulePx;
+        for (let y = 0; y < modulePx; y++) {
+          const py = startY + y;
+          const rowOffset = py * outW * 4;
+          for (let x = 0; x < modulePx; x++) {
+            const px = startX + x;
+            const idx = rowOffset + px * 4;
+            data[idx + 0] = 0;
+            data[idx + 1] = 0;
+            data[idx + 2] = 0;
+            data[idx + 3] = 255;
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Gambar logo Mafaza di tengah QR
+  const logoImg = getMafazaLogoImage();
+  if (logoImg) {
+    const qrMatrixPx = modCount * modulePx;
+    const qrStartX = marginMods * modulePx;
+    const qrStartY = marginMods * modulePx;
+
+    const logoBoxSize = Math.round(qrMatrixPx * 0.22);
+    const logoX = qrStartX + Math.floor((qrMatrixPx - logoBoxSize) / 2);
+    const logoY = qrStartY + Math.floor((qrMatrixPx - logoBoxSize) / 2);
+
+    const pad = Math.max(3, Math.round(logoBoxSize * 0.08));
+    const badgeX = logoX - pad;
+    const badgeY = logoY - pad;
+    const badgeW = logoBoxSize + pad * 2;
+    const badgeH = logoBoxSize + pad * 2;
+    const radius = Math.round(badgeW * 0.20);
+
+    for (let cy = 0; cy < badgeH; cy++) {
+      const py = badgeY + cy;
+      if (py < 0 || py >= outH) continue;
+      for (let cx = 0; cx < badgeW; cx++) {
+        const px = badgeX + cx;
+        if (px < 0 || px >= outW) continue;
+
+        let isCorner = false;
+        if (cx < radius && cy < radius) {
+          const dx = radius - cx, dy = radius - cy;
+          if (dx * dx + dy * dy > radius * radius) isCorner = true;
+        } else if (cx >= badgeW - radius && cy < radius) {
+          const dx = cx - (badgeW - radius - 1), dy = radius - cy;
+          if (dx * dx + dy * dy > radius * radius) isCorner = true;
+        } else if (cx < radius && cy >= badgeH - radius) {
+          const dx = radius - cx, dy = cy - (badgeH - radius - 1);
+          if (dx * dx + dy * dy > radius * radius) isCorner = true;
+        } else if (cx >= badgeW - radius && cy >= badgeH - radius) {
+          const dx = cx - (badgeW - radius - 1), dy = cy - (badgeH - radius - 1);
+          if (dx * dx + dy * dy > radius * radius) isCorner = true;
+        }
+        if (isCorner) continue;
+
+        const idx = (py * outW + px) * 4;
+        data[idx + 0] = 255;
+        data[idx + 1] = 255;
+        data[idx + 2] = 255;
+        data[idx + 3] = 255;
+      }
+    }
+
+    const srcW = logoImg.width;
+    const srcH = logoImg.height;
+    const logoRadius = Math.max(2, radius - pad);
+
+    for (let ly = 0; ly < logoBoxSize; ly++) {
+      const py = logoY + ly;
+      if (py < 0 || py >= outH) continue;
+      const sy = Math.floor((ly / logoBoxSize) * srcH);
+      const srcRow = sy * srcW * 4;
+
+      for (let lx = 0; lx < logoBoxSize; lx++) {
+        const px = logoX + lx;
+        if (px < 0 || px >= outW) continue;
+
+        let isCorner = false;
+        if (lx < logoRadius && ly < logoRadius) {
+          const dx = logoRadius - lx, dy = logoRadius - ly;
+          if (dx * dx + dy * dy > logoRadius * logoRadius) isCorner = true;
+        } else if (lx >= logoBoxSize - logoRadius && ly < logoRadius) {
+          const dx = lx - (logoBoxSize - logoRadius - 1), dy = logoRadius - ly;
+          if (dx * dx + dy * dy > logoRadius * logoRadius) isCorner = true;
+        } else if (lx < logoRadius && ly >= logoBoxSize - logoRadius) {
+          const dx = logoRadius - lx, dy = ly - (logoBoxSize - logoRadius - 1);
+          if (dx * dx + dy * dy > logoRadius * logoRadius) isCorner = true;
+        } else if (lx >= logoBoxSize - logoRadius && ly >= logoBoxSize - logoRadius) {
+          const dx = lx - (logoBoxSize - logoRadius - 1), dy = ly - (logoBoxSize - logoRadius - 1);
+          if (dx * dx + dy * dy > logoRadius * logoRadius) isCorner = true;
+        }
+        if (isCorner) continue;
+
+        const sx = Math.floor((lx / logoBoxSize) * srcW);
+        const srcIdx = srcRow + sx * 4;
+        const targetIdx = (py * outW + px) * 4;
+
+        data[targetIdx + 0] = logoImg.data[srcIdx + 0];
+        data[targetIdx + 1] = logoImg.data[srcIdx + 1];
+        data[targetIdx + 2] = logoImg.data[srcIdx + 2];
+        data[targetIdx + 3] = 255;
+      }
+    }
+  }
+
+  const pngBuf = encodePng({ width: outW, height: outH, channels: 4, data });
+  return `data:image/png;base64,${pngBuf.toString('base64')}`;
+}
 
 export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', baseUrl = '') {
   const tokenPlain = 'gst_' + crypto.randomBytes(16).toString('hex');
@@ -48,7 +184,7 @@ export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', ba
   // Universal URL: e.g. /gallery/g/:tokenPlain
   const galleryUrl = `/gallery/g/${tokenPlain}`;
   const fullQrUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}${galleryUrl}` : galleryUrl;
-  const qrDataUrl = await QRCode.toDataURL(fullQrUrl, { margin: 1, width: 320 });
+  const qrDataUrl = await createQrWithLogoDataUrl(fullQrUrl, { size: 340 });
 
   return {
     id: passId,
@@ -95,7 +231,7 @@ export async function listGuestPasses(tenantId, eventId, baseUrl = '') {
     const p = passes[i];
     const galleryUrl = `/gallery/g/${p.token_plain}`;
     const fullQrUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}${galleryUrl}` : galleryUrl;
-    const qrDataUrl = await QRCode.toDataURL(fullQrUrl, { margin: 1, width: 280 });
+    const qrDataUrl = await createQrWithLogoDataUrl(fullQrUrl, { size: 280 });
     list.push({
       ...p,
       token: p.token_plain,
@@ -128,7 +264,7 @@ export async function resolveGuestPassWithQr(token, baseUrl = '') {
   if (!pass) return null;
   const galleryUrl = `/gallery/g/${pass.token_plain}`;
   const fullQrUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}${galleryUrl}` : galleryUrl;
-  const qrDataUrl = await QRCode.toDataURL(fullQrUrl, { margin: 1, width: 320 });
+  const qrDataUrl = await createQrWithLogoDataUrl(fullQrUrl, { size: 340 });
   return {
     ...pass,
     token: pass.token_plain,

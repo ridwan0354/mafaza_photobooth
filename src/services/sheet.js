@@ -252,8 +252,35 @@ export function applySafeMargin(img, targetW = 1200, targetH = 1800, scale = 0.9
   return { width: targetW, height: targetH, channels, data: outData };
 }
 
+// Cache in-memory logo Mafaza agar decoding hanya terjadi 1x
+let cachedMafazaLogo = null;
+
+export function getMafazaLogoImage() {
+  if (cachedMafazaLogo) return cachedMafazaLogo;
+  try {
+    const candidates = [
+      path.resolve(process.cwd(), 'public/assets/logo-mafaza.jpg'),
+      new URL('../../public/assets/logo-mafaza.jpg', import.meta.url).pathname,
+      path.resolve(process.cwd(), 'public/assets/icons/logo-mafaza.png')
+    ];
+    for (const logoPath of candidates) {
+      if (fs.existsSync(logoPath)) {
+        const buf = fs.readFileSync(logoPath);
+        const decoded = decodeImage(buf);
+        if (decoded && decoded.width && decoded.height) {
+          cachedMafazaLogo = decoded;
+          return cachedMafazaLogo;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load Mafaza logo image:', err);
+  }
+  return null;
+}
+
 /**
- * Tempelkan QR Code Galeri Tamu khusus pada lembar cetak (printed sheet).
+ * Tempelkan QR Code Galeri Tamu khusus pada lembar cetak (printed sheet) dengan logo Mafaza di tengahnya.
  * File digital asli di gallery tetap bersih tanpa watermark QR.
  * @param {object} img - Decoded image { width, height, channels, data }
  * @param {string} qrUrl - URL galeri tamu lengkap (https://.../gallery/g/:token)
@@ -264,24 +291,25 @@ export function overlayQrCodeOnImage(img, qrUrl, position = 'bottom-right', isSt
   if (!img || !qrUrl || position === 'none') return img;
 
   try {
-    const qr = QRCode.create(qrUrl, { errorCorrectionLevel: 'M' });
+    // Error correction H (High 30% tolerance) memastikan QR tetap terbaca cepat dengan logo di tengahnya
+    const qr = QRCode.create(qrUrl, { errorCorrectionLevel: 'H' });
     const modCount = qr.modules.size;
     const marginMods = 1; // 1 modul quiet zone di sekitar matriks
     const totalMods = modCount + marginMods * 2;
 
-    // Ukuran target: ~96-108px untuk photo strip (lebar 600px), ~140-155px untuk single photo (lebar 1200px)
+    // Ukuran target: ~130-140px untuk photo strip (lebar 600px), ~170-190px untuk single photo (lebar 1200px)
     const modulePx = isStrip
-      ? Math.max(2, Math.floor(100 / totalMods))
-      : Math.max(3, Math.floor(145 / totalMods));
+      ? Math.max(2, Math.floor(130 / totalMods))
+      : Math.max(3, Math.floor(175 / totalMods));
 
     const qrInnerSize = totalMods * modulePx;
     // Padding kartu putih di sekeliling QR
-    const cardPad = Math.max(4, Math.round(modulePx * 1.5));
+    const cardPad = Math.max(5, Math.round(modulePx * 1.8));
     const cardW = qrInnerSize + cardPad * 2;
     const cardH = qrInnerSize + cardPad * 2;
 
-    const padX = isStrip ? 18 : 32;
-    const padY = isStrip ? 18 : 32;
+    const padX = isStrip ? 20 : 32;
+    const padY = isStrip ? 20 : 32;
 
     let startX = 0;
     let startY = 0;
@@ -314,7 +342,7 @@ export function overlayQrCodeOnImage(img, qrUrl, position = 'bottom-right', isSt
     const { width: imgW, height: imgH, channels } = img;
 
     // 1. Gambar kartu putih bersih dengan sudut melengkung lembut
-    const radius = Math.min(8, Math.round(cardPad * 1.2));
+    const radius = Math.min(10, Math.round(cardPad * 1.2));
     for (let cy = 0; cy < cardH; cy++) {
       const py = startY + cy;
       if (py < 0 || py >= imgH) continue;
@@ -369,6 +397,98 @@ export function overlayQrCodeOnImage(img, qrUrl, position = 'bottom-right', isSt
               if (channels === 4) outData[idx + 3] = 255;
             }
           }
+        }
+      }
+    }
+
+    // 3. Gambar logo Mafaza di tengah-tengah matriks QR
+    const logoImg = getMafazaLogoImage();
+    if (logoImg) {
+      const qrMatrixPx = modCount * modulePx;
+      const qrStartX = qrOffsetX + marginMods * modulePx;
+      const qrStartY = qrOffsetY + marginMods * modulePx;
+
+      const logoBoxSize = Math.round(qrMatrixPx * 0.22);
+      const logoX = qrStartX + Math.floor((qrMatrixPx - logoBoxSize) / 2);
+      const logoY = qrStartY + Math.floor((qrMatrixPx - logoBoxSize) / 2);
+
+      const badgePad = Math.max(3, Math.round(modulePx * 1.2));
+      const badgeX = logoX - badgePad;
+      const badgeY = logoY - badgePad;
+      const badgeW = logoBoxSize + badgePad * 2;
+      const badgeH = logoBoxSize + badgePad * 2;
+      const bRadius = Math.min(8, Math.round(badgeW * 0.18));
+
+      // Kartu badge putih di sekeliling logo agar modul QR tidak bertabrakan dengan logo
+      for (let cy = 0; cy < badgeH; cy++) {
+        const py = badgeY + cy;
+        if (py < 0 || py >= imgH) continue;
+        for (let cx = 0; cx < badgeW; cx++) {
+          const px = badgeX + cx;
+          if (px < 0 || px >= imgW) continue;
+
+          let isCorner = false;
+          if (cx < bRadius && cy < bRadius) {
+            const dx = bRadius - cx, dy = bRadius - cy;
+            if (dx * dx + dy * dy > bRadius * bRadius) isCorner = true;
+          } else if (cx >= badgeW - bRadius && cy < bRadius) {
+            const dx = cx - (badgeW - bRadius - 1), dy = bRadius - cy;
+            if (dx * dx + dy * dy > bRadius * bRadius) isCorner = true;
+          } else if (cx < bRadius && cy >= badgeH - bRadius) {
+            const dx = bRadius - cx, dy = cy - (badgeH - bRadius - 1);
+            if (dx * dx + dy * dy > bRadius * bRadius) isCorner = true;
+          } else if (cx >= badgeW - bRadius && cy >= badgeH - bRadius) {
+            const dx = cx - (badgeW - bRadius - 1), dy = cy - (badgeH - bRadius - 1);
+            if (dx * dx + dy * dy > bRadius * bRadius) isCorner = true;
+          }
+          if (isCorner) continue;
+
+          const idx = (py * imgW + px) * channels;
+          outData[idx + 0] = 255;
+          outData[idx + 1] = 255;
+          outData[idx + 2] = 255;
+          if (channels === 4) outData[idx + 3] = 255;
+        }
+      }
+
+      // Stamp logo Mafaza di dalam [logoX, logoY, logoBoxSize, logoBoxSize]
+      const srcW = logoImg.width, srcH = logoImg.height;
+      const lRadius = Math.max(2, bRadius - badgePad);
+
+      for (let ly = 0; ly < logoBoxSize; ly++) {
+        const py = logoY + ly;
+        if (py < 0 || py >= imgH) continue;
+        const sy = Math.floor((ly / logoBoxSize) * srcH);
+        const srcRow = sy * srcW * 4;
+
+        for (let lx = 0; lx < logoBoxSize; lx++) {
+          const px = logoX + lx;
+          if (px < 0 || px >= imgW) continue;
+
+          let isCorner = false;
+          if (lx < lRadius && ly < lRadius) {
+            const dx = lRadius - lx, dy = lRadius - ly;
+            if (dx * dx + dy * dy > lRadius * lRadius) isCorner = true;
+          } else if (lx >= logoBoxSize - lRadius && ly < lRadius) {
+            const dx = lx - (logoBoxSize - lRadius - 1), dy = lRadius - ly;
+            if (dx * dx + dy * dy > lRadius * lRadius) isCorner = true;
+          } else if (lx < lRadius && ly >= logoBoxSize - lRadius) {
+            const dx = lRadius - lx, dy = ly - (logoBoxSize - lRadius - 1);
+            if (dx * dx + dy * dy > lRadius * lRadius) isCorner = true;
+          } else if (lx >= logoBoxSize - lRadius && ly >= logoBoxSize - lRadius) {
+            const dx = lx - (logoBoxSize - lRadius - 1), dy = ly - (logoBoxSize - lRadius - 1);
+            if (dx * dx + dy * dy > lRadius * lRadius) isCorner = true;
+          }
+          if (isCorner) continue;
+
+          const sx = Math.floor((lx / logoBoxSize) * srcW);
+          const srcIdx = srcRow + sx * 4;
+          const targetIdx = (py * imgW + px) * channels;
+
+          outData[targetIdx + 0] = logoImg.data[srcIdx + 0];
+          outData[targetIdx + 1] = logoImg.data[srcIdx + 1];
+          outData[targetIdx + 2] = logoImg.data[srcIdx + 2];
+          if (channels === 4) outData[targetIdx + 3] = 255;
         }
       }
     }

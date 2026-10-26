@@ -510,4 +510,36 @@ test('PHOTOBOOTH SAAS FULL SYSTEM - COMPREHENSIVE TEST SUITE', async (t) => {
     const noneStamped = overlayQrCodeOnImage(testImg, 'https://mafaza.galipatsistem.com', 'none', true);
     assert.strictEqual(noneStamped.data, testImg.data, 'When qr_position is none, image remains untouched');
   });
+
+  await t.test('14. Brand Logo Embedded in QR Codes (Print Sheets & Digital Passes)', async () => {
+    const { getMafazaLogoImage, decodePng } = await import('../src/services/sheet.js');
+    const { createQrWithLogoDataUrl } = await import('../src/services/qr.js');
+
+    // 1. Verify Mafaza logo asset is discovered and decoded
+    const logo = getMafazaLogoImage();
+    assert.ok(logo, 'Mafaza logo asset must be loaded in memory');
+    assert.ok(logo.width > 0 && logo.height > 0, 'Logo width and height valid');
+
+    // 2. Generate QR code with logo data URL
+    const url = 'https://mafaza.galipatsistem.com/gallery/g/gst_brand_logo_test';
+    const qrDataUrl = await createQrWithLogoDataUrl(url, { size: 340 });
+    assert.ok(qrDataUrl.startsWith('data:image/png;base64,'), 'QR data URL has PNG scheme');
+
+    // 3. Decode generated PNG and verify center contains logo pixels
+    const base64Data = qrDataUrl.replace(/^data:image\/png;base64,/, '');
+    const pngBuf = Buffer.from(base64Data, 'base64');
+    const decoded = decodePng(pngBuf);
+    assert.ok(decoded && decoded.width >= 200, 'Decoded QR code resolution is crisp');
+
+    // Center pixel of the QR code should correspond to the logo badge
+    const centerX = Math.floor(decoded.width / 2);
+    const centerY = Math.floor(decoded.height / 2);
+    const centerIdx = (centerY * decoded.width + centerX) * decoded.channels;
+    const r = decoded.data[centerIdx];
+    const g = decoded.data[centerIdx + 1];
+    const b = decoded.data[centerIdx + 2];
+    assert.ok(r !== undefined && g !== undefined && b !== undefined, 'Center logo pixel exists');
+    // Ensure center is not pure blank white (255, 255, 255)
+    assert.ok(!(r === 255 && g === 255 && b === 255), 'Center contains brand logo pixels instead of empty space');
+  });
 });

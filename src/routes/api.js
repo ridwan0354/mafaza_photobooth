@@ -1268,7 +1268,7 @@ apiRouter.get('/photos/:assetId/qr', authMiddleware(), async (req, res) => {
 
     const galleryUrl = `/gallery/g/${token}`;
     const fullQrUrl = `${baseUrl.replace(/\/$/, '')}${galleryUrl}`;
-    const qrDataUrl = await QRCode.toDataURL(fullQrUrl, { margin: 1, width: 340 });
+    const qrDataUrl = await qrService.createQrWithLogoDataUrl(fullQrUrl, { size: 340 });
 
     const isPreRegistered = (flowType === 'batch' || flowType === 'registration');
     const flowTitle = isPreRegistered
