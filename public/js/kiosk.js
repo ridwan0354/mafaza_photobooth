@@ -375,8 +375,14 @@ class KioskEngine {
       const htmlParts = [];
       steps.forEach((step, idx) => {
         if (idx < activeIdx) {
+          let clickAttr = '';
+          if (screenKey === 'screenPreview' && step.screen === 'screenTemplate') {
+            clickAttr = `onclick="kiosk.openChangeFrameModal()" style="cursor: pointer;" title="Klik untuk ganti frame"`;
+          } else if (screenKey === 'screenPreview' && step.screen === 'screenCapture') {
+            clickAttr = `onclick="kiosk.returnToCameraFromPreview()" style="cursor: pointer;" title="Klik untuk kembali ke kamera"`;
+          }
           htmlParts.push(`
-            <div class="step-item completed">
+            <div class="step-item completed" ${clickAttr}>
               <div class="step-circle">✓</div>
               <div class="step-label">${step.label}</div>
             </div>
@@ -760,6 +766,17 @@ class KioskEngine {
 
   returnToCameraFromPreview() {
     if (this.autoReturnTimerId) clearInterval(this.autoReturnTimerId);
+    const tplSlotsCount = (this.selectedTemplate && this.selectedTemplate.slots && this.selectedTemplate.slots.length > 0)
+      ? Math.max(this.selectedTemplate.slots.length, ...this.selectedTemplate.slots.map(s => s.pose_index || 1))
+      : ((this.selectedMode === 'strip') ? 3 : 1);
+    if (tplSlotsCount > this.totalPosesRequired) {
+      this.totalPosesRequired = tplSlotsCount;
+    }
+    while (this.posesCaptured.length < this.totalPosesRequired) {
+      this.posesCaptured.push(null);
+    }
+    const nextEmpty = this.posesCaptured.findIndex(p => p === null);
+    this.activePoseIndex = nextEmpty !== -1 ? nextEmpty : 0;
     this.showScreen('screenCapture');
     this.renderFilmstripDock();
   }
@@ -1597,6 +1614,7 @@ class KioskEngine {
 
     const photoDataUrl = canvas.toDataURL('image/jpeg', 0.88);
     this.posesCaptured[poseIndex] = photoDataUrl;
+    this.rawPosesSyncedForSession = null;
     this.renderFilmstripDock();
   }
 
@@ -1956,6 +1974,54 @@ class KioskEngine {
       }
     }
 
+    await this.loadAndKeySelectedTemplate(false);
+
+    // Render composited final canvas
+    await this.renderFinalCanvas();
+
+    // Setup interactive touch / drag panning on finalCanvas
+    this.setupCanvasInteractivePan();
+
+    // Render slot selector tabs & photo thumbnails tray
+    this.renderPreviewSlotTabs();
+    this.renderPreviewPhotoTray();
+
+    // Render QR Code & Direct Gallery Link on Preview Card
+    this.renderGuestQrOnPreview();
+
+    const banner = document.getElementById('printStatusBanner');
+    if (banner) banner.style.display = 'none';
+
+    // Bawaan (default) cetak foto adalah 1 lembar
+    const printSelect = document.getElementById('printCopiesSelect');
+    if (printSelect) printSelect.value = '1';
+
+    // Initial sync of composite photo to backend
+    this.syncFinalPhotoToBackend();
+
+    this.showScreen('screenPreview');
+    this.startAutoReturnTimer(45);
+
+    // If Auto-Print is enabled, automatically trigger direct print once on entering preview
+    if ((this.autoPrintEnabled || (this.eventConfig && this.eventConfig.autoPrint)) && this.autoPrintedForSession !== this.sessionId) {
+      this.autoPrintedForSession = this.sessionId;
+      setTimeout(() => {
+        this.printCurrentSession(true);
+      }, 700);
+    }
+  }
+
+  async loadAndKeySelectedTemplate(forceResetSlots = false) {
+    if (!this.selectedTemplate) {
+      this.selectedTemplate = (this.templates && this.templates[0]) || null;
+    }
+    if (!this.selectedTemplate) return;
+
+    const frameNameLabel = document.getElementById('previewCurrentFrameName');
+    if (frameNameLabel) {
+      frameNameLabel.innerText = `Frame: ${this.selectedTemplate.name || 'Pilihan'}`;
+    }
+
     // Load template image
     const templateImg = new Image();
     templateImg.crossOrigin = 'anonymous';
@@ -1968,8 +2034,10 @@ class KioskEngine {
     const finalCanvas = document.getElementById('finalCanvas');
     const tplWidth = templateImg.naturalWidth || this.selectedTemplate.width || ((this.selectedMode === 'strip') ? 600 : 1200);
     const tplHeight = templateImg.naturalHeight || this.selectedTemplate.height || 1800;
-    finalCanvas.width = tplWidth;
-    finalCanvas.height = tplHeight;
+    if (finalCanvas) {
+      finalCanvas.width = tplWidth;
+      finalCanvas.height = tplHeight;
+    }
 
     const slots = this.selectedTemplate.slots || [
       { id: 'slot_1', pose_index: 1, x: 50, y: 130, width: 500, height: 420 },
@@ -1977,16 +2045,24 @@ class KioskEngine {
       { id: 'slot_3', pose_index: 3, x: 50, y: 1030, width: 500, height: 420 }
     ];
 
-    // Initialize slot assignments if empty or reset
-    if (!this.slotAssignments || this.slotAssignments.length !== slots.length) {
+    const validPhotoIndices = this.posesCaptured
+      .map((p, idx) => (p !== null ? idx : -1))
+      .filter(idx => idx !== -1);
+    const fallbackCount = Math.max(1, validPhotoIndices.length);
+
+    // Initialize slot assignments if empty, slot count changed, or forced reset
+    if (forceResetSlots || !this.slotAssignments || this.slotAssignments.length !== slots.length) {
       this.slotAssignments = slots.map((s, idx) => {
-        const pIdx = (s.pose_index - 1);
-        return (pIdx >= 0 && pIdx < this.posesCaptured.length) ? pIdx : (idx % Math.max(1, this.posesCaptured.length));
+        const pIdx = ((s.pose_index || (idx + 1)) - 1);
+        if (pIdx >= 0 && pIdx < this.posesCaptured.length && this.posesCaptured[pIdx] !== null) {
+          return pIdx;
+        }
+        return validPhotoIndices[idx % fallbackCount] ?? 0;
       });
     }
 
     // Initialize transforms (pan & zoom) for each slot
-    if (!this.slotTransforms || this.slotTransforms.length !== slots.length) {
+    if (forceResetSlots || !this.slotTransforms || this.slotTransforms.length !== slots.length) {
       this.slotTransforms = slots.map(() => ({ panX: 0, panY: 0, zoom: 1.0 }));
     }
     this.selectedPreviewSlotIndex = 0;
@@ -2040,40 +2116,62 @@ class KioskEngine {
       console.warn('Frame chroma key processing error:', e);
     }
     this.cachedKeyedFrame = frameCanvas;
+  }
 
-    // Render composited final canvas
+  openChangeFrameModal() {
+    const modal = document.getElementById('changeFrameModal');
+    const grid = document.getElementById('changeFrameGrid');
+    if (!modal || !grid) return;
+
+    const currentId = this.selectedTemplate ? this.selectedTemplate.id : null;
+    grid.innerHTML = (this.templates || []).map((tpl) => {
+      const isSelected = tpl.id === currentId;
+      const slotCount = (tpl.slots && tpl.slots.length) ? tpl.slots.length : (tpl.orientation === 'strip' ? 3 : 1);
+      return `
+        <div class="template-retro-card ${isSelected ? 'selected' : ''}" style="padding: 12px; cursor: pointer;" onclick="kiosk.applyFrameInPreview('${tpl.id}')">
+          <div class="template-check-badge">✓</div>
+          <div style="height: 155px; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; background: #FFFBF5; border-radius: 14px; border: 1.5px dashed #EAD8C7; overflow: hidden; padding: 6px;">
+            <img src="${tpl.image_storage_key}" alt="${tpl.name}" style="max-height: 100%; max-width: 100%; object-fit: contain;">
+          </div>
+          <span class="badge-pill ${isSelected ? 'badge-coral' : 'badge-active'}" style="font-size: 10.5px; margin-bottom: 4px; padding: 3px 10px;">
+            ${isSelected ? '✓ Sedang Dipakai' : `${slotCount} Slot Foto`}
+          </span>
+          <h4 style="font-size: 14px; font-weight: 700; color: #7B482E; margin-top: 2px; font-family: var(--font-heading); line-height: 1.25;">${tpl.name}</h4>
+        </div>
+      `;
+    }).join('');
+
+    modal.style.display = 'flex';
+  }
+
+  closeChangeFrameModal(event) {
+    if (event && event.target && event.target.closest('.photo-modal-card') && !event.target.classList.contains('photo-modal-close') && event.target.tagName !== 'BUTTON') {
+      return;
+    }
+    const modal = document.getElementById('changeFrameModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  async applyFrameInPreview(templateId) {
+    const newTpl = (this.templates || []).find(t => t.id === templateId);
+    if (!newTpl) return;
+
+    this.selectedTemplate = newTpl;
+    this.selectedMode = newTpl.orientation === 'strip' ? 'strip' : 'single';
+    this.closeChangeFrameModal();
+
+    await this.loadAndKeySelectedTemplate(true);
     await this.renderFinalCanvas();
 
-    // Setup interactive touch / drag panning on finalCanvas
-    this.setupCanvasInteractivePan();
+    const badge = document.getElementById('activeSlotBadge');
+    const targetName = document.getElementById('targetSlotName');
+    if (badge) badge.innerText = 'Slot #1 Aktif';
+    if (targetName) targetName.innerText = 'Slot #1';
 
-    // Render slot selector tabs & photo thumbnails tray
     this.renderPreviewSlotTabs();
     this.renderPreviewPhotoTray();
-
-    // Render QR Code & Direct Gallery Link on Preview Card
-    this.renderGuestQrOnPreview();
-
-    const banner = document.getElementById('printStatusBanner');
-    if (banner) banner.style.display = 'none';
-
-    // Bawaan (default) cetak foto adalah 1 lembar
-    const printSelect = document.getElementById('printCopiesSelect');
-    if (printSelect) printSelect.value = '1';
-
-    // Initial sync of composite photo to backend
-    this.syncFinalPhotoToBackend();
-
-    this.showScreen('screenPreview');
-    this.startAutoReturnTimer(45);
-
-    // If Auto-Print is enabled, automatically trigger direct print once on entering preview
-    if ((this.autoPrintEnabled || (this.eventConfig && this.eventConfig.autoPrint)) && this.autoPrintedForSession !== this.sessionId) {
-      this.autoPrintedForSession = this.sessionId;
-      setTimeout(() => {
-        this.printCurrentSession(true);
-      }, 700);
-    }
+    this.showToast(`🖼️ Frame berhasil diganti ke "${newTpl.name}"!`, '✨', 2200);
+    this.syncFinalPhotoToBackend({ forceRegenerateBoomerang: true });
   }
 
   async renderFinalCanvas() {
@@ -2648,11 +2746,12 @@ class KioskEngine {
     }
   }
 
-  async syncFinalPhotoToBackend() {
+  async syncFinalPhotoToBackend(options = {}) {
     const finalCanvas = document.getElementById('finalCanvas');
     if (!finalCanvas || !this.sessionId) return;
 
     const needSyncRaw = (this.rawPosesSyncedForSession !== this.sessionId);
+    const needSyncBoomerang = needSyncRaw || !!options.forceRegenerateBoomerang;
 
     // Convert raw pose photos to blobs only on first sync for this session
     const rawBlobs = [];
@@ -2667,7 +2766,9 @@ class KioskEngine {
           } catch (e) {}
         }
       }
+    }
 
+    if (needSyncBoomerang && this.posesCaptured && this.posesCaptured.length > 0) {
       // Generate Boomerang clip if we have at least 2 poses
       const validPoses = this.posesCaptured.filter(p => p !== null && p.startsWith('data:'));
       if (validPoses.length >= 2) {
@@ -2703,14 +2804,15 @@ class KioskEngine {
           });
         }
 
-        if (bmResult && bmResult.blob) {
-          formData.append('boomerang', bmResult.blob, `boomerang_${Date.now()}.${bmResult.ext}`);
-        }
         if (this.liveClips && this.liveClips[0]) {
           const firstClip = this.liveClips[0];
           const ext = (firstClip.type && firstClip.type.includes('mp4')) ? 'mp4' : 'webm';
           formData.append('livePhoto', firstClip, `livephoto_${Date.now()}.${ext}`);
         }
+      }
+
+      if (needSyncBoomerang && bmResult && bmResult.blob) {
+        formData.append('boomerang', bmResult.blob, `boomerang_${Date.now()}.${bmResult.ext}`);
       }
 
       if (!navigator.onLine) {

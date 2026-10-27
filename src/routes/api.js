@@ -910,22 +910,31 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
     }
 
     // SIMPAN SEMUA FOTO ASLI TANPA FRAME (RAW CAPTURES)
-    // Cegah duplikasi: simpan hanya 1 kali saat sesi pertama kali selesai
+    // Mendukung simpan baru maupun pembaruan pose jika tamu kembali ke kamera untuk foto ulang / tambah pose
     if (req.files && req.files['captures'] && req.files['captures'].length > 0) {
-      const existingRaw = db.prepare("SELECT COUNT(*) as count FROM media_assets WHERE photo_session_id = ? AND type = 'raw_capture'").get(sessionId);
-      if (existingRaw.count === 0) {
-        req.files['captures'].forEach((captureFile, idx) => {
-          const opt = optimizePhotoFile(captureFile.path, { quality: 88, maxDimension: 1920 });
-          const rawFileName = opt ? path.basename(opt.path) : captureFile.filename;
-          const rawFileSize = opt ? opt.size : captureFile.size;
-          const rawUrl = `/uploads/${rawFileName}`;
+      req.files['captures'].forEach((captureFile, idx) => {
+        const variantKey = `pose_${idx + 1}`;
+        const opt = optimizePhotoFile(captureFile.path, { quality: 88, maxDimension: 1920 });
+        const rawFileName = opt ? path.basename(opt.path) : captureFile.filename;
+        const rawFileSize = opt ? opt.size : captureFile.size;
+        const rawUrl = `/uploads/${rawFileName}`;
+        const existingPose = db.prepare("SELECT id, file_path FROM media_assets WHERE photo_session_id = ? AND type = 'raw_capture' AND variant = ?").get(sessionId, variantKey);
+        if (existingPose) {
+          if (existingPose.file_path && existingPose.file_path !== rawUrl) {
+            const oldRawPath = path.join(uploadDir, path.basename(existingPose.file_path));
+            if (fs.existsSync(oldRawPath)) {
+              try { fs.unlinkSync(oldRawPath); } catch (e) {}
+            }
+          }
+          db.prepare("UPDATE media_assets SET file_path = ?, size_bytes = ? WHERE id = ?").run(rawUrl, rawFileSize, existingPose.id);
+        } else {
           const rawAssetId = 'asset_raw_' + crypto.randomBytes(8).toString('hex');
           db.prepare(`
             INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, size_bytes, status)
             VALUES (?, ?, ?, ?, 'raw_capture', ?, ?, ?, 'ready')
-          `).run(rawAssetId, session.tenant_id, session.event_id, sessionId, `pose_${idx + 1}`, rawUrl, rawFileSize);
-        });
-      }
+          `).run(rawAssetId, session.tenant_id, session.event_id, sessionId, variantKey, rawUrl, rawFileSize);
+        }
+      });
     }
 
     // SIMPAN LIVE VIDEO CLIP PER POSE (IPHONE LIVE PHOTO)

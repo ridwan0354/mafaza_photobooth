@@ -675,11 +675,23 @@
         <div class="preview-col-card">
           <div class="preview-card-header" style="margin-bottom: 6px;">
             <h3 class="preview-card-title">🖼️ Frame Hasil</h3>
-            <span id="activeSlotBadge" class="preview-badge-pill">Slot #1 Aktif</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button type="button" class="preview-tool-btn" style="padding: 4px 10px; font-size: 11px; background: var(--coral); color: #ffffff; border-color: var(--coral);" onclick="kiosk.openChangeFrameModal()" title="Ganti desain frame tanpa kehilangan foto">
+                🔄 Ganti Frame
+              </button>
+              <span id="activeSlotBadge" class="preview-badge-pill">Slot #1 Aktif</span>
+            </div>
           </div>
 
           <div class="preview-canvas-stage">
             <canvas id="finalCanvas"></canvas>
+          </div>
+
+          <div style="margin-top: 10px; padding-top: 8px; border-top: 1.5px dashed var(--border-soft); display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <span id="previewCurrentFrameName" style="font-size: 11px; color: var(--text-muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Ingin ganti desain frame?</span>
+            <button type="button" class="preview-tool-btn" style="padding: 5px 10px; font-size: 11.5px; flex-shrink: 0;" onclick="kiosk.openChangeFrameModal()">
+              🖼️ Pilih Frame Lain
+            </button>
           </div>
         </div>
 
@@ -809,6 +821,25 @@
     </div>
   </div>
 
+  <!-- Modal Ganti Frame di Halaman Hasil / Preview -->
+  <div id="changeFrameModal" class="photo-modal-overlay" style="display: none;" onclick="kiosk.closeChangeFrameModal(event)">
+    <div class="photo-modal-card" style="max-width: 780px; width: 92vw; padding: 24px;" onclick="event.stopPropagation()">
+      <div class="photo-modal-header" style="margin-bottom: 12px;">
+        <div>
+          <h3 style="font-size: 22px; font-weight: 800; color: var(--caramel-brown); margin: 0;">🖼️ Pilih / Ganti Frame Foto</h3>
+          <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 2px;">Foto Anda tetap tersimpan dan langsung dipasang otomatis ke frame yang dipilih!</p>
+        </div>
+        <button class="photo-modal-close" onclick="kiosk.closeChangeFrameModal()">✕</button>
+      </div>
+      <div id="changeFrameGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(175px, 1fr)); gap: 14px; max-height: 56vh; overflow-y: auto; padding: 6px 4px; margin-bottom: 16px;">
+        <!-- Diisi otomatis oleh JS -->
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" style="padding: 8px 20px; font-size: 13.5px;" onclick="kiosk.closeChangeFrameModal()">Tutup</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Photo Detail Modal (Lihat / Foto Ulang / Hapus) -->
   <div id="photoPreviewModal" class="photo-modal-overlay" style="display: none;" onclick="kiosk.closePhotoModal(event)">
     <div class="photo-modal-card" onclick="event.stopPropagation()">
@@ -919,6 +950,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v5.3"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v5.4"></script>
 </body>
 </html>
