@@ -525,11 +525,14 @@ class KioskEngine {
 
   async fetchTemplates() {
     try {
-      const res = await fetch(`/api/templates?eventId=${this.eventId}`);
+      const res = await fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}`);
       if (res.ok) {
-        this.templates = await res.json();
-        if (this.templates && this.templates.length > 0 && window.pbOfflineStore) {
-          window.pbOfflineStore.cacheConfig('templates_' + this.eventId, this.templates);
+        const fetched = await res.json();
+        if (Array.isArray(fetched)) {
+          this.templates = fetched;
+          if (this.templates.length > 0 && window.pbOfflineStore) {
+            window.pbOfflineStore.cacheConfig('templates_' + this.eventId, this.templates);
+          }
         }
       }
     } catch (e) {
@@ -638,8 +641,9 @@ class KioskEngine {
     this.sessionId = null;
     if (this.autoReturnTimerId) clearInterval(this.autoReturnTimerId);
 
-    // Refresh event config so changes in Admin take effect immediately
+    // Refresh event config & event frames so changes in Admin take effect immediately
     await this.fetchEventConfig();
+    await this.fetchTemplates();
 
     // Jika event diatur Tidak Pakai Pindai QR, langsung masuk ke Pilih Frame (No. 1)
     if (this.isQrScanDisabled()) {
@@ -2118,13 +2122,19 @@ class KioskEngine {
     this.cachedKeyedFrame = frameCanvas;
   }
 
-  openChangeFrameModal() {
+  async openChangeFrameModal() {
     const modal = document.getElementById('changeFrameModal');
     const grid = document.getElementById('changeFrameGrid');
     if (!modal || !grid) return;
 
+    modal.style.display = 'flex';
+    await this.fetchTemplates();
+
     const currentId = this.selectedTemplate ? this.selectedTemplate.id : null;
-    grid.innerHTML = (this.templates || []).map((tpl) => {
+    const eventTemplates = (this.templates || []).filter(t => !t.event_id || t.event_id === this.eventId);
+    const listToRender = eventTemplates.length > 0 ? eventTemplates : (this.templates || []);
+
+    grid.innerHTML = listToRender.map((tpl) => {
       const isSelected = tpl.id === currentId;
       const slotCount = (tpl.slots && tpl.slots.length) ? tpl.slots.length : (tpl.orientation === 'strip' ? 3 : 1);
       return `
