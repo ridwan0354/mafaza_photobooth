@@ -765,9 +765,9 @@
                 <img src="${raw.filePath}" id="poseImg_${s.id}_${rIdx}" loading="lazy" alt="Pose ${poseNum}" style="width: 100%; height: 100%; object-fit: cover; display: block;" onclick="openLightbox('${raw.filePath}')">
                 
                 ${clipSrc ? `
-                  <video id="poseVid_${s.id}_${rIdx}" src="${clipSrc}" playsinline loop muted preload="none" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; transform: scaleX(-1); display: none; z-index: 4;"></video>
+                  <video id="poseVid_${s.id}_${rIdx}" src="${clipSrc}" playsinline loop muted preload="none" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; display: none; z-index: 4;"></video>
                 ` : `
-                  <canvas id="poseCanvas_${s.id}_${rIdx}" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; transform: scaleX(-1); display: none; z-index: 4;"></canvas>
+                  <canvas id="poseCanvas_${s.id}_${rIdx}" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; display: none; z-index: 4;"></canvas>
                 `}
 
                 <div class="pose-touch-hint" id="poseHint_${s.id}_${rIdx}">
@@ -2243,64 +2243,8 @@
 
     async function downloadPoseLiveVideo(sessionId, poseIndex, rawSrc, clipSrc) {
       if (clipSrc) {
-        try {
-          const v = document.createElement('video');
-          v.src = clipSrc;
-          v.crossOrigin = 'anonymous';
-          v.muted = true;
-          v.playsInline = true;
-
-          await new Promise((resolve) => {
-            v.onloadedmetadata = resolve;
-            setTimeout(resolve, 1000);
-          });
-
-          const exportCanvas = document.createElement('canvas');
-          exportCanvas.width = v.videoWidth || 1280;
-          exportCanvas.height = v.videoHeight || 720;
-          const ctx = exportCanvas.getContext('2d');
-
-          const mimeTypes = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
-          const mime = mimeTypes.find(t => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
-
-          if (mime && typeof exportCanvas.captureStream === 'function') {
-            const stream = exportCanvas.captureStream(30);
-            const recorder = new MediaRecorder(stream, { mimeType: mime });
-            const chunks = [];
-            recorder.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
-
-            v.currentTime = 0;
-            await v.play().catch(()=>{});
-            recorder.start();
-
-            let animId = null;
-            const drawMirrored = () => {
-              if (v.paused || v.ended) return;
-              ctx.save();
-              ctx.translate(exportCanvas.width, 0);
-              ctx.scale(-1, 1);
-              ctx.drawImage(v, 0, 0, exportCanvas.width, exportCanvas.height);
-              ctx.restore();
-              animId = requestAnimationFrame(drawMirrored);
-            };
-            drawMirrored();
-
-            v.onended = () => {
-              if (animId) cancelAnimationFrame(animId);
-              recorder.stop();
-              recorder.onstop = async () => {
-                const ext = mime.includes('mp4') ? 'mp4' : 'webm';
-                const blob = new Blob(chunks, { type: mime });
-                await downloadMediaFile(blob, `Live_Pose_${poseIndex + 1}_${sessionId}.${ext}`, mime);
-              };
-            };
-            return;
-          }
-        } catch (err) {
-          console.warn('Mirrored pose live download error:', err);
-        }
-
-        await downloadMediaFile(clipSrc, `Live_Pose_${poseIndex + 1}_${sessionId}.mp4`, 'video/mp4');
+        const ext = clipSrc.endsWith('.webm') ? 'webm' : 'mp4';
+        await downloadMediaFile(clipSrc, `Live_Pose_${poseIndex + 1}_${sessionId}.${ext}`, `video/${ext}`);
         return;
       }
 

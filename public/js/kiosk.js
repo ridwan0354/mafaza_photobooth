@@ -1556,9 +1556,7 @@ class KioskEngine {
           c.width = img.naturalWidth || 1920;
           c.height = img.naturalHeight || 1280;
           const ctx = c.getContext('2d');
-          // Mirror to match live view orientation
-          ctx.translate(c.width, 0);
-          ctx.scale(-1, 1);
+          // Jangan di-mirror agar teks pada papan/baju/properti terbaca normal (tidak terbalik) saat dicetak
           ctx.drawImage(img, 0, 0, c.width, c.height);
           const flashDataUrl = c.toDataURL('image/jpeg', 0.88);
           this.posesCaptured[poseIndex] = flashDataUrl;
@@ -1609,9 +1607,7 @@ class KioskEngine {
     canvas.height = 720;
     const ctx = canvas.getContext('2d');
 
-    // Mirror image for natural photo look
-    ctx.translate(canvas.width, 0);
-    ctx.scale(-1, 1);
+    // Jangan di-mirror pada hasil tangkapan agar tulisan/teks terbaca normal (tidak terbalik) saat dicetak
     if (video) {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     }
@@ -2253,6 +2249,10 @@ class KioskEngine {
         const drawX = slotCenterX - (drawW / 2) + transform.panX;
         const drawY = slotCenterY - (drawH / 2) + transform.panY;
 
+        if (this.mirrorAllSlots) {
+          ctx.translate(slotCenterX * 2, 0);
+          ctx.scale(-1, 1);
+        }
         ctx.drawImage(pImg, drawX, drawY, drawW, drawH);
         ctx.restore();
       }
@@ -2603,6 +2603,18 @@ class KioskEngine {
     const idx = this.selectedPreviewSlotIndex;
     this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
     this.renderFinalCanvas();
+    this.resetAutoReturnTimer();
+    this.debounceSyncSession();
+  }
+
+  toggleMirrorAllSlots() {
+    this.mirrorAllSlots = !this.mirrorAllSlots;
+    this.renderFinalCanvas();
+    this.showToast(
+      this.mirrorAllSlots ? '↔️ Mode Mirror Diaktifkan' : '↔️ Mode Normal (Teks Tidak Terbalik)',
+      '✨',
+      1800
+    );
     this.resetAutoReturnTimer();
     this.debounceSyncSession();
   }
