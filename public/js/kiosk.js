@@ -2358,6 +2358,17 @@ class KioskEngine {
     if (this.cachedKeyedFrame) {
       ctx.drawImage(this.cachedKeyedFrame, 0, 0, tplWidth, tplHeight);
     }
+
+    this.updatePreviewSlotZoomBadge();
+  }
+
+  updatePreviewSlotZoomBadge() {
+    const label = document.getElementById('previewSlotZoomLabel');
+    if (!label) return;
+    const idx = typeof this.selectedPreviewSlotIndex === 'number' ? this.selectedPreviewSlotIndex : 0;
+    const tr = (this.slotTransforms && this.slotTransforms[idx]) || { zoom: 1.0 };
+    const z = Math.max(0.8, Math.min(3.5, tr.zoom || 1.0));
+    label.innerText = `🔍 ${z.toFixed(1)}x`;
   }
 
   setupCanvasInteractivePan() {
@@ -2598,6 +2609,108 @@ class KioskEngine {
 
     window.addEventListener('touchend', stopTouch);
     window.addEventListener('touchcancel', stopTouch);
+
+    // 4. POINTER EVENTS MULTI-TOUCH PINCH & DRAG (Khusus Monitor Sentuh USB Windows / macOS)
+    const activePointers = new Map();
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return; // Mouse sudah ditangani oleh mousedown
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+
+      const coords = getCanvasCoords(e.clientX, e.clientY);
+      const slotIdx = findSlotAt(coords.x, coords.y);
+      this.selectPreviewSlot(slotIdx);
+
+      const idx = this.selectedPreviewSlotIndex;
+      if (!this.slotTransforms[idx]) this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
+
+      if (activePointers.size === 1) {
+        this.isDraggingPhoto = true;
+        this.isPinching = false;
+        this.dragState = {
+          lastClientX: e.clientX,
+          lastClientY: e.clientY,
+          scaleX: coords.scaleX,
+          scaleY: coords.scaleY
+        };
+      } else if (activePointers.size >= 2) {
+        const pts = Array.from(activePointers.values());
+        this.isDraggingPhoto = false;
+        this.isPinching = true;
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const midX = (pts[0].x + pts[1].x) / 2;
+        const midY = (pts[0].y + pts[1].y) / 2;
+        this.pinchState = {
+          initialDist: Math.max(15, dist),
+          initialZoom: this.slotTransforms[idx].zoom || 1.0,
+          initialPanX: this.slotTransforms[idx].panX || 0,
+          initialPanY: this.slotTransforms[idx].panY || 0,
+          midX,
+          midY,
+          scaleX: coords.scaleX,
+          scaleY: coords.scaleY
+        };
+      }
+      this.resetAutoReturnTimer();
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'mouse' || !activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      const idx = this.selectedPreviewSlotIndex;
+      if (typeof idx !== 'number' || !this.slotTransforms[idx]) return;
+
+      if (activePointers.size >= 2 && this.isPinching) {
+        const pts = Array.from(activePointers.values());
+        const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        const scaleRatio = currentDist / this.pinchState.initialDist;
+        this.slotTransforms[idx].zoom = Math.max(1.0, Math.min(3.5, this.pinchState.initialZoom * scaleRatio));
+
+        const currentMidX = (pts[0].x + pts[1].x) / 2;
+        const currentMidY = (pts[0].y + pts[1].y) / 2;
+        const deltaMidX = (currentMidX - this.pinchState.midX) * this.pinchState.scaleX;
+        const deltaMidY = (currentMidY - this.pinchState.midY) * this.pinchState.scaleY;
+
+        this.slotTransforms[idx].panX = this.pinchState.initialPanX + deltaMidX;
+        this.slotTransforms[idx].panY = this.pinchState.initialPanY + deltaMidY;
+        this.renderFinalCanvas();
+      } else if (activePointers.size === 1 && this.isDraggingPhoto) {
+        const dx = (e.clientX - this.dragState.lastClientX) * this.dragState.scaleX;
+        const dy = (e.clientY - this.dragState.lastClientY) * this.dragState.scaleY;
+        this.dragState.lastClientX = e.clientX;
+        this.dragState.lastClientY = e.clientY;
+        this.slotTransforms[idx].panX = (this.slotTransforms[idx].panX || 0) + dx;
+        this.slotTransforms[idx].panY = (this.slotTransforms[idx].panY || 0) + dy;
+        this.renderFinalCanvas();
+      }
+    });
+
+    const endPointer = (e) => {
+      if (e.pointerType === 'mouse') return;
+      activePointers.delete(e.pointerId);
+      if (activePointers.size === 0) {
+        if (this.isDraggingPhoto || this.isPinching) {
+          this.isDraggingPhoto = false;
+          this.isPinching = false;
+          this.resetAutoReturnTimer();
+          this.debounceSyncSession();
+        }
+      } else if (activePointers.size === 1) {
+        const remaining = Array.from(activePointers.values())[0];
+        const coords = getCanvasCoords(remaining.x, remaining.y);
+        this.isPinching = false;
+        this.isDraggingPhoto = true;
+        this.dragState = {
+          lastClientX: remaining.x,
+          lastClientY: remaining.y,
+          scaleX: coords.scaleX,
+          scaleY: coords.scaleY
+        };
+      }
+    };
+    canvas.addEventListener('pointerup', endPointer);
+    canvas.addEventListener('pointercancel', endPointer);
   }
 
   selectPreviewSlot(slotIdx) {
@@ -2609,6 +2722,7 @@ class KioskEngine {
 
     this.renderPreviewSlotTabs();
     this.renderPreviewPhotoTray();
+    this.updatePreviewSlotZoomBadge();
     this.resetAutoReturnTimer();
   }
 
