@@ -11,7 +11,7 @@
   <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
   <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
   <title>Mafaza — Photobooth Kiosk</title>
-  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.4">
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.5">
   <style>
     /* Specific overrides for Konsep C: Warm Playful Retro */
     .template-retro-card {
@@ -511,11 +511,11 @@
     </div>
 
     <!-- 4. SCREEN: KAMERA & COUNTDOWN (Konsep C: Warm Playful Retro dari Gambar 2) -->
-    <div id="screenCapture" class="kiosk-screen" style="padding: 6px 16px 8px; justify-content: flex-start; align-items: center; gap: 2px; overflow-y: auto;">
+    <div id="screenCapture" class="kiosk-screen" style="padding: 4px 16px 6px; justify-content: flex-start; align-items: center; gap: 0; overflow-y: auto;">
       <!-- Top Header Group: Step Progress + Pose Indicator -->
-      <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30;">
+      <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30; flex-shrink: 0;">
         <!-- Step progress: Foto ACTIVE -->
-        <div class="step-progress-retro compact" data-step-screen="screenCapture" style="margin-bottom: 6px;">
+        <div class="step-progress-retro compact" data-step-screen="screenCapture" style="margin-bottom: 4px;">
           <div class="step-item completed">
             <div class="step-circle">✓</div>
             <div class="step-label">Pilih Frame</div>
@@ -532,20 +532,20 @@
           </div>
         </div>
 
-        <!-- Top Pose Badge -->
-        <div style="display: flex; gap: 10px; align-items: center; justify-content: center; margin-bottom: 4px;">
-          <div class="badge-pill badge-coral" id="poseIndicator" style="font-size: 15px; font-weight: 800; padding: 6px 20px;">
+        <!-- Top Pose Badge (Pill hint disembunyikan sesuai permintaan) -->
+        <div style="display: flex; gap: 10px; align-items: center; justify-content: center; margin-bottom: 2px;">
+          <div class="badge-pill badge-coral" id="poseIndicator" style="font-size: 14px; font-weight: 800; padding: 5px 22px;">
             <span class="pose-pill-dot"></span>
             <span id="poseIndicatorText">Foto 1/3</span>
           </div>
-          <div class="badge-pill badge-pending" id="smileHint" style="font-size: 13.5px; font-weight: 600; padding: 6px 16px;">
-            <span id="smileHintText">Tersenyumlah ke kamera! 😊</span>
+          <div id="smileHint" style="display: none !important;">
+            <span id="smileHintText"></span>
           </div>
         </div>
       </div>
 
       <!-- MAIN CAMERA VIEWPORT with Corner Brackets & Proportional Frame -->
-      <div id="cameraRetroFrame" class="camera-retro-frame" onclick="kiosk && kiosk.handleCameraViewportClick(event)" style="aspect-ratio: 16 / 9;">
+      <div id="cameraRetroFrame" class="camera-retro-frame" onclick="kiosk && kiosk.handleCameraViewportClick(event)" style="aspect-ratio: 16 / 9; margin: 2px auto 4px;">
         <video id="videoFeed" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1) scale(1); transform-origin: center center; transition: transform 0.18s ease-out; display: block;"></video>
 
         <!-- Live Viewfinder Indicator Top Left -->
@@ -1192,6 +1192,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v7.7"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v7.8"></script>
 </body>
 </html>
