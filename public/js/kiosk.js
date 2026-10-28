@@ -1614,13 +1614,16 @@ class KioskEngine {
 
     try {
       await this.fetchCameraConfig();
-      const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+      // Deteksi iPad (Safari di iPadOS mengirim userAgent 'Macintosh' dengan maxTouchPoints > 1)
+      const isIpadOs = (navigator.userAgent.includes('Macintosh') && (navigator.maxTouchPoints > 1)) || /iPad/i.test(navigator.userAgent || '');
+      const isMobileDevice = /Android|iPhone|iPod/i.test(navigator.userAgent || '') || isIpadOs;
+
       const localPrefId = localStorage.getItem('pb_preferred_video_device_id') || '';
-      // Jangan gunakan canon_usb_direct dari server jika perangkat ini adalah Tablet/HP Android
+      // Jangan pernah gunakan canon_usb_direct jika perangkat ini adalah Tablet (iPad / Android) atau HP
       const globalPrefId = (isMobileDevice && this.cameraConfig?.preferredVideoDeviceId === 'canon_usb_direct')
         ? ''
         : (this.cameraConfig?.preferredVideoDeviceId || '');
-      const savedPrefId = localPrefId || globalPrefId;
+      const savedPrefId = isMobileDevice ? (localPrefId === 'canon_usb_direct' ? '' : localPrefId) : (localPrefId || globalPrefId);
 
       const canonBridge = isMobileDevice ? null : await this.checkCanonUsbBridgeStatus();
 
@@ -1638,8 +1641,8 @@ class KioskEngine {
         return;
       }
 
-      // Jika user di laptop desktop secara manual memilih canon_usb_direct
-      if (savedPrefId === 'canon_usb_direct' && !isMobileDevice) {
+      // Jika user di laptop desktop SECARA SPESIFIK memilih canon_usb_direct di browser ini
+      if (localPrefId === 'canon_usb_direct' && !isMobileDevice) {
         let videoInputs = [];
         try {
           if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
