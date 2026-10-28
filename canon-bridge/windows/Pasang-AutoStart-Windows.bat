@@ -3,6 +3,9 @@ title Mafaza Photobooth - Pasang AutoStart Windows
 color 0a
 cd /d "%~dp0"
 
+REM Matikan proses bridge lama jika sedang berjalan agar port 19898 bebas
+taskkill /f /im MafazaCanonBridge.exe >nul 2>&1
+
 echo ======================================================================
 echo    MEMASANG CANON USB BRIDGE KE AUTOSTART WINDOWS (LATAR BELAKANG)
 echo ======================================================================

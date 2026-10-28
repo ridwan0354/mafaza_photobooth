@@ -3,6 +3,9 @@ title Mafaza Photobooth - Pasang Canon USB Bridge (Windows)
 color 0b
 cd /d "%~dp0"
 
+REM Matikan proses bridge lama jika sedang berjalan agar port 19898 bebas
+taskkill /f /im MafazaCanonBridge.exe >nul 2>&1
+
 echo ======================================================================
 echo    MAFAZA PHOTOBOOTH - PEMASANG CANON USB BRIDGE (WINDOWS 10 / 11)   
 echo ======================================================================

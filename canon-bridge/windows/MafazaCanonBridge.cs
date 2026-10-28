@@ -94,11 +94,10 @@ namespace MafazaCanonBridge
             {
                 _listener = new HttpListener();
                 _listener.Prefixes.Add("http://127.0.0.1:19898/");
-                _listener.Prefixes.Add("http://localhost:19898/");
                 _listener.Start();
 
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("[HTTP] Server berjalan di http://127.0.0.1:19898/");
+                Console.WriteLine("[HTTP] Server berhasil berjalan di http://127.0.0.1:19898/");
                 Console.WriteLine("[HTTP] Endpoint aktif: /status, /frame.jpg, /control");
                 Console.ResetColor();
 
@@ -108,7 +107,7 @@ namespace MafazaCanonBridge
             {
                 Console.ForegroundColor = ConsoleColor.Red;
                 Console.WriteLine("[ERROR] Gagal menyalakan HttpListener: " + ex.Message);
-                Console.WriteLine("        Pastikan port 19898 belum digunakan oleh aplikasi lain.");
+                Console.WriteLine("        Tips: Jalankan ulang script 'Pasang-dan-Jalankan-Canon-USB-Bridge.bat'.");
                 Console.ResetColor();
             }
         }
