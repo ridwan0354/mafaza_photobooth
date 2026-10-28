@@ -1239,10 +1239,109 @@ class KioskEngine {
     });
   }
 
+  async checkCanonUsbBridgeStatus() {
+    try {
+      const ctrl = new AbortController();
+      const tid = setTimeout(() => ctrl.abort(), 650);
+      const res = await fetch('http://127.0.0.1:19898/status', { signal: ctrl.signal, cache: 'no-store' });
+      clearTimeout(tid);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.active) {
+          this.canonUsbBridgeInfo = data;
+          return data;
+        }
+      }
+    } catch (e) {}
+    this.canonUsbBridgeInfo = null;
+    return null;
+  }
+
+  async startCanonUsbDirectStream(bridgeInfo) {
+    if (this.canonUsbLoopTimer) {
+      clearTimeout(this.canonUsbLoopTimer);
+      this.canonUsbLoopTimer = null;
+    }
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach(t => t.stop());
+      this.mediaStream = null;
+    }
+
+    const w = (bridgeInfo && bridgeInfo.width) || 1056;
+    const h = (bridgeInfo && bridgeInfo.height) || 704;
+    if (!this.canonUsbCanvas) {
+      this.canonUsbCanvas = document.createElement('canvas');
+    }
+    this.canonUsbCanvas.width = w;
+    this.canonUsbCanvas.height = h;
+    const ctx = this.canonUsbCanvas.getContext('2d');
+
+    this.canonUsbStreamActive = true;
+    const drawNextFrame = () => {
+      if (!this.canonUsbStreamActive) return;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        if (!this.canonUsbStreamActive) return;
+        ctx.drawImage(img, 0, 0, w, h);
+
+        // Cek apakah gambar dari sensor Canon EOS 1300D masih sangat gelap (tutup lensa belum dibuka / ISO terlalu rendah)
+        try {
+          const sample = ctx.getImageData(Math.floor(w * 0.25), Math.floor(h * 0.25), 60, 60).data;
+          let sum = 0;
+          for (let i = 0; i < sample.length; i += 16) {
+            sum += sample[i] + sample[i + 1] + sample[i + 2];
+          }
+          const avg = sum / ((sample.length / 16) * 3);
+          if (avg < 8) {
+            ctx.save();
+            // Karena #videoFeed memakai transform scaleX(-1), balik teks secara horizontal agar terbaca normal di layar
+            ctx.translate(w, 0);
+            ctx.scale(-1, 1);
+            ctx.fillStyle = 'rgba(28, 18, 12, 0.82)';
+            ctx.fillRect(w * 0.1, h * 0.34, w * 0.8, h * 0.32);
+            ctx.strokeStyle = '#E6786B';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(w * 0.1, h * 0.34, w * 0.8, h * 0.32);
+            ctx.fillStyle = '#FFFBF5';
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 24px sans-serif';
+            ctx.fillText('📷 Canon EOS 1300D Terhubung via USB!', w * 0.5, h * 0.44);
+            ctx.fillStyle = '#FFD166';
+            ctx.font = 'bold 18px sans-serif';
+            ctx.fillText('Gambar dari lensa masih gelap (Hitam):', w * 0.5, h * 0.51);
+            ctx.fillStyle = '#FFFBF5';
+            ctx.font = '16px sans-serif';
+            ctx.fillText('1. Pastikan Tutup Lensa kamera sudah dibuka', w * 0.5, h * 0.57);
+            ctx.fillText('2. Putar roda atas kamera ke huruf P (atau naikkan ISO di mode M)', w * 0.5, h * 0.62);
+            ctx.restore();
+          }
+        } catch (err) {}
+
+        this.canonUsbLoopTimer = setTimeout(drawNextFrame, 42);
+      };
+      img.onerror = () => {
+        if (!this.canonUsbStreamActive) return;
+        this.canonUsbLoopTimer = setTimeout(drawNextFrame, 250);
+      };
+      img.src = `http://127.0.0.1:19898/frame.jpg?t=${Date.now()}`;
+    };
+
+    drawNextFrame();
+    this.mediaStream = this.canonUsbCanvas.captureStream(24);
+    const video = document.getElementById('videoFeed');
+    const qrVideo = document.getElementById('qrVideoFeed');
+    if (video) video.srcObject = this.mediaStream;
+    if (qrVideo) qrVideo.srcObject = this.mediaStream;
+  }
+
   async onQuickCameraSelectChange(deviceId) {
     if (!deviceId) return;
     if (!this.cameraConfig) this.cameraConfig = {};
     this.cameraConfig.preferredVideoDeviceId = deviceId;
+    try {
+      localStorage.setItem('pb_preferred_video_device_id', deviceId);
+    } catch (e) {}
     try {
       await fetch('/api/camera/config', {
         method: 'POST',
@@ -1255,12 +1354,21 @@ class KioskEngine {
 
   populateQuickCameraSelect(videoInputs, activeDeviceId) {
     const sel = document.getElementById('kioskQuickCameraSelect');
-    if (!sel || !Array.isArray(videoInputs)) return;
-    sel.innerHTML = videoInputs.map((d, i) => {
-      const label = d.label || `Kamera #${i + 1}`;
-      const selected = d.deviceId === activeDeviceId ? 'selected' : '';
-      return `<option value="${d.deviceId}" ${selected}>📹 ${label}</option>`;
-    }).join('');
+    if (!sel) return;
+    let optsHtml = '';
+    if (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active) {
+      const camTitle = this.canonUsbBridgeInfo.camera || 'Canon EOS 1300D';
+      const isCanonSel = activeDeviceId === 'canon_usb_direct' ? 'selected' : '';
+      optsHtml += `<option value="canon_usb_direct" ${isCanonSel}>📷 ${camTitle} (Kabel USB)</option>`;
+    }
+    if (Array.isArray(videoInputs)) {
+      optsHtml += videoInputs.map((d, i) => {
+        const label = d.label || `Kamera #${i + 1}`;
+        const selected = d.deviceId === activeDeviceId ? 'selected' : '';
+        return `<option value="${d.deviceId}" ${selected}>📹 ${label}</option>`;
+      }).join('');
+    }
+    sel.innerHTML = optsHtml;
   }
 
   async setUvcResolution(resMode) {
@@ -1339,9 +1447,31 @@ class KioskEngine {
   async startCamera(overrideResMode = null) {
     const video = document.getElementById('videoFeed');
     const qrVideo = document.getElementById('qrVideoFeed');
+    this.canonUsbStreamActive = false;
+    if (this.canonUsbLoopTimer) {
+      clearTimeout(this.canonUsbLoopTimer);
+      this.canonUsbLoopTimer = null;
+    }
 
     try {
       await this.fetchCameraConfig();
+      const canonBridge = await this.checkCanonUsbBridgeStatus();
+      const savedPrefId = this.cameraConfig?.preferredVideoDeviceId || localStorage.getItem('pb_preferred_video_device_id') || '';
+
+      // Jika Canon EOS 1300D USB Bridge aktif (dan user belum memilih kamera lain secara spesifik, atau memilih canon_usb_direct)
+      if (canonBridge && canonBridge.active && (!savedPrefId || savedPrefId === 'canon_usb_direct')) {
+        let videoInputs = [];
+        try {
+          if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+            const devs = await navigator.mediaDevices.enumerateDevices();
+            videoInputs = devs.filter(d => d.kind === 'videoinput');
+          }
+        } catch (e) {}
+        this.populateQuickCameraSelect(videoInputs, 'canon_usb_direct');
+        await this.startCanonUsbDirectStream(canonBridge);
+        return;
+      }
+
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         if (this.mediaStream) {
           this.mediaStream.getTracks().forEach(t => t.stop());
