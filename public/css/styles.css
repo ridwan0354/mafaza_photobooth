@@ -420,8 +420,8 @@ h1, h2, h3, h4, .font-heading {
 /* Sleek Studio Camera Frame - Proportional Viewfinder (Tablet & Compact Screens) */
 .camera-retro-frame {
   width: auto;
-  max-width: min(92vw, 880px);
-  height: clamp(280px, calc(100vh - 225px), 480px);
+  max-width: min(94vw, 980px);
+  height: clamp(280px, calc(100vh - 160px), 560px);
   aspect-ratio: 16 / 9;
   border-radius: 22px;
   border: 5px solid #FFFBF5;
@@ -440,16 +440,16 @@ h1, h2, h3, h4, .font-heading {
 /* PC Desktop & Large Screens (1080p, 1440p, Monitor Kiosk Fullscreen) */
 @media (min-width: 1200px) and (min-height: 760px) {
   .camera-retro-frame {
-    max-width: min(95vw, 1440px);
-    height: clamp(560px, calc(100vh - 225px), 780px);
+    max-width: min(96vw, 1540px);
+    height: clamp(600px, calc(100vh - 150px), 850px);
     border-radius: 26px;
     border-width: 6px;
     box-shadow: 0 20px 52px rgba(0, 0, 0, 0.38);
     margin: 2px auto 4px;
   }
   .filmstrip-dock-retro {
-    max-width: 1080px;
-    width: min(92vw, 1080px);
+    max-width: 1120px;
+    width: min(92vw, 1120px);
     padding: 6px 18px 6px;
     border-radius: 18px;
   }
