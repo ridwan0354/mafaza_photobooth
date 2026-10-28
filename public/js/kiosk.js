@@ -66,6 +66,7 @@ class KioskEngine {
     this.setupFullScreenSupport();
     this.setupVirtualCameraFallback();
     this.setupKeyboardRemoteListeners();
+    this.startCanonUsbAutoDetector();
     // Langsung inisialisasi kamera dengan resolusi UVC yang tepat sejak halaman Kiosk dibuka
     this.startCamera().catch(err => console.warn('Initial camera warmup:', err));
 
@@ -1242,7 +1243,7 @@ class KioskEngine {
   async checkCanonUsbBridgeStatus() {
     try {
       const ctrl = new AbortController();
-      const tid = setTimeout(() => ctrl.abort(), 650);
+      const tid = setTimeout(() => ctrl.abort(), 2000);
       const res = await fetch('http://127.0.0.1:19898/status', { signal: ctrl.signal, cache: 'no-store' });
       clearTimeout(tid);
       if (res.ok) {
@@ -1255,6 +1256,19 @@ class KioskEngine {
     } catch (e) {}
     this.canonUsbBridgeInfo = null;
     return null;
+  }
+
+  startCanonUsbAutoDetector() {
+    if (this.canonAutoDetectInterval) clearInterval(this.canonAutoDetectInterval);
+    this.canonAutoDetectInterval = setInterval(async () => {
+      const info = await this.checkCanonUsbBridgeStatus();
+      const sel = document.getElementById('kioskQuickCameraSelect');
+      const hasCanonOpt = sel && Array.from(sel.options).some(o => o.value === 'canon_usb_direct');
+      if (info && info.active && !hasCanonOpt) {
+        // Otomatis tambahkan & aktifkan Canon EOS 1300D begitu terdeteksi aktif di Camera Live
+        await this.onQuickCameraSelectChange('canon_usb_direct');
+      }
+    }, 2500);
   }
 
   async startCanonUsbDirectStream(bridgeInfo) {
@@ -1277,13 +1291,19 @@ class KioskEngine {
     const ctx = this.canonUsbCanvas.getContext('2d');
 
     this.canonUsbStreamActive = true;
-    const drawNextFrame = () => {
+    const drawNextFrame = async () => {
       if (!this.canonUsbStreamActive) return;
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        if (!this.canonUsbStreamActive) return;
-        ctx.drawImage(img, 0, 0, w, h);
+      try {
+        const res = await fetch(`http://127.0.0.1:19898/frame.jpg?t=${Date.now()}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error('Frame unavailable');
+        const blob = await res.blob();
+        const bmp = await createImageBitmap(blob);
+        if (!this.canonUsbStreamActive) {
+          bmp.close();
+          return;
+        }
+        ctx.drawImage(bmp, 0, 0, w, h);
+        bmp.close();
 
         // Cek apakah gambar dari sensor Canon EOS 1300D masih sangat gelap (tutup lensa belum dibuka / ISO terlalu rendah)
         try {
@@ -1295,36 +1315,33 @@ class KioskEngine {
           const avg = sum / ((sample.length / 16) * 3);
           if (avg < 8) {
             ctx.save();
-            // Karena #videoFeed memakai transform scaleX(-1), balik teks secara horizontal agar terbaca normal di layar
             ctx.translate(w, 0);
             ctx.scale(-1, 1);
-            ctx.fillStyle = 'rgba(28, 18, 12, 0.82)';
-            ctx.fillRect(w * 0.1, h * 0.34, w * 0.8, h * 0.32);
+            ctx.fillStyle = 'rgba(28, 18, 12, 0.85)';
+            ctx.fillRect(w * 0.08, h * 0.30, w * 0.84, h * 0.38);
             ctx.strokeStyle = '#E6786B';
             ctx.lineWidth = 3;
-            ctx.strokeRect(w * 0.1, h * 0.34, w * 0.8, h * 0.32);
-            ctx.fillStyle = '#FFFBF5';
+            ctx.strokeRect(w * 0.08, h * 0.30, w * 0.84, h * 0.38);
+            ctx.fillStyle = '#2ECC71';
             ctx.textAlign = 'center';
-            ctx.font = 'bold 24px sans-serif';
-            ctx.fillText('📷 Canon EOS 1300D Terhubung via USB!', w * 0.5, h * 0.44);
+            ctx.font = 'bold 25px sans-serif';
+            ctx.fillText('✅ Canon EOS 1300D Terhubung via Kabel USB!', w * 0.5, h * 0.41);
             ctx.fillStyle = '#FFD166';
-            ctx.font = 'bold 18px sans-serif';
-            ctx.fillText('Gambar dari lensa masih gelap (Hitam):', w * 0.5, h * 0.51);
+            ctx.font = 'bold 19px sans-serif';
+            ctx.fillText('Lensa Kamera Masih Gelap (Hitam):', w * 0.5, h * 0.49);
             ctx.fillStyle = '#FFFBF5';
-            ctx.font = '16px sans-serif';
-            ctx.fillText('1. Pastikan Tutup Lensa kamera sudah dibuka', w * 0.5, h * 0.57);
-            ctx.fillText('2. Putar roda atas kamera ke huruf P (atau naikkan ISO di mode M)', w * 0.5, h * 0.62);
+            ctx.font = '17px sans-serif';
+            ctx.fillText('1. Buka tutup lensa depan (Lens Cap) Canon 1300D', w * 0.5, h * 0.56);
+            ctx.fillText('2. Putar roda atas kamera ke P / Av (atau naikkan ISO di mode M)', w * 0.5, h * 0.62);
             ctx.restore();
           }
         } catch (err) {}
 
         this.canonUsbLoopTimer = setTimeout(drawNextFrame, 42);
-      };
-      img.onerror = () => {
+      } catch (err) {
         if (!this.canonUsbStreamActive) return;
         this.canonUsbLoopTimer = setTimeout(drawNextFrame, 250);
-      };
-      img.src = `http://127.0.0.1:19898/frame.jpg?t=${Date.now()}`;
+      }
     };
 
     drawNextFrame();
