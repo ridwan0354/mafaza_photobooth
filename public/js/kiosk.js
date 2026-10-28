@@ -1614,11 +1614,18 @@ class KioskEngine {
 
     try {
       await this.fetchCameraConfig();
-      const canonBridge = await this.checkCanonUsbBridgeStatus();
-      const savedPrefId = this.cameraConfig?.preferredVideoDeviceId || localStorage.getItem('pb_preferred_video_device_id') || '';
+      const isMobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+      const localPrefId = localStorage.getItem('pb_preferred_video_device_id') || '';
+      // Jangan gunakan canon_usb_direct dari server jika perangkat ini adalah Tablet/HP Android
+      const globalPrefId = (isMobileDevice && this.cameraConfig?.preferredVideoDeviceId === 'canon_usb_direct')
+        ? ''
+        : (this.cameraConfig?.preferredVideoDeviceId || '');
+      const savedPrefId = localPrefId || globalPrefId;
 
-      // Jika Canon EOS USB Bridge aktif (dan user belum memilih kamera lain secara spesifik, atau memilih canon_usb_direct)
-      if (savedPrefId === 'canon_usb_direct' || (canonBridge && canonBridge.active && !savedPrefId)) {
+      const canonBridge = isMobileDevice ? null : await this.checkCanonUsbBridgeStatus();
+
+      // Jika Canon EOS USB Bridge aktif di komputer desktop (MacBook / PC Windows)
+      if (canonBridge && canonBridge.active && (!savedPrefId || savedPrefId === 'canon_usb_direct')) {
         let videoInputs = [];
         try {
           if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
@@ -1627,24 +1634,30 @@ class KioskEngine {
           }
         } catch (e) {}
         this.populateQuickCameraSelect(videoInputs, 'canon_usb_direct');
+        await this.startCanonUsbDirectStream(canonBridge);
+        return;
+      }
 
-        if (canonBridge && canonBridge.active) {
-          await this.startCanonUsbDirectStream(canonBridge);
-          return;
-        } else if (savedPrefId === 'canon_usb_direct') {
-          if (window.pbNotify) {
-            window.pbNotify.info('Menghubungkan ke Canon USB Bridge (Port 19898)... Pastikan aplikasi Pasang-dan-Jalankan-Canon-USB-Bridge.bat sudah berjalan dan kamera Canon sudah ON.', { title: 'Canon USB Bridge', duration: 4000 });
+      // Jika user di laptop desktop secara manual memilih canon_usb_direct
+      if (savedPrefId === 'canon_usb_direct' && !isMobileDevice) {
+        let videoInputs = [];
+        try {
+          if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
+            const devs = await navigator.mediaDevices.enumerateDevices();
+            videoInputs = devs.filter(d => d.kind === 'videoinput');
           }
-          // Hentikan stream webcam sebelumnya dan tetap di mode tunggu Canon USB (JANGAN fallback ke OBS/webcam!)
-          if (this.mediaStream) {
-            this.mediaStream.getTracks().forEach(t => t.stop());
-            this.mediaStream = null;
-          }
-          // Polling otomatis setiap 1.5 detik sampai bridge/kamera Canon aktif
-          if (this.canonWaitTimer) clearTimeout(this.canonWaitTimer);
-          this.canonWaitTimer = setTimeout(() => this.startCamera(), 1500);
-          return;
+        } catch (e) {}
+        this.populateQuickCameraSelect(videoInputs, 'canon_usb_direct');
+        if (window.pbNotify) {
+          window.pbNotify.info('Menghubungkan ke Canon USB Bridge (Port 19898)... Pastikan aplikasi Pasang-dan-Jalankan-Canon-USB-Bridge.bat sudah berjalan dan kamera Canon sudah ON.', { title: 'Canon USB Bridge', duration: 3500 });
         }
+        if (this.mediaStream) {
+          this.mediaStream.getTracks().forEach(t => t.stop());
+          this.mediaStream = null;
+        }
+        if (this.canonWaitTimer) clearTimeout(this.canonWaitTimer);
+        this.canonWaitTimer = setTimeout(() => this.startCamera(), 1800);
+        return;
       }
 
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -1665,7 +1678,7 @@ class KioskEngine {
 
           if (!chosenDevice) {
             chosenDevice = videoInputs.find(d =>
-              /canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|hdmi/i.test(d.label || '')
+              /canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|uvc|hdmi|external|fhd|usb2|video stream/i.test(d.label || '')
             );
           }
         } catch (enumErr) {}
@@ -1698,7 +1711,7 @@ class KioskEngine {
           let extDevice = preferredId ? postVideoInputs.find(d => d.deviceId === preferredId) : null;
           if (!extDevice) {
             extDevice = postVideoInputs.find(d =>
-              /canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|uvc|hdmi/i.test(d.label || '')
+              /canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|uvc|hdmi|external|fhd|usb2|video stream/i.test(d.label || '')
             );
           }
           const currentTrack = this.mediaStream.getVideoTracks()[0];
