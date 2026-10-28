@@ -428,7 +428,7 @@ h1, h2, h3, h4, .font-heading {
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32);
   overflow: hidden;
   position: relative;
-  margin: 4px auto 8px;
+  margin: 2px auto 6px;
   background: #000000;
   display: flex;
   align-items: center;
@@ -440,29 +440,30 @@ h1, h2, h3, h4, .font-heading {
 /* PC Desktop & Large Screens (1080p, 1440p, Monitor Kiosk Fullscreen) */
 @media (min-width: 1200px) and (min-height: 760px) {
   .camera-retro-frame {
-    max-width: min(92vw, 1160px);
-    height: clamp(450px, 54vh, 660px);
+    max-width: min(94vw, 1320px);
+    height: clamp(500px, 62vh, 740px);
     border-radius: 28px;
     border-width: 6px;
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 20px 52px rgba(0, 0, 0, 0.38);
+    margin: 2px auto 6px;
   }
   .filmstrip-dock-retro {
     max-width: 1080px;
     width: min(92vw, 1080px);
-    padding: 10px 18px;
+    padding: 8px 18px 8px;
     border-radius: 20px;
   }
   .dock-slot-card {
     width: clamp(150px, calc((100% - 48px) / 4), 190px);
-    min-height: 115px;
+    min-height: 110px;
   }
   .shutter-btn-retro {
-    width: 84px;
-    height: 84px;
+    width: 80px;
+    height: 80px;
   }
   .shutter-btn-inner {
-    width: 62px;
-    height: 62px;
+    width: 58px;
+    height: 58px;
   }
 }
 
@@ -1166,15 +1167,16 @@ h1, h2, h3, h4, .font-heading {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  background: rgba(255, 251, 245, 0.94);
+  gap: 5px;
+  padding: 8px 16px 8px;
+  background: rgba(255, 251, 245, 0.95);
+  backdrop-filter: blur(8px);
   border: 2px dashed var(--border-soft);
   border-radius: 18px;
-  margin: 2px auto 0;
+  margin: 0 auto;
   width: min(92vw, 840px);
   max-width: 840px;
-  box-shadow: 0 4px 16px rgba(123, 72, 46, 0.06);
+  box-shadow: 0 4px 18px rgba(123, 72, 46, 0.08);
   box-sizing: border-box;
 }
 

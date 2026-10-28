@@ -11,7 +11,7 @@
   <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
   <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
   <title>Mafaza — Photobooth Kiosk</title>
-  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.3">
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.4">
   <style>
     /* Specific overrides for Konsep C: Warm Playful Retro */
     .template-retro-card {
@@ -511,7 +511,7 @@
     </div>
 
     <!-- 4. SCREEN: KAMERA & COUNTDOWN (Konsep C: Warm Playful Retro dari Gambar 2) -->
-    <div id="screenCapture" class="kiosk-screen" style="padding: 6px 16px 14px; justify-content: flex-start; align-items: center; gap: 4px; overflow-y: auto;">
+    <div id="screenCapture" class="kiosk-screen" style="padding: 6px 16px 8px; justify-content: flex-start; align-items: center; gap: 2px; overflow-y: auto;">
       <!-- Top Header Group: Step Progress + Pose Indicator -->
       <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30;">
         <!-- Step progress: Foto ACTIVE -->
@@ -611,9 +611,9 @@
         <div id="cameraFlash" class="camera-flash-overlay"></div>
       </div>
 
-      <!-- BOTTOM CONTROL BAR & CAPTURED PHOTOS DOCK -->
-      <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30; margin-top: 2px;">
-        <div class="camera-retro-controls-bar" style="display: flex; align-items: center; justify-content: center; margin: 4px auto 6px; z-index: 30;">
+      <!-- BOTTOM CONTROL BAR & CAPTURED PHOTOS DOCK (Mepet ke Bawah) -->
+      <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30; margin-top: auto; margin-bottom: 2px; flex-shrink: 0;">
+        <div class="camera-retro-controls-bar" style="display: flex; align-items: center; justify-content: center; margin: 2px auto 4px; z-index: 30;">
           <!-- Center: Iconic Double-Ring Coral Shutter Button -->
           <button class="shutter-btn-retro" id="btnKioskShutter" onclick="kiosk.handleShutterClick()" title="Ambil Foto">
             <div class="shutter-btn-inner"></div>
@@ -643,15 +643,15 @@
         </div>
       </div>
 
-      <!-- Floating Mini Trigger Button (Pojok kanan, melayang di atas dock foto - Tidak menutupi Pose 3) -->
-      <button type="button" id="btnToggleCameraControls" onclick="kiosk.toggleCameraZoomControls()" style="position: absolute; bottom: 120px; right: 20px; z-index: 60; display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 251, 245, 0.96); backdrop-filter: blur(8px); padding: 7px 13px; border-radius: 999px; border: 1.5px solid var(--border-soft); box-shadow: 0 6px 20px rgba(56, 30, 17, 0.18); color: var(--caramel-brown); font-size: 11.5px; font-weight: 800; cursor: pointer; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);" title="Klik untuk Buka/Tutup Pengaturan Kamera Live & Zoom">
+      <!-- Floating Mini Trigger Button (Pojok kanan bawah, mepet ke bawah) -->
+      <button type="button" id="btnToggleCameraControls" onclick="kiosk.toggleCameraZoomControls()" style="position: absolute; bottom: 14px; right: 20px; z-index: 60; display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 251, 245, 0.96); backdrop-filter: blur(8px); padding: 7px 13px; border-radius: 999px; border: 1.5px solid var(--border-soft); box-shadow: 0 6px 20px rgba(56, 30, 17, 0.18); color: var(--caramel-brown); font-size: 11.5px; font-weight: 800; cursor: pointer; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);" title="Klik untuk Buka/Tutup Pengaturan Kamera Live & Zoom">
         <span style="font-size: 13px;">🎛️</span>
         <span id="cameraControlsToggleText">Atur Kamera</span>
         <span id="cameraControlsQuickZoomBadge" style="background: rgba(230, 120, 107, 0.14); color: var(--coral); padding: 1.5px 6px; border-radius: 6px; font-size: 10.5px; font-weight: 800;">1.0x</span>
       </button>
 
-      <!-- Floating Zoom, Pan, Aspect Ratio & Fit Mode Popup Drawer (Melayang aman di atas filmstrip dock) -->
-      <div id="cameraZoomControls" onclick="event.stopPropagation()" style="display: none; position: absolute; bottom: 165px; right: 20px; width: 285px; max-height: calc(100vh - 185px); overflow-y: auto; z-index: 65; background: rgba(255, 251, 245, 0.98); backdrop-filter: blur(12px); padding: 11px 13px; border-radius: 20px; border: 2px solid var(--coral); box-shadow: 0 12px 36px rgba(56, 30, 17, 0.26); flex-direction: column; gap: 7px;">
+      <!-- Floating Zoom, Pan, Aspect Ratio & Fit Mode Popup Drawer (Mepet ke bawah di atas tombol) -->
+      <div id="cameraZoomControls" onclick="event.stopPropagation()" style="display: none; position: absolute; bottom: 56px; right: 20px; width: 285px; max-height: calc(100vh - 75px); overflow-y: auto; z-index: 65; background: rgba(255, 251, 245, 0.98); backdrop-filter: blur(12px); padding: 11px 13px; border-radius: 20px; border: 2px solid var(--coral); box-shadow: 0 12px 36px rgba(56, 30, 17, 0.26); flex-direction: column; gap: 7px;">
         <!-- Header Popup -->
         <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1.5px dashed var(--border-soft); padding-bottom: 5px;">
           <span style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); display: flex; align-items: center; gap: 5px;">
@@ -724,7 +724,7 @@
       </div>
 
       <!-- Floating Panel Pengaturan ISO, Fokus, Shutter, Aperture, WB & Cahaya Kamera -->
-      <div id="kioskCameraSettingsDrawer" onclick="event.stopPropagation()" style="display: none; position: absolute; bottom: 165px; right: 20px; width: 310px; max-height: calc(100vh - 185px); overflow-y: auto; z-index: 75; background: rgba(255, 251, 245, 0.98); backdrop-filter: blur(12px); padding: 13px 14px; border-radius: 20px; border: 2px solid var(--coral); box-shadow: 0 14px 36px rgba(38, 21, 14, 0.28); flex-direction: column; gap: 9px;">
+      <div id="kioskCameraSettingsDrawer" onclick="event.stopPropagation()" style="display: none; position: absolute; bottom: 56px; right: 20px; width: 310px; max-height: calc(100vh - 75px); overflow-y: auto; z-index: 75; background: rgba(255, 251, 245, 0.98); backdrop-filter: blur(12px); padding: 13px 14px; border-radius: 20px; border: 2px solid var(--coral); box-shadow: 0 14px 36px rgba(38, 21, 14, 0.28); flex-direction: column; gap: 9px;">
         <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1.5px dashed var(--border-soft); padding-bottom: 7px;">
           <div style="font-size: 13px; font-weight: 800; color: var(--caramel-brown); display: flex; align-items: center; gap: 6px;">
             <span>📷 Pengaturan Kamera &amp; Fokus</span>
@@ -1192,6 +1192,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v7.6"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v7.7"></script>
 </body>
 </html>
