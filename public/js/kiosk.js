@@ -1336,7 +1336,7 @@ class KioskEngine {
 
           if (!chosenDevice) {
             chosenDevice = videoInputs.find(d =>
-              /uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|canon|eos|cam link|elgato|capture|usb video|hdmi/i.test(d.label || '')
+              /canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|hdmi/i.test(d.label || '')
             );
           }
         } catch (enumErr) {}
@@ -1369,7 +1369,7 @@ class KioskEngine {
           let extDevice = preferredId ? postVideoInputs.find(d => d.deviceId === preferredId) : null;
           if (!extDevice) {
             extDevice = postVideoInputs.find(d =>
-              /uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|canon|eos|cam link|elgato|capture|usb video|uvc|hdmi/i.test(d.label || '')
+              /canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|uvc|hdmi/i.test(d.label || '')
             );
           }
           const currentTrack = this.mediaStream.getVideoTracks()[0];
