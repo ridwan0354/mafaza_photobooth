@@ -1239,6 +1239,30 @@ class KioskEngine {
     });
   }
 
+  async onQuickCameraSelectChange(deviceId) {
+    if (!deviceId) return;
+    if (!this.cameraConfig) this.cameraConfig = {};
+    this.cameraConfig.preferredVideoDeviceId = deviceId;
+    try {
+      await fetch('/api/camera/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferredVideoDeviceId: deviceId })
+      });
+    } catch (e) {}
+    await this.startCamera();
+  }
+
+  populateQuickCameraSelect(videoInputs, activeDeviceId) {
+    const sel = document.getElementById('kioskQuickCameraSelect');
+    if (!sel || !Array.isArray(videoInputs)) return;
+    sel.innerHTML = videoInputs.map((d, i) => {
+      const label = d.label || `Kamera #${i + 1}`;
+      const selected = d.deviceId === activeDeviceId ? 'selected' : '';
+      return `<option value="${d.deviceId}" ${selected}>📹 ${label}</option>`;
+    }).join('');
+  }
+
   async setUvcResolution(resMode) {
     try {
       localStorage.setItem('pb_uvc_resolution', resMode);
@@ -1394,6 +1418,9 @@ class KioskEngine {
             });
             this.mediaStream = extStream;
           }
+          const finalTrack = this.mediaStream.getVideoTracks()[0];
+          const finalDevId = finalTrack?.getSettings?.()?.deviceId || '';
+          this.populateQuickCameraSelect(postVideoInputs, finalDevId);
         } catch (reEnumErr) {}
 
         if (video) video.srcObject = this.mediaStream;
