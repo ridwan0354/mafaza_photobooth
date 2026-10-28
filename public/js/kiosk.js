@@ -66,6 +66,8 @@ class KioskEngine {
     this.setupFullScreenSupport();
     this.setupVirtualCameraFallback();
     this.setupKeyboardRemoteListeners();
+    // Langsung inisialisasi kamera dengan resolusi UVC yang tepat sejak halaman Kiosk dibuka
+    this.startCamera().catch(err => console.warn('Initial camera warmup:', err));
 
     // Support direct testing of screens via hash (e.g. #template, #camera)
     const hash = window.location.hash.toLowerCase();
@@ -1345,12 +1347,12 @@ class KioskEngine {
         let videoConstraints = chosenDevice && chosenDevice.deviceId
           ? {
               deviceId: { exact: chosenDevice.deviceId },
-              width: { ideal: dims.width },
-              height: { ideal: dims.height }
+              width: { ideal: dims.width, max: dims.width },
+              height: { ideal: dims.height, max: dims.height }
             }
           : {
-              width: { ideal: dims.width },
-              height: { ideal: dims.height },
+              width: { ideal: dims.width, max: dims.width },
+              height: { ideal: dims.height, max: dims.height },
               facingMode: 'user'
             };
 
@@ -1377,19 +1379,19 @@ class KioskEngine {
           this.updateUvcResolutionButtonsUI(postDims.label);
 
           const needsSwitchDevice = extDevice && extDevice.deviceId && extDevice.deviceId !== currentDeviceId;
-          const needsSwitchRes = extDevice && postDims.height !== currentHeight && resMode === 'auto_canon' && postDims.height === 480;
+          const needsSwitchRes = extDevice && postDims.height !== currentHeight;
 
           if (needsSwitchDevice || needsSwitchRes) {
             const targetDevId = (extDevice && extDevice.deviceId) || currentDeviceId;
+            this.mediaStream.getTracks().forEach(t => t.stop());
             const extStream = await navigator.mediaDevices.getUserMedia({
               video: {
                 ...(targetDevId ? { deviceId: { exact: targetDevId } } : {}),
-                width: { ideal: postDims.width },
-                height: { ideal: postDims.height }
+                width: { ideal: postDims.width, max: postDims.width },
+                height: { ideal: postDims.height, max: postDims.height }
               },
               audio: false
             });
-            this.mediaStream.getTracks().forEach(t => t.stop());
             this.mediaStream = extStream;
           }
         } catch (reEnumErr) {}
