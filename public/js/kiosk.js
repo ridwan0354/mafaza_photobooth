@@ -32,9 +32,15 @@ class KioskEngine {
     this.reviewAutoAdvanceTimerId = null;
     this.modalSelectedPoseIndex = null;
     this.toastTimerId = null;
-    this.cameraZoom = 1.0;
+    try {
+      const savedZoom = parseFloat(localStorage.getItem('pb_camera_zoom'));
+      this.cameraZoom = (!isNaN(savedZoom) && savedZoom >= 0.5 && savedZoom <= 3.0) ? savedZoom : 1.0;
+    } catch (e) {
+      this.cameraZoom = 1.0;
+    }
     this.cameraPanX = 0;
     this.cameraPanY = 0;
+    this.cameraFitMode = localStorage.getItem('pb_camera_fit_mode') || 'contain';
 
     // Interactive Photo Selection & Panning State in Preview
     this.slotAssignments = [];
@@ -66,6 +72,8 @@ class KioskEngine {
     this.setupFullScreenSupport();
     this.setupVirtualCameraFallback();
     this.setupKeyboardRemoteListeners();
+    this.updateCameraFitButtonsUI();
+    this.applyCameraTransform();
     this.startCanonUsbAutoDetector();
     // Langsung inisialisasi kamera dengan resolusi UVC yang tepat sejak halaman Kiosk dibuka
     this.startCamera().catch(err => console.warn('Initial camera warmup:', err));
@@ -1746,6 +1754,7 @@ class KioskEngine {
 
         if (video) video.srcObject = this.mediaStream;
         if (qrVideo) qrVideo.srcObject = this.mediaStream;
+        this.applyCameraTransform();
         this.scheduleUvcWarningScreenCheck();
         return;
       }
@@ -1760,6 +1769,7 @@ class KioskEngine {
           this.updateUvcResolutionButtonsUI('480p');
           if (video) video.srcObject = this.mediaStream;
           if (qrVideo) qrVideo.srcObject = this.mediaStream;
+          this.applyCameraTransform();
           return;
         }
       } catch (fallbackErr) {
@@ -2063,18 +2073,28 @@ class KioskEngine {
           c.height = img.naturalHeight || 1280;
           const ctx = c.getContext('2d');
           // Jangan di-mirror agar teks pada papan/baju/properti terbaca normal (tidak terbalik) saat dicetak
-          const zoom = Math.max(1.0, Math.min(3.0, this.cameraZoom || 1.0));
+          const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
           const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
           const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
           const iw = img.naturalWidth || c.width;
           const ih = img.naturalHeight || c.height;
-          const cropW = iw / zoom;
-          const cropH = ih / zoom;
-          const maxOffX = (iw - cropW) / 2;
-          const maxOffY = (ih - cropH) / 2;
-          const cropX = Math.max(0, Math.min(iw - cropW, maxOffX - (panX * maxOffX)));
-          const cropY = Math.max(0, Math.min(ih - cropH, maxOffY + (panY * maxOffY)));
-          ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height);
+          if (zoom < 1.0) {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, c.width, c.height);
+            const dw = c.width * zoom;
+            const dh = c.height * zoom;
+            const dx = (c.width - dw) / 2 + (panX * (c.width - dw) / 2);
+            const dy = (c.height - dh) / 2 - (panY * (c.height - dh) / 2);
+            ctx.drawImage(img, 0, 0, iw, ih, dx, dy, dw, dh);
+          } else {
+            const cropW = iw / zoom;
+            const cropH = ih / zoom;
+            const maxOffX = (iw - cropW) / 2;
+            const maxOffY = (ih - cropH) / 2;
+            const cropX = Math.max(0, Math.min(iw - cropW, maxOffX - (panX * maxOffX)));
+            const cropY = Math.max(0, Math.min(ih - cropH, maxOffY + (panY * maxOffY)));
+            ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height);
+          }
           const flashDataUrl = c.toDataURL('image/jpeg', 0.88);
           this.posesCaptured[poseIndex] = flashDataUrl;
           this.renderFilmstripDock();
@@ -2118,8 +2138,8 @@ class KioskEngine {
   }
 
   adjustCameraZoom(delta) {
-    const nextZoom = Math.max(1.0, Math.min(3.0, Math.round(((this.cameraZoom || 1.0) + delta) * 10) / 10));
-    if (nextZoom <= 1.0) {
+    const nextZoom = Math.max(0.5, Math.min(3.0, Math.round(((this.cameraZoom || 1.0) + delta) * 10) / 10));
+    if (Math.abs(nextZoom - 1.0) < 0.05) {
       this.cameraPanX = 0;
       this.cameraPanY = 0;
     }
@@ -2127,10 +2147,6 @@ class KioskEngine {
   }
 
   panCamera(deltaX, deltaY) {
-    if ((this.cameraZoom || 1.0) <= 1.0) {
-      // Jika masih 1.0x lalu ditekan Atas/Bawah/Kiri/Kanan, otomatis zoom sedikit ke 1.2x agar bisa digeser
-      this.cameraZoom = 1.2;
-    }
     this.cameraPanX = Math.max(-1, Math.min(1, Math.round(((this.cameraPanX || 0) + deltaX) * 100) / 100));
     this.cameraPanY = Math.max(-1, Math.min(1, Math.round(((this.cameraPanY || 0) + deltaY) * 100) / 100));
     this.applyCameraTransform();
@@ -2143,24 +2159,62 @@ class KioskEngine {
   }
 
   setCameraZoom(zoomLevel) {
-    this.cameraZoom = Math.max(1.0, Math.min(3.0, Math.round(zoomLevel * 10) / 10));
-    if (this.cameraZoom <= 1.0) {
-      this.cameraPanX = 0;
-      this.cameraPanY = 0;
-    }
+    this.cameraZoom = Math.max(0.5, Math.min(3.0, Math.round(zoomLevel * 10) / 10));
+    try {
+      localStorage.setItem('pb_camera_zoom', this.cameraZoom);
+    } catch (e) {}
     this.applyCameraTransform();
   }
 
+  setCameraFitMode(mode) {
+    this.cameraFitMode = mode;
+    try {
+      localStorage.setItem('pb_camera_fit_mode', mode);
+    } catch (e) {}
+    this.applyCameraTransform();
+    this.updateCameraFitButtonsUI();
+    const msg = mode === 'contain' ? '🖼️ Mode Bebas Gepeng (Proporsional Utuh) Aktif' : '📺 Mode Layar Penuh (Cover) Aktif';
+    if (window.pbNotify) {
+      window.pbNotify.info(msg, { duration: 2000 });
+    }
+  }
+
+  updateCameraFitButtonsUI() {
+    const btnContain = document.getElementById('btnFitModeContain');
+    const btnCover = document.getElementById('btnFitModeCover');
+    const mode = this.cameraFitMode || 'contain';
+    if (btnContain) {
+      btnContain.style.background = mode === 'contain' ? 'var(--coral)' : '#fff';
+      btnContain.style.color = mode === 'contain' ? '#fff' : 'var(--caramel-brown)';
+      btnContain.style.borderColor = mode === 'contain' ? 'var(--coral)' : 'var(--border-soft)';
+    }
+    if (btnCover) {
+      btnCover.style.background = mode === 'cover' ? 'var(--coral)' : '#fff';
+      btnCover.style.color = mode === 'cover' ? '#fff' : 'var(--caramel-brown)';
+      btnCover.style.borderColor = mode === 'cover' ? 'var(--coral)' : 'var(--border-soft)';
+    }
+  }
+
   applyCameraTransform() {
-    const zoom = Math.max(1.0, Math.min(3.0, this.cameraZoom || 1.0));
+    const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
     const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
     const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
-    const maxTranslatePct = ((zoom - 1) / (2 * zoom)) * 100;
-    const tx = (panX * maxTranslatePct).toFixed(2);
-    const ty = (-panY * maxTranslatePct).toFixed(2);
+    
+    let tx = 0;
+    let ty = 0;
+    if (zoom > 1.0) {
+      const maxTranslatePct = ((zoom - 1) / (2 * zoom)) * 100;
+      tx = (panX * maxTranslatePct).toFixed(2);
+      ty = (-panY * maxTranslatePct).toFixed(2);
+    } else if (zoom < 1.0) {
+      tx = (panX * 25).toFixed(2);
+      ty = (-panY * 25).toFixed(2);
+    }
 
     const video = document.getElementById('videoFeed');
     if (video) {
+      const fitMode = this.cameraFitMode || 'contain';
+      video.style.objectFit = fitMode;
       video.style.transform = `scaleX(-1) scale(${zoom}) translate(${tx}%, ${ty}%)`;
       video.style.filter = this.getCameraCssFilterString();
     }
@@ -2168,6 +2222,7 @@ class KioskEngine {
     if (label) {
       label.innerText = `🔍 ${zoom.toFixed(1)}x`;
     }
+    this.updateCameraFitButtonsUI();
   }
 
   captureFrame(poseIndex) {
@@ -2180,18 +2235,29 @@ class KioskEngine {
     // Jangan di-mirror pada hasil tangkapan agar tulisan/teks terbaca normal (tidak terbalik) saat dicetak
     if (video) {
       ctx.filter = this.getCameraCssFilterString();
-      const zoom = Math.max(1.0, Math.min(3.0, this.cameraZoom || 1.0));
+      const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
       const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
       const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
       const vw = video.videoWidth || canvas.width;
       const vh = video.videoHeight || canvas.height;
-      const cropW = vw / zoom;
-      const cropH = vh / zoom;
-      const maxOffX = (vw - cropW) / 2;
-      const maxOffY = (vh - cropH) / 2;
-      const cropX = Math.max(0, Math.min(vw - cropW, maxOffX - (panX * maxOffX)));
-      const cropY = Math.max(0, Math.min(vh - cropH, maxOffY + (panY * maxOffY)));
-      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+
+      if (zoom < 1.0) {
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const dw = canvas.width * zoom;
+        const dh = canvas.height * zoom;
+        const dx = (canvas.width - dw) / 2 + (panX * (canvas.width - dw) / 2);
+        const dy = (canvas.height - dh) / 2 - (panY * (canvas.height - dh) / 2);
+        ctx.drawImage(video, 0, 0, vw, vh, dx, dy, dw, dh);
+      } else {
+        const cropW = vw / zoom;
+        const cropH = vh / zoom;
+        const maxOffX = (vw - cropW) / 2;
+        const maxOffY = (vh - cropH) / 2;
+        const cropX = Math.max(0, Math.min(vw - cropW, maxOffX - (panX * maxOffX)));
+        const cropY = Math.max(0, Math.min(vh - cropH, maxOffY + (panY * maxOffY)));
+        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+      }
       ctx.filter = 'none';
     }
 
