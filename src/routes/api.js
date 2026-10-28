@@ -1636,6 +1636,28 @@ apiRouter.get('/apps/download/android-launcher', async (req, res) => {
   }
 });
 
+apiRouter.get('/apps/download/canon-bridge-macos', async (req, res) => {
+  try {
+    const zipBuf = appBuilder.buildCanonBridgeMacZip();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="Mafaza-Canon-USB-Bridge-MacBook.zip"');
+    res.send(zipBuf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/apps/download/canon-bridge-windows', async (req, res) => {
+  try {
+    const zipBuf = appBuilder.buildCanonBridgeWindowsZip();
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="Mafaza-Canon-USB-Bridge-Windows.zip"');
+    res.send(zipBuf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ==========================================
 // 7. HARDWARE CAMERA (SONY A7III / CANON) & FLASH TRIGGER ROUTES
 // ==========================================

@@ -848,3 +848,73 @@ CATATAN
     { name: 'BACA-SAYA.txt', content: readmeMac, executable: false }
   ]);
 }
+
+export function buildCanonBridgeMacZip() {
+  const rootDir = path.join(__dirname, '../../canon-bridge/mac');
+  const entries = [];
+
+  function scanDir(currentDir, relativePrefix = '') {
+    if (!fs.existsSync(currentDir)) return;
+    const items = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const item of items) {
+      const fullPath = path.join(currentDir, item.name);
+      const relPath = relativePrefix ? `${relativePrefix}/${item.name}` : item.name;
+      if (item.isDirectory()) {
+        scanDir(fullPath, relPath);
+      } else if (item.isFile()) {
+        const content = fs.readFileSync(fullPath);
+        const isExe = item.name.endsWith('.command') || 
+                      item.name === 'canon-usb-bridge' || 
+                      item.name === 'EDSDK' || 
+                      item.name === 'CHHLLite' || 
+                      item.name === 'EdsImage' || 
+                      item.name === 'Syphon';
+        entries.push({
+          name: relPath,
+          content,
+          executable: isExe
+        });
+      }
+    }
+  }
+
+  scanDir(rootDir);
+
+  if (entries.length === 0) {
+    throw new Error('Direktori canon-bridge/mac tidak ditemukan atau kosong.');
+  }
+
+  return createZipArchive(entries);
+}
+
+export function buildCanonBridgeWindowsZip() {
+  const rootDir = path.join(__dirname, '../../canon-bridge/windows');
+  const entries = [];
+
+  function scanDir(currentDir, relativePrefix = '') {
+    if (!fs.existsSync(currentDir)) return;
+    const items = fs.readdirSync(currentDir, { withFileTypes: true });
+    for (const item of items) {
+      const fullPath = path.join(currentDir, item.name);
+      const relPath = relativePrefix ? `${relativePrefix}/${item.name}` : item.name;
+      if (item.isDirectory()) {
+        scanDir(fullPath, relPath);
+      } else if (item.isFile()) {
+        const content = fs.readFileSync(fullPath);
+        entries.push({
+          name: relPath,
+          content,
+          executable: item.name.endsWith('.bat') || item.name.endsWith('.exe')
+        });
+      }
+    }
+  }
+
+  scanDir(rootDir);
+
+  if (entries.length === 0) {
+    throw new Error('Direktori canon-bridge/windows tidak ditemukan atau kosong.');
+  }
+
+  return createZipArchive(entries);
+}

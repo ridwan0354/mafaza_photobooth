@@ -1,0 +1,26 @@
+MAFAZA PHOTOBOOTH - CANON USB BRIDGE UNTUK MACBOOK / macOS
+============================================================
+Fungsi: Menghubungkan Kamera Canon EOS (1300D, 1200D, 200D, 60D, 70D, 80D, M50, dll)
+langsung ke Kiosk Photobooth hanya dengan KABEL USB standar (tanpa capture card / HDMI).
+Menyediakan Live View jernih 30fps + kontrol real-time ISO, Shutter Speed, Aperture,
+White Balance, Auto Focus (AF), dan Manual Focus Stepping dari layar Kiosk.
+
+CARA MENGGUNAKAN (CUKUP SEKALI PASANG):
+1. Ekstrak file .zip ini di MacBook Anda.
+2. Klik kanan file 'Pasang-Canon-USB-Bridge-MacBook.command' lalu pilih 'Open'
+   (Klik 'Open' jika ada peringatan keamanan macOS).
+3. Tunggu hingga muncul tulisan:
+   "✅ BERHASIL TERPASANG!"
+4. Colok kabel USB dari kamera Canon EOS ke port USB MacBook.
+5. Putar kenop kamera ke mode M (Manual) atau Av / Tv, lalu nyalakan kamera.
+6. Buka Kiosk Photobooth di browser Chrome / Safari.
+   Kamera Canon akan otomatis terdeteksi via USB Bridge, dan drawer
+   "🎛️ Setting ISO & Fokus" dapat diatur langsung di layar Kiosk!
+
+JIKA PERNAH MEMASANG EOS UTILITY:
+Pastikan aplikasi "EOS Utility" dimatikan / Quit dari menu bar agar kabel USB
+dapat diakses oleh Canon USB Bridge.
+
+LOG SERVICE:
+File log tersimpan di: ~/Library/Logs/canon-usb-bridge.log
+Port lokal yang digunakan: http://127.0.0.1:19898/status

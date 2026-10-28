@@ -811,6 +811,64 @@
               </div>
             </div>
           </div>
+
+          <!-- CARD KHUSUS: CANON EOS USB BRIDGE (MACBOOK & WINDOWS) -->
+          <div style="margin-top: 18px; background: linear-gradient(135deg, rgba(235, 94, 40, 0.07), rgba(200, 70, 30, 0.03)); border: 2px solid var(--coral); border-radius: 16px; padding: 18px 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                  <span style="font-size: 22px;">🔌</span>
+                  <h4 style="margin: 0; font-size: 16px; font-weight: 800; color: var(--coral);">
+                    Canon USB Bridge (Live View &amp; Kontrol ISO, Fokus, Shutter via Kabel USB)
+                  </h4>
+                  <span id="canonBridgeAdminBadge" class="badge-pill" style="background: #e2e8f0; color: #475569; font-size: 11.5px; font-weight: 700; padding: 4px 10px;">
+                    🔄 Cek Status...
+                  </span>
+                </div>
+                <p style="margin: 5px 0 0 0; font-size: 12.5px; color: var(--dark-roast); line-height: 1.5;">
+                  Hubungkan kamera Canon EOS (1300D, 1200D, 200D, 60D, 70D, 80D, M50, dll) cukup dengan <strong>kabel USB standar bawaan kamera</strong>. Bebas error capture card HDMI, Live View stabil 30fps, plus tombol pengaturan ISO &amp; tombol fokus AF langsung di layar Kiosk!
+                </p>
+              </div>
+              <button type="button" class="btn btn-secondary" onclick="checkCanonBridgeAdminStatus()" style="font-size: 12px; padding: 7px 14px; background: #fff; font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,0.06);">
+                🔄 Tes Status USB
+              </button>
+            </div>
+
+            <!-- 2 Download Cards: MacBook & Windows -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 14px;">
+              <!-- Download MacBook -->
+              <div style="background: #fff; padding: 16px; border-radius: 14px; border: 1.5px solid var(--border-soft); display: flex; flex-direction: column; justify-content: space-between; gap: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                    <span style="font-size: 22px;">🍎</span>
+                    <strong style="font-size: 14px; color: var(--dark-roast);">Canon USB Bridge — MacBook (macOS)</strong>
+                  </div>
+                  <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+                    Termasuk <code>CanonUSBBridge.app</code> native Apple Silicon &amp; Intel, driver EDSDK + Syphon, dan script auto-start background 1-klik (port 19898).
+                  </div>
+                </div>
+                <a href="/api/apps/download/canon-bridge-macos" class="btn btn-coral" style="text-decoration: none; text-align: center; font-size: 12.5px; padding: 10px; font-weight: 800; display: block;">
+                  ⬇️ Download Bridge MacBook (.zip)
+                </a>
+              </div>
+
+              <!-- Download Windows -->
+              <div style="background: #fff; padding: 16px; border-radius: 14px; border: 1.5px solid var(--border-soft); display: flex; flex-direction: column; justify-content: space-between; gap: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                    <span style="font-size: 22px;">🪟</span>
+                    <strong style="font-size: 14px; color: var(--dark-roast);">Canon USB Bridge — Windows 10 &amp; 11</strong>
+                  </div>
+                  <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+                    Termasuk file installer batch 1-klik, Registry Chrome/Edge PNA policy, autostart latar belakang, dan dukungan Canon EDSDK + digiCamControl.
+                  </div>
+                </div>
+                <a href="/api/apps/download/canon-bridge-windows" class="btn btn-primary" style="text-decoration: none; text-align: center; font-size: 12.5px; padding: 10px; font-weight: 800; display: block; background: #381E11; color: #fff;">
+                  ⬇️ Download Bridge Windows (.zip)
+                </a>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1511,6 +1569,75 @@
           </div>
         </div>
 
+        <!-- CARD KHUSUS: CANON EOS USB BRIDGE UNTUK WINDOWS & MACBOOK -->
+        <div class="card-pop" style="margin-bottom: 24px; padding: 24px; background: linear-gradient(135deg, rgba(235, 94, 40, 0.06), rgba(200, 70, 30, 0.02)); border: 2.5px solid var(--coral);">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 14px;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span style="font-size: 26px;">🔌</span>
+                <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown); margin: 0;">
+                  Download Canon USB Bridge (Kabel USB Standar + Kontrol ISO &amp; Fokus)
+                </h3>
+                <span id="canonBridgeAppsBadge" class="badge-pill" style="background: #e2e8f0; color: #475569; font-size: 11.5px; font-weight: 700; padding: 4px 10px;">
+                  🔄 Cek Status...
+                </span>
+              </div>
+              <p style="font-size: 13px; color: var(--dark-roast); margin: 6px 0 0 0; line-height: 1.55;">
+                Gunakan kamera DSLR / Mirrorless Canon EOS (1300D, 1200D, 200D, 60D, 70D, 80D, M50, dll) sebagai Live View Kiosk hanya dengan <strong>kabel USB bawaan kamera</strong>. Tidak perlu capture card HDMI / Cam Link. Dilengkapi kontrol hardware real-time ISO, Shutter, Aperture, White Balance, dan Fokus AF langsung di layar Kiosk!
+              </p>
+            </div>
+            <button type="button" class="btn btn-secondary" onclick="checkCanonBridgeAdminStatus()" style="font-size: 12px; padding: 7px 14px; background: #fff; font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,0.06);">
+              🔄 Uji Koneksi Bridge (Port 19898)
+            </button>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px;">
+            <!-- Windows Card -->
+            <div style="background: #fff; border-radius: 16px; padding: 18px; border: 1.5px solid var(--border-soft); display: flex; flex-direction: column; justify-content: space-between; gap: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+              <div>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                  <span style="font-size: 28px;">🪟</span>
+                  <div>
+                    <h4 style="margin: 0; font-size: 16px; font-weight: 800; color: var(--dark-roast);">Canon USB Bridge — Windows 10 &amp; 11</h4>
+                    <span style="font-size: 11px; color: var(--coral); font-weight: 700;">PC, Laptop &amp; Mini PC Windows</span>
+                  </div>
+                </div>
+                <ul style="font-size: 12px; color: var(--charcoal); margin: 8px 0 0 0; padding-left: 18px; line-height: 1.7;">
+                  <li>✅ Termasuk installer <code>Pasang-dan-Jalankan-Canon-USB-Bridge.bat</code></li>
+                  <li>✅ Otomatis atur Chrome / Edge Local Network Policy (bebas CORS)</li>
+                  <li>✅ Termasuk script <code>Pasang-AutoStart-Windows.bat</code> (jalan di background)</li>
+                  <li>✅ Terhubung ke Canon EDSDK &amp; dukungan digiCamControl</li>
+                </ul>
+              </div>
+              <a href="/api/apps/download/canon-bridge-windows" class="btn btn-coral" style="text-decoration: none; text-align: center; font-size: 13.5px; padding: 12px; font-weight: 800; display: block;">
+                ⬇️ Download Bridge Windows (.zip)
+              </a>
+            </div>
+
+            <!-- MacBook Card -->
+            <div style="background: #fff; border-radius: 16px; padding: 18px; border: 1.5px solid var(--border-soft); display: flex; flex-direction: column; justify-content: space-between; gap: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.03);">
+              <div>
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                  <span style="font-size: 28px;">🍎</span>
+                  <div>
+                    <h4 style="margin: 0; font-size: 16px; font-weight: 800; color: var(--dark-roast);">Canon USB Bridge — MacBook / macOS</h4>
+                    <span style="font-size: 11px; color: var(--caramel-brown); font-weight: 700;">macOS Sequoia, Sonoma, Ventura, Monterey</span>
+                  </div>
+                </div>
+                <ul style="font-size: 12px; color: var(--charcoal); margin: 8px 0 0 0; padding-left: 18px; line-height: 1.7;">
+                  <li>✅ Termasuk aplikasi native <code>CanonUSBBridge.app</code> (EDSDK + Syphon)</li>
+                  <li>✅ Termasuk installer 1-klik <code>Pasang-Canon-USB-Bridge-MacBook.command</code></li>
+                  <li>✅ Otomatis terpasang di LaunchAgent latar belakang (port 19898)</li>
+                  <li>✅ Kompatibel Apple Silicon (M1/M2/M3/M4) &amp; Intel</li>
+                </ul>
+              </div>
+              <a href="/api/apps/download/canon-bridge-macos" class="btn btn-primary" style="text-decoration: none; text-align: center; font-size: 13.5px; padding: 12px; font-weight: 800; display: block; background: #381E11; color: #fff;">
+                ⬇️ Download Bridge MacBook (.zip)
+              </a>
+            </div>
+          </div>
+        </div>
+
         <!-- Penjelasan Cara Kerja Fitur Print Lintas Perangkat (Windows, Android & MacBook) -->
         <div class="card-pop" style="padding: 24px; background: var(--cream-card); border: 2px solid var(--border-soft);">
           <h3 style="font-size: 18px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 12px 0;">
@@ -2073,6 +2200,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/admin.js?v=warm-retro-v5.0"></script>
+  <script src="/js/admin.js?v=warm-retro-v5.1"></script>
 </body>
 </html>

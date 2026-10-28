@@ -1,0 +1,37 @@
+MAFAZA PHOTOBOOTH - CANON USB BRIDGE UNTUK WINDOWS 10 & 11
+===========================================================
+Fungsi: Menghubungkan Kamera Canon EOS (1300D, 1200D, 200D, 60D, 70D, 80D, M50, dll)
+langsung ke Kiosk Photobooth hanya dengan KABEL USB standar (tanpa capture card / HDMI).
+Menyediakan Live View jernih 30fps + kontrol real-time ISO, Shutter Speed, Aperture,
+White Balance, Auto Focus (AF), dan Manual Focus Stepping dari layar Kiosk.
+
+CARA PENGGUNAAN:
+----------------
+1. Ekstrak (Extract All) folder zip ini ke folder pilihan Anda di PC / Laptop Windows.
+2. Klik ganda file:
+   "Pasang-dan-Jalankan-Canon-USB-Bridge.bat"
+   Script akan otomatis mengonfigurasi izin browser Chrome/Edge, mengompilasi file C#,
+   dan menyalakan Bridge pada port 19898.
+3. Hubungkan kabel USB dari kamera Canon EOS ke Laptop/PC.
+4. Putar kenop kamera ke mode M (Manual) atau Av / Tv, lalu nyalakan kamera.
+5. Buka Kiosk Photobooth di Chrome / Edge (https://mafaza.galipatsistem.com/kiosk).
+   Kamera Canon akan langsung terdeteksi, dan panel "🎛️ Setting ISO & Fokus"
+   dapat diatur langsung di layar Kiosk!
+
+AGAR BERJALAN OTOMATIS SAAT WINDOWS DINYALAKAN:
+----------------------------------------------
+Klik ganda file:
+"Pasang-AutoStart-Windows.bat"
+Bridge akan otomatis berjalan di latar belakang setiap komputer dinyalakan tanpa
+perlu membuka terminal atau jendela cmd!
+
+OPSI TAMBAHAN (Dukungan digiCamControl):
+----------------------------------------
+Jika Anda lebih suka menggunakan digiCamControl, cukup instal digiCamControl dan nyalakan
+fitur "Webserver" di Settings (port default 5513). Mafaza Canon USB Bridge akan otomatis
+mendeteksi dan menghubungkan kamera Canon melalui digiCamControl!
+
+PORT LOKAL & CEK STATUS:
+------------------------
+Buka browser dan ketik: http://127.0.0.1:19898/status
+Jika aktif, akan menampilkan data status kamera Canon Anda.

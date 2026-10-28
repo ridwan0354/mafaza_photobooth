@@ -4273,6 +4273,9 @@ async function loadCameraFlashSettings() {
         videoSel.appendChild(opt);
       });
     }
+
+    // Periksa status Canon USB Bridge (port 19898)
+    checkCanonBridgeAdminStatus();
   } catch (err) {
     console.warn('loadCameraFlashSettings error:', err);
   }
@@ -4334,6 +4337,40 @@ async function testCameraFlashTriggerFromAdmin() {
     alert(`Gagal menguji trigger kamera: ${err.message}`);
   }
 }
+
+async function checkCanonBridgeAdminStatus() {
+  const badge1 = document.getElementById('canonBridgeAdminBadge');
+  const badge2 = document.getElementById('canonBridgeAppsBadge');
+  const setBadge = (text, bg, fg) => {
+    [badge1, badge2].forEach(b => {
+      if (b) {
+        b.innerText = text;
+        b.style.background = bg;
+        b.style.color = fg;
+      }
+    });
+  };
+
+  setBadge('🔄 Memeriksa...', '#e2e8f0', '#475569');
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch('http://127.0.0.1:19898/status', { signal: controller.signal });
+    clearTimeout(timeout);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.active) {
+        setBadge(`🟢 Terhubung: ${data.camera || 'Canon EOS'} (USB Live View)`, '#d1fae5', '#065f46');
+      } else {
+        setBadge('🟡 Service Aktif (Kamera Canon Belum Tercolok / OFF)', '#fef3c7', '#92400e');
+      }
+      return data;
+    }
+  } catch (err) {
+    setBadge('⚪ Bridge Offline (Download & Jalankan Aplikasi Bridge)', '#fee2e2', '#991b1b');
+  }
+}
+window.checkCanonBridgeAdminStatus = checkCanonBridgeAdminStatus;
 
 // -------------------------------------------------------------
 // ADMIN LOGOUT & AUTHENTICATION SESSION GUARDS
