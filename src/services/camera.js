@@ -30,6 +30,7 @@ const DEFAULT_CAMERA_CONFIG = {
   ],
   preferredVideoDeviceId: '',
   preferredVideoLabel: 'Auto (Default Kamera / Capture Card)',
+  uvcResolution: 'auto_canon',    // 'auto_canon' | '480p' | '720p' | '1080p'
   mirrorLiveView: true
 };
 

@@ -4235,6 +4235,7 @@ async function loadCameraFlashSettings() {
   const modeSel = document.getElementById('cfgCameraFlashMode');
   const brandSel = document.getElementById('cfgCameraBrand');
   const videoSel = document.getElementById('cfgVideoDeviceSelect');
+  const uvcResSel = document.getElementById('cfgUvcResolution');
 
   try {
     const res = await fetch('/api/camera/status');
@@ -4242,6 +4243,7 @@ async function loadCameraFlashSettings() {
     if (data && data.config) {
       if (modeSel) modeSel.value = data.config.cameraMode || 'sony_canon_flash';
       if (brandSel) brandSel.value = data.config.cameraBrand || 'sony_a7iii';
+      if (uvcResSel) uvcResSel.value = data.config.uvcResolution || 'auto_canon';
     }
 
     if (statusBadge && data) {
@@ -4280,13 +4282,18 @@ async function saveCameraFlashSettings() {
   const modeSel = document.getElementById('cfgCameraFlashMode');
   const brandSel = document.getElementById('cfgCameraBrand');
   const videoSel = document.getElementById('cfgVideoDeviceSelect');
+  const uvcResSel = document.getElementById('cfgUvcResolution');
 
   const payload = {
     cameraMode: modeSel ? modeSel.value : 'sony_canon_flash',
     cameraBrand: brandSel ? brandSel.value : 'sony_a7iii',
     preferredVideoDeviceId: videoSel ? videoSel.value : '',
-    preferredVideoLabel: videoSel && videoSel.selectedOptions[0] ? videoSel.selectedOptions[0].textContent : ''
+    preferredVideoLabel: videoSel && videoSel.selectedOptions[0] ? videoSel.selectedOptions[0].textContent : '',
+    uvcResolution: uvcResSel ? uvcResSel.value : 'auto_canon'
   };
+  try {
+    localStorage.setItem('pb_uvc_resolution', payload.uvcResolution);
+  } catch (e) {}
 
   try {
     await fetch('/api/camera/config', {

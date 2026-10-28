@@ -1197,48 +1197,169 @@ class KioskEngine {
     }
   }
 
-  async startCamera() {
+  getUvcResolutionDims(resMode, deviceLabel = '') {
+    const mode = resMode || this.cameraConfig?.uvcResolution || localStorage.getItem('pb_uvc_resolution') || 'auto_canon';
+    const isUvc03OrCaptureCard = /uvc03|1de1:f113|display capture|usb video|hdmi|capture/i.test(deviceLabel || '');
+    if (mode === '480p') {
+      return { width: 640, height: 480, label: '480p' };
+    }
+    if (mode === '720p') {
+      return { width: 1280, height: 720, label: '720p' };
+    }
+    if (mode === '1080p') {
+      return { width: 1920, height: 1080, label: '1080p' };
+    }
+    // Mode 'auto_canon': Jika menggunakan Display capture-UVC03 (1de1:f113) / Capture Card HDMI + Canon 1300D,
+    // gunakan 640x480 sebagai default agar TIDAK muncul layar hitam "HDMI resolution is smaller than UVC capture"
+    if (isUvc03OrCaptureCard) {
+      return { width: 640, height: 480, label: '480p' };
+    }
+    return { width: 1280, height: 720, label: '720p' };
+  }
+
+  updateUvcResolutionButtonsUI(activeLabel) {
+    const map = {
+      '480p': document.getElementById('btnUvcRes480'),
+      '720p': document.getElementById('btnUvcRes720'),
+      '1080p': document.getElementById('btnUvcRes1080')
+    };
+    Object.entries(map).forEach(([key, btn]) => {
+      if (!btn) return;
+      if (key === activeLabel) {
+        btn.style.background = 'var(--coral)';
+        btn.style.color = '#fff';
+        btn.style.borderColor = 'var(--coral)';
+      } else {
+        btn.style.background = '#fff';
+        btn.style.color = 'var(--caramel-brown)';
+        btn.style.borderColor = 'var(--border-soft)';
+      }
+    });
+  }
+
+  async setUvcResolution(resMode) {
+    try {
+      localStorage.setItem('pb_uvc_resolution', resMode);
+    } catch (e) {}
+    if (this.cameraConfig) {
+      this.cameraConfig.uvcResolution = resMode;
+    }
+    try {
+      await fetch('/api/camera/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uvcResolution: resMode })
+      });
+    } catch (e) {}
+    await this.startCamera(resMode);
+  }
+
+  // Deteksi otomatis layar peringatan hitam "HDMI resolution is smaller than UVC capture" pada UVC03 (1de1:f113)
+  scheduleUvcWarningScreenCheck() {
+    if (this.uvcCheckTimerId) clearTimeout(this.uvcCheckTimerId);
+    this.uvcCheckTimerId = setTimeout(async () => {
+      try {
+        const video = document.getElementById('videoFeed');
+        if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+        // Jika resolusi saat ini > 480p, periksa apakah frame adalah layar peringatan hitam-putih UVC03
+        if (video.videoHeight <= 480) return;
+
+        const c = document.createElement('canvas');
+        c.width = 160;
+        c.height = 120;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(video, 0, 0, c.width, c.height);
+        const data = ctx.getImageData(0, 0, c.width, c.height).data;
+
+        let borderTotal = 0;
+        let borderPureBlack = 0;
+        let centerWhitePixels = 0;
+        let colorPixels = 0;
+        const totalPixels = c.width * c.height;
+
+        for (let y = 0; y < c.height; y++) {
+          for (let x = 0; x < c.width; x++) {
+            const idx = (y * c.width + x) * 4;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+
+            if (Math.abs(r - g) + Math.abs(g - b) > 18) {
+              colorPixels++;
+            }
+
+            const isBorder = (y < 14 || y > c.height - 14 || x < 18 || x > c.width - 18);
+            if (isBorder) {
+              borderTotal++;
+              if (r < 12 && g < 12 && b < 12) borderPureBlack++;
+            } else if (r > 180 && g > 180 && b > 180) {
+              centerWhitePixels++;
+            }
+          }
+        }
+
+        const isPureBlackBorder = borderTotal > 0 && (borderPureBlack / borderTotal) > 0.96;
+        const isGrayscaleFrame = (colorPixels / totalPixels) < 0.015;
+        const hasWhiteWarningText = centerWhitePixels > 45 && centerWhitePixels < (totalPixels * 0.35);
+
+        if (isPureBlackBorder && isGrayscaleFrame && hasWhiteWarningText) {
+          console.warn('⚠️ Terdeteksi layar "HDMI resolution is smaller than UVC capture" pada Capture Card! Otomatis menurunkan resolusi UVC ke 480p...');
+          await this.setUvcResolution('480p');
+        }
+      } catch (e) {}
+    }, 900);
+  }
+
+  async startCamera(overrideResMode = null) {
     const video = document.getElementById('videoFeed');
     const qrVideo = document.getElementById('qrVideoFeed');
 
     try {
       await this.fetchCameraConfig();
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        let videoConstraints = {
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          facingMode: 'user'
-        };
+        if (this.mediaStream) {
+          this.mediaStream.getTracks().forEach(t => t.stop());
+          this.mediaStream = null;
+        }
+
+        const resMode = overrideResMode || this.cameraConfig?.uvcResolution || localStorage.getItem('pb_uvc_resolution') || 'auto_canon';
+        let chosenDevice = null;
 
         // Check if admin selected a preferred video input or if Sony / Canon / Capture Card is connected
         try {
           const devices = await navigator.mediaDevices.enumerateDevices();
           const videoInputs = devices.filter(d => d.kind === 'videoinput');
           const preferredId = this.cameraConfig?.preferredVideoDeviceId;
-          let chosenDevice = preferredId ? videoInputs.find(d => d.deviceId === preferredId) : null;
+          chosenDevice = preferredId ? videoInputs.find(d => d.deviceId === preferredId) : null;
 
           if (!chosenDevice) {
             chosenDevice = videoInputs.find(d =>
-              /sony|ilce|a7|imaging edge|canon|eos|cam link|elgato|capture|usb video/i.test(d.label || '')
+              /uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|canon|eos|cam link|elgato|capture|usb video|hdmi/i.test(d.label || '')
             );
           }
-
-          if (chosenDevice && chosenDevice.deviceId) {
-            videoConstraints = {
-              deviceId: { exact: chosenDevice.deviceId },
-              width: { ideal: 1920 },
-              height: { ideal: 1080 }
-            };
-          }
         } catch (enumErr) {}
+
+        const dims = this.getUvcResolutionDims(resMode, chosenDevice?.label || '');
+        this.updateUvcResolutionButtonsUI(dims.label);
+
+        let videoConstraints = chosenDevice && chosenDevice.deviceId
+          ? {
+              deviceId: { exact: chosenDevice.deviceId },
+              width: { ideal: dims.width },
+              height: { ideal: dims.height }
+            }
+          : {
+              width: { ideal: dims.width },
+              height: { ideal: dims.height },
+              facingMode: 'user'
+            };
 
         this.mediaStream = await navigator.mediaDevices.getUserMedia({
           video: videoConstraints,
           audio: false
         });
 
-        // On iPadOS 17+ / Android, device labels are only exposed AFTER getUserMedia permission is granted.
-        // Re-check if an external USB-C Capture Card / Sony / Canon camera is plugged into the iPad/Android!
+        // On iPadOS 17+ / Android / first Chrome permission grant, device labels are only exposed AFTER getUserMedia permission is granted.
         try {
           const postDevices = await navigator.mediaDevices.enumerateDevices();
           const postVideoInputs = postDevices.filter(d => d.kind === 'videoinput');
@@ -1246,17 +1367,25 @@ class KioskEngine {
           let extDevice = preferredId ? postVideoInputs.find(d => d.deviceId === preferredId) : null;
           if (!extDevice) {
             extDevice = postVideoInputs.find(d =>
-              /sony|ilce|a7|imaging edge|canon|eos|cam link|elgato|capture|usb video|uvc|hdmi/i.test(d.label || '')
+              /uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|canon|eos|cam link|elgato|capture|usb video|uvc|hdmi/i.test(d.label || '')
             );
           }
           const currentTrack = this.mediaStream.getVideoTracks()[0];
           const currentDeviceId = currentTrack?.getSettings?.()?.deviceId;
-          if (extDevice && extDevice.deviceId && extDevice.deviceId !== currentDeviceId) {
+          const currentHeight = currentTrack?.getSettings?.()?.height || 0;
+          const postDims = this.getUvcResolutionDims(resMode, extDevice?.label || currentTrack?.label || '');
+          this.updateUvcResolutionButtonsUI(postDims.label);
+
+          const needsSwitchDevice = extDevice && extDevice.deviceId && extDevice.deviceId !== currentDeviceId;
+          const needsSwitchRes = extDevice && postDims.height !== currentHeight && resMode === 'auto_canon' && postDims.height === 480;
+
+          if (needsSwitchDevice || needsSwitchRes) {
+            const targetDevId = (extDevice && extDevice.deviceId) || currentDeviceId;
             const extStream = await navigator.mediaDevices.getUserMedia({
               video: {
-                deviceId: { exact: extDevice.deviceId },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
+                ...(targetDevId ? { deviceId: { exact: targetDevId } } : {}),
+                width: { ideal: postDims.width },
+                height: { ideal: postDims.height }
               },
               audio: false
             });
@@ -1267,16 +1396,18 @@ class KioskEngine {
 
         if (video) video.srcObject = this.mediaStream;
         if (qrVideo) qrVideo.srcObject = this.mediaStream;
+        this.scheduleUvcWarningScreenCheck();
         return;
       }
     } catch (err) {
-      console.warn('Preferred camera constraint failed, retrying default camera:', err);
+      console.warn('Preferred camera constraint failed, retrying default 480p camera:', err);
       try {
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
           this.mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: { width: { ideal: 640 }, height: { ideal: 480 } },
             audio: false
           });
+          this.updateUvcResolutionButtonsUI('480p');
           if (video) video.srcObject = this.mediaStream;
           if (qrVideo) qrVideo.srcObject = this.mediaStream;
           return;

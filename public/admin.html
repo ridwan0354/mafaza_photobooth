@@ -779,6 +779,16 @@
                 <option value="">🔍 Otomatis (Prioritaskan Sony / Capture Card HDMI)</option>
               </select>
             </div>
+
+            <div>
+              <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Resolusi Video Capture Card (UVC / HDMI)</label>
+              <select id="cfgUvcResolution" onchange="saveCameraFlashSettings()" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
+                <option value="auto_canon">🔄 Otomatis Canon 1300D / Capture Card (720p ➔ Auto 480p)</option>
+                <option value="480p">📺 480p SD (640×480 — Bebas Error UVC03 di Mode Foto Canon 1300D)</option>
+                <option value="720p">📺 720p HD (1280×720 — Untuk Mode Video / Movie Canon 1300D)</option>
+                <option value="1080p">📺 1080p Full HD (1920×1080 — Untuk Sony A7 / HDMI 1080p)</option>
+              </select>
+            </div>
           </div>
 
           <!-- Panduan Setting Sony A7III agar Flash Menyala & Live View Terang -->
@@ -2063,6 +2073,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/admin.js?v=warm-retro-v4.9"></script>
+  <script src="/js/admin.js?v=warm-retro-v5.0"></script>
 </body>
 </html>
