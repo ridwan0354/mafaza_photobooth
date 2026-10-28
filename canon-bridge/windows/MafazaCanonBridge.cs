@@ -41,8 +41,29 @@ namespace MafazaCanonBridge
             return (long)(DateTime.UtcNow - UnixEpoch).TotalMilliseconds;
         }
 
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr GetConsoleWindow();
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        private const int SW_HIDE = 0;
+
         static void Main(string[] args)
         {
+            if (args != null && Array.Exists(args, delegate(string a) {
+                return string.Equals(a, "-silent", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(a, "/silent", StringComparison.OrdinalIgnoreCase) ||
+                       string.Equals(a, "-background", StringComparison.OrdinalIgnoreCase);
+            }))
+            {
+                IntPtr hWnd = GetConsoleWindow();
+                if (hWnd != IntPtr.Zero)
+                {
+                    ShowWindow(hWnd, SW_HIDE);
+                }
+            }
+
             Console.Title = "Mafaza Canon USB Bridge (Windows) - Port 19898";
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine("==============================================================");
