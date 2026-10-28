@@ -41,6 +41,7 @@ class KioskEngine {
     this.cameraPanX = 0;
     this.cameraPanY = 0;
     this.cameraFitMode = localStorage.getItem('pb_camera_fit_mode') || 'contain';
+    this.cameraAspectRatio = localStorage.getItem('pb_camera_aspect_ratio') || '16/9';
 
     // Interactive Photo Selection & Panning State in Preview
     this.slotAssignments = [];
@@ -73,6 +74,7 @@ class KioskEngine {
     this.setupVirtualCameraFallback();
     this.setupKeyboardRemoteListeners();
     this.updateCameraFitButtonsUI();
+    this.updateCameraAspectRatioButtonsUI();
     this.applyCameraTransform();
     this.startCanonUsbAutoDetector();
     // Langsung inisialisasi kamera dengan resolusi UVC yang tepat sejak halaman Kiosk dibuka
@@ -2222,14 +2224,91 @@ class KioskEngine {
     if (label) {
       label.innerText = `🔍 ${zoom.toFixed(1)}x`;
     }
+    const quickBadge = document.getElementById('cameraControlsQuickZoomBadge');
+    if (quickBadge) {
+      quickBadge.innerText = `${zoom.toFixed(1)}x`;
+    }
+    const frame = document.getElementById('cameraRetroFrame');
+    if (frame) {
+      frame.style.aspectRatio = (this.cameraAspectRatio || '16/9').replace('/', ' / ');
+    }
     this.updateCameraFitButtonsUI();
+    this.updateCameraAspectRatioButtonsUI();
+  }
+
+  setCameraAspectRatio(ratio) {
+    const validRatios = ['16/9', '3/2', '4/3'];
+    if (!validRatios.includes(ratio)) ratio = '16/9';
+    this.cameraAspectRatio = ratio;
+    try {
+      localStorage.setItem('pb_camera_aspect_ratio', ratio);
+    } catch (e) {}
+
+    const frame = document.getElementById('cameraRetroFrame');
+    if (frame) {
+      frame.style.aspectRatio = ratio.replace('/', ' / ');
+    }
+    this.updateCameraAspectRatioButtonsUI();
+    if (window.pbNotify) {
+      window.pbNotify.info(`📐 Rasio Bingkai Kamera: ${ratio}`, { duration: 1600 });
+    }
+  }
+
+  cycleCameraAspectRatio() {
+    const current = this.cameraAspectRatio || '16/9';
+    let next = '16/9';
+    if (current === '16/9') next = '3/2';
+    else if (current === '3/2') next = '4/3';
+    else if (current === '4/3') next = '16/9';
+    this.setCameraAspectRatio(next);
+  }
+
+  updateCameraAspectRatioButtonsUI() {
+    const current = this.cameraAspectRatio || '16/9';
+    ['16/9', '3/2', '4/3'].forEach(r => {
+      const btnId = 'btnRatio' + r.replace('/', '_');
+      const btn = document.getElementById(btnId);
+      if (btn) {
+        const isActive = (r === current);
+        btn.style.background = isActive ? 'var(--coral)' : '#ffffff';
+        btn.style.color = isActive ? '#ffffff' : 'var(--caramel-brown)';
+        btn.style.borderColor = isActive ? 'var(--coral)' : 'var(--border-soft)';
+      }
+    });
+    const badge = document.getElementById('retroFrameRatioBadge');
+    if (badge) {
+      badge.innerText = current;
+    }
+  }
+
+  toggleCameraZoomControls(forceState = null) {
+    const panel = document.getElementById('cameraZoomControls');
+    const btn = document.getElementById('btnToggleCameraControls');
+    if (!panel) return;
+    const isHidden = panel.style.display === 'none' || !panel.style.display;
+    const nextShow = forceState !== null ? Boolean(forceState) : isHidden;
+    panel.style.display = nextShow ? 'flex' : 'none';
+    if (btn) {
+      btn.style.background = nextShow ? 'var(--coral)' : 'rgba(255, 251, 245, 0.96)';
+      btn.style.color = nextShow ? '#ffffff' : 'var(--caramel-brown)';
+      btn.style.borderColor = nextShow ? 'var(--coral)' : 'var(--border-soft)';
+    }
   }
 
   captureFrame(poseIndex) {
     const video = document.getElementById('videoFeed');
     const canvas = document.createElement('canvas');
-    canvas.width = 1280;
-    canvas.height = 720;
+    let targetWidth = 1280;
+    let targetHeight = 720;
+    if (this.cameraAspectRatio === '3/2') {
+      targetWidth = 1200;
+      targetHeight = 800;
+    } else if (this.cameraAspectRatio === '4/3') {
+      targetWidth = 1200;
+      targetHeight = 900;
+    }
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
     const ctx = canvas.getContext('2d');
 
     // Jangan di-mirror pada hasil tangkapan agar tulisan/teks terbaca normal (tidak terbalik) saat dicetak

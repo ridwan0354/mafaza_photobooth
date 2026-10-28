@@ -11,7 +11,7 @@
   <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
   <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
   <title>Mafaza — Photobooth Kiosk</title>
-  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.1">
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.2">
   <style>
     /* Specific overrides for Konsep C: Warm Playful Retro */
     .template-retro-card {
@@ -511,11 +511,11 @@
     </div>
 
     <!-- 4. SCREEN: KAMERA & COUNTDOWN (Konsep C: Warm Playful Retro dari Gambar 2) -->
-    <div id="screenCapture" class="kiosk-screen" style="padding: 10px 24px 12px; justify-content: center; gap: 6px; overflow-y: auto;">
+    <div id="screenCapture" class="kiosk-screen" style="padding: 6px 16px 14px; justify-content: flex-start; align-items: center; gap: 4px; overflow-y: auto;">
       <!-- Top Header Group: Step Progress + Pose Indicator -->
       <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30;">
         <!-- Step progress: Foto ACTIVE -->
-        <div class="step-progress-retro compact" data-step-screen="screenCapture" style="margin-bottom: 8px;">
+        <div class="step-progress-retro compact" data-step-screen="screenCapture" style="margin-bottom: 6px;">
           <div class="step-item completed">
             <div class="step-circle">✓</div>
             <div class="step-label">Pilih Frame</div>
@@ -533,20 +533,32 @@
         </div>
 
         <!-- Top Pose Badge -->
-        <div style="display: flex; gap: 12px; align-items: center; justify-content: center; margin-bottom: 6px;">
-          <div class="badge-pill badge-coral" id="poseIndicator" style="font-size: 16px; font-weight: 800; padding: 7px 22px;">
+        <div style="display: flex; gap: 10px; align-items: center; justify-content: center; margin-bottom: 4px;">
+          <div class="badge-pill badge-coral" id="poseIndicator" style="font-size: 15px; font-weight: 800; padding: 6px 20px;">
             <span class="pose-pill-dot"></span>
             <span id="poseIndicatorText">Foto 1/3</span>
           </div>
-          <div class="badge-pill badge-pending" id="smileHint" style="font-size: 14px; font-weight: 600; padding: 7px 18px;">
+          <div class="badge-pill badge-pending" id="smileHint" style="font-size: 13.5px; font-weight: 600; padding: 6px 16px;">
             <span id="smileHintText">Tersenyumlah ke kamera! 😊</span>
           </div>
         </div>
       </div>
 
-      <!-- MAIN CAMERA VIEWPORT with Corner Brackets (Studio Size +30%) -->
-      <div class="camera-retro-frame" onclick="kiosk && kiosk.handleCameraViewportClick(event)" style="cursor: pointer; width: min(90vw, 1160px); max-width: 1160px; height: clamp(360px, 58vh, 680px); aspect-ratio: 16 / 10; margin: 4px auto 8px; border-radius: 28px; border: 6px solid #FFFBF5; box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32); background: #110905; overflow: hidden; position: relative;">
+      <!-- MAIN CAMERA VIEWPORT with Corner Brackets & Proportional Frame -->
+      <div id="cameraRetroFrame" class="camera-retro-frame" onclick="kiosk && kiosk.handleCameraViewportClick(event)" style="cursor: pointer; width: auto; max-width: min(92vw, 840px); height: clamp(260px, 44vh, 460px); aspect-ratio: 16 / 9; margin: 4px auto 8px; border-radius: 22px; border: 5px solid #FFFBF5; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.32); background: #000000; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center;">
         <video id="videoFeed" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1) scale(1); transform-origin: center center; transition: transform 0.18s ease-out; display: block;"></video>
+
+        <!-- Live Viewfinder Indicator Top Left -->
+        <div style="position: absolute; top: 12px; left: 14px; z-index: 26; display: flex; align-items: center; gap: 6px; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(4px); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); pointer-events: none;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: #ff4757; box-shadow: 0 0 8px #ff4757; animation: dotBlink 1.2s infinite ease-in-out;"></span>
+          <span style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 0.5px;">LIVE</span>
+        </div>
+
+        <!-- Quick Aspect Ratio Toggle Top Right -->
+        <button type="button" onclick="event.stopPropagation(); kiosk.cycleCameraAspectRatio();" title="Ganti Rasio Bingkai Kamera (16:9 / 3:2 / 4:3)" style="position: absolute; top: 12px; right: 14px; z-index: 26; display: flex; align-items: center; gap: 5px; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(4px); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); color: #ffffff; font-size: 11px; font-weight: 800; cursor: pointer; transition: all 0.2s;">
+          <span>📐</span>
+          <span id="retroFrameRatioBadge">16:9</span>
+        </button>
 
         <!-- Corner photo brackets -->
         <div class="camera-bracket-tl"></div>
@@ -600,8 +612,8 @@
       </div>
 
       <!-- BOTTOM CONTROL BAR & CAPTURED PHOTOS DOCK -->
-      <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30;">
-        <div class="camera-retro-controls-bar" style="display: flex; align-items: center; justify-content: center; margin: 8px auto 8px; z-index: 30;">
+      <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30; margin-top: 2px;">
+        <div class="camera-retro-controls-bar" style="display: flex; align-items: center; justify-content: center; margin: 4px auto 6px; z-index: 30;">
           <!-- Center: Iconic Double-Ring Coral Shutter Button -->
           <button class="shutter-btn-retro" id="btnKioskShutter" onclick="kiosk.handleShutterClick()" title="Ambil Foto">
             <div class="shutter-btn-inner"></div>
@@ -609,16 +621,16 @@
         </div>
 
         <!-- CAPTURED PHOTOS DOCK WITH DELETE & RETAKE -->
-        <div class="filmstrip-dock-retro" id="filmstripDock">
-          <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 6px; padding: 0 8px;">
-            <span style="font-size: 15px; font-weight: 800; color: var(--caramel-brown);">
+        <div class="filmstrip-dock-retro" id="filmstripDock" style="width: min(92vw, 840px); max-width: 840px; margin: 2px auto 0; padding: 8px 14px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; margin-bottom: 4px; padding: 0 4px;">
+            <span style="font-size: 13.5px; font-weight: 800; color: var(--caramel-brown);">
               🎞️ Foto Terambil: <strong id="capturedCountText" style="color: var(--coral);">0/3</strong>
             </span>
-            <div style="display: flex; gap: 10px;">
-              <button class="btn-dock-action btn-dock-retake-all" id="btnRetakeAll" onclick="kiosk.retakeAllPoses()" style="display: none;">
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-dock-action btn-dock-retake-all" id="btnRetakeAll" onclick="kiosk.retakeAllPoses()" style="display: none; padding: 5px 12px; font-size: 12px;">
                 🔄 Foto Ulang Semua
               </button>
-              <button class="btn btn-coral btn-dock-proceed" id="btnProceedToPreview" onclick="kiosk.proceedToPreviewScreen()" style="display: none; padding: 8px 22px; font-size: 14px;">
+              <button class="btn btn-coral btn-dock-proceed" id="btnProceedToPreview" onclick="kiosk.proceedToPreviewScreen()" style="display: none; padding: 6px 18px; font-size: 13px;">
                 ✨ Lanjut ke Preview ➔
               </button>
             </div>
@@ -631,72 +643,88 @@
         </div>
       </div>
 
-      <!-- Floating Zoom & Pan Controls (Pojok Kanan Bawah) -->
-      <div id="cameraZoomControls" onclick="event.stopPropagation()" style="position: absolute; bottom: 24px; right: 28px; z-index: 60; display: flex; flex-direction: column; align-items: center; gap: 6px; background: var(--cream-card); padding: 9px 12px; border-radius: 20px; border: 2px solid var(--border-soft); box-shadow: 0 8px 24px rgba(56, 30, 17, 0.22);">
-        <!-- Baris Atas: Geser Kamera Atas / Bawah / Kiri / Kanan saat Zoom -->
-        <div style="display: flex; align-items: center; gap: 4px; width: 100%; justify-content: center;">
-          <button type="button" onclick="kiosk.panCamera(-0.25, 0)" style="width: 32px; height: 30px; border-radius: 9px; border: 1.5px solid var(--border-soft); background: #ffffff; color: var(--caramel-brown); font-size: 12px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Geser Kamera ke Kiri">
-            ◀
-          </button>
-          <button type="button" onclick="kiosk.panCamera(0, -0.25)" style="padding: 0 8px; height: 30px; border-radius: 9px; border: 1.5px solid var(--border-soft); background: #ffffff; color: var(--caramel-brown); font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px;" title="Geser Kamera ke Atas">
-            ▲ <span>Atas</span>
-          </button>
-          <button type="button" onclick="kiosk.panCamera(0, 0.25)" style="padding: 0 8px; height: 30px; border-radius: 9px; border: 1.5px solid var(--border-soft); background: #ffffff; color: var(--caramel-brown); font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px;" title="Geser Kamera ke Bawah">
-            ▼ <span>Bawah</span>
-          </button>
-          <button type="button" onclick="kiosk.panCamera(0.25, 0)" style="width: 32px; height: 30px; border-radius: 9px; border: 1.5px solid var(--border-soft); background: #ffffff; color: var(--caramel-brown); font-size: 12px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Geser Kamera ke Kanan">
-            ▶
-          </button>
+      <!-- Floating Mini Trigger Button (Pojok kanan, melayang di atas dock foto - Tidak menutupi Pose 3) -->
+      <button type="button" id="btnToggleCameraControls" onclick="kiosk.toggleCameraZoomControls()" style="position: absolute; bottom: 120px; right: 20px; z-index: 60; display: inline-flex; align-items: center; gap: 6px; background: rgba(255, 251, 245, 0.96); backdrop-filter: blur(8px); padding: 7px 13px; border-radius: 999px; border: 1.5px solid var(--border-soft); box-shadow: 0 6px 20px rgba(56, 30, 17, 0.18); color: var(--caramel-brown); font-size: 11.5px; font-weight: 800; cursor: pointer; transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);" title="Klik untuk Buka/Tutup Pengaturan Kamera Live & Zoom">
+        <span style="font-size: 13px;">🎛️</span>
+        <span id="cameraControlsToggleText">Atur Kamera</span>
+        <span id="cameraControlsQuickZoomBadge" style="background: rgba(230, 120, 107, 0.14); color: var(--coral); padding: 1.5px 6px; border-radius: 6px; font-size: 10.5px; font-weight: 800;">1.0x</span>
+      </button>
+
+      <!-- Floating Zoom, Pan, Aspect Ratio & Fit Mode Popup Drawer (Melayang aman di atas filmstrip dock) -->
+      <div id="cameraZoomControls" onclick="event.stopPropagation()" style="display: none; position: absolute; bottom: 165px; right: 20px; width: 285px; max-height: calc(100vh - 185px); overflow-y: auto; z-index: 65; background: rgba(255, 251, 245, 0.98); backdrop-filter: blur(12px); padding: 11px 13px; border-radius: 20px; border: 2px solid var(--coral); box-shadow: 0 12px 36px rgba(56, 30, 17, 0.26); flex-direction: column; gap: 7px;">
+        <!-- Header Popup -->
+        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1.5px dashed var(--border-soft); padding-bottom: 5px;">
+          <span style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); display: flex; align-items: center; gap: 5px;">
+            <span>🎛️ Penyesuaian Kamera Live</span>
+          </span>
+          <button type="button" onclick="kiosk.toggleCameraZoomControls(false)" style="border: none; background: rgba(123,72,46,0.1); color: var(--caramel-brown); width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Tutup Pengaturan">✕</button>
         </div>
 
-        <!-- Baris Bawah: Zoom Out (-) / Reset (1.0x) / Zoom In (+) -->
-        <div style="display: flex; align-items: center; gap: 6px; width: 100%; justify-content: space-between;">
-          <button type="button" id="btnCameraZoomOut" onclick="kiosk.adjustCameraZoom(-0.1)" style="width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--border-soft); background: #ffffff; color: var(--caramel-brown); font-size: 20px; font-weight: 800; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s ease;" title="Perkecil Kamera (bisa hingga 0.5x)">
-            −
-          </button>
-          <button type="button" id="cameraZoomLabel" onclick="kiosk.resetCameraZoom()" style="flex: 1; min-width: 68px; padding: 6px 10px; border-radius: 999px; border: 1.5px solid rgba(230, 120, 107, 0.35); background: rgba(230, 120, 107, 0.12); color: var(--coral); font-size: 13px; font-weight: 800; cursor: pointer; text-align: center;" title="Klik untuk reset Ukuran & Posisi ke 1.0x">
-            🔍 1.0x
-          </button>
-          <button type="button" id="btnCameraZoomIn" onclick="kiosk.adjustCameraZoom(0.1)" style="width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--coral); background: var(--coral); color: #ffffff; font-size: 20px; font-weight: 800; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(230, 120, 107, 0.3); transition: all 0.15s ease;" title="Perbesar Kamera (Zoom In)">
-            +
-          </button>
+        <!-- 1. Pilihan Rasio Bingkai (Aspect Ratio) -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%;">
+          <span style="font-size: 10px; font-weight: 800; color: var(--caramel-brown); flex-shrink: 0;">📐 Rasio:</span>
+          <div style="display: flex; gap: 4px; flex: 1; justify-content: flex-end;">
+            <button type="button" id="btnRatio16_9" onclick="kiosk.setCameraAspectRatio('16/9')" style="padding: 4px 8px; border-radius: 7px; border: 1.5px solid var(--coral); background: var(--coral); color: #fff; font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 16:9 Widescreen (Cocok untuk Video Capture & Sony A7III)">16:9</button>
+            <button type="button" id="btnRatio3_2" onclick="kiosk.setCameraAspectRatio('3/2')" style="padding: 4px 8px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 3:2 Asli Sensor Kamera Mirrorless / DSLR">3:2</button>
+            <button type="button" id="btnRatio4_3" onclick="kiosk.setCameraAspectRatio('4/3')" style="padding: 4px 8px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 4:3 Klasik Tablet">4:3</button>
+          </div>
         </div>
 
-        <!-- Baris Pilihan Rasio: Bebas Gepeng (Fit) vs Penuh (Cover) -->
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; border-top: 1px dashed var(--border-soft); padding-top: 5px; margin-top: 2px;">
-          <span style="font-size: 10.5px; font-weight: 800; color: var(--caramel-brown);">📐 Rasio:</span>
-          <button type="button" id="btnFitModeContain" onclick="kiosk.setCameraFitMode('contain')" style="flex: 1; padding: 4px 6px; border-radius: 7px; border: 1.5px solid var(--coral); background: var(--coral); color: #fff; font-size: 10px; font-weight: 800; cursor: pointer;" title="Tampilkan seluruh gambar kamera tanpa gepeng / proporsional asli">🖼️ Bebas Gepeng</button>
-          <button type="button" id="btnFitModeCover" onclick="kiosk.setCameraFitMode('cover')" style="flex: 1; padding: 4px 6px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Penuhi seluruh bingkai layar">📺 Penuh</button>
+        <!-- 2. Mode Bebas Gepeng (Fit Contain) vs Penuh (Cover) -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; border-top: 1px dashed var(--border-soft); padding-top: 5px;">
+          <span style="font-size: 10px; font-weight: 800; color: var(--caramel-brown); flex-shrink: 0;">🖼️ Gambar:</span>
+          <div style="display: flex; gap: 4px; flex: 1; justify-content: flex-end;">
+            <button type="button" id="btnFitModeContain" onclick="kiosk.setCameraFitMode('contain')" style="flex: 1; padding: 4px 6px; border-radius: 7px; border: 1.5px solid var(--coral); background: var(--coral); color: #fff; font-size: 10px; font-weight: 800; cursor: pointer;" title="Tampilkan seluruh gambar kamera proporsional tanpa gepeng / crop">🖼️ Bebas Gepeng</button>
+            <button type="button" id="btnFitModeCover" onclick="kiosk.setCameraFitMode('cover')" style="flex: 1; padding: 4px 6px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Penuhi bingkai kamera layar">📺 Penuh</button>
+          </div>
         </div>
 
-        <!-- Baris Pilih Kamera Langsung dari Kiosk -->
-        <div style="display: flex; align-items: center; gap: 4px; width: 100%; border-top: 1px dashed var(--border-soft); padding-top: 5px; margin-top: 2px;">
-          <select id="kioskQuickCameraSelect" onchange="kiosk.onQuickCameraSelectChange(this.value)" style="width: 100%; max-width: 190px; padding: 4px 6px; border-radius: 8px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10.5px; font-weight: 800; cursor: pointer;" title="Pilih Sumber Kamera Live">
+        <!-- 3. Ukuran Zoom: Perkecil (-) / Reset 1.0x / Perbesar (+) -->
+        <div style="display: flex; align-items: center; gap: 6px; width: 100%; justify-content: space-between; border-top: 1px dashed var(--border-soft); padding-top: 5px;">
+          <span style="font-size: 10px; font-weight: 800; color: var(--caramel-brown);">🔍 Zoom:</span>
+          <div style="display: flex; align-items: center; gap: 5px;">
+            <button type="button" id="btnCameraZoomOut" onclick="kiosk.adjustCameraZoom(-0.1)" style="width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid var(--border-soft); background: #ffffff; color: var(--caramel-brown); font-size: 18px; font-weight: 800; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Perkecil Kamera (bisa hingga 0.5x)">−</button>
+            <button type="button" id="cameraZoomLabel" onclick="kiosk.resetCameraZoom()" style="min-width: 62px; padding: 5px 8px; border-radius: 999px; border: 1.5px solid rgba(230, 120, 107, 0.35); background: rgba(230, 120, 107, 0.12); color: var(--coral); font-size: 11.5px; font-weight: 800; cursor: pointer; text-align: center;" title="Klik untuk reset Ukuran & Posisi ke 1.0x">1.0x</button>
+            <button type="button" id="btnCameraZoomIn" onclick="kiosk.adjustCameraZoom(0.1)" style="width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid var(--coral); background: var(--coral); color: #ffffff; font-size: 18px; font-weight: 800; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 8px rgba(230, 120, 107, 0.3);" title="Perbesar Kamera (Zoom In)">+</button>
+          </div>
+        </div>
+
+        <!-- 4. Geser Kamera Atas / Bawah / Kiri / Kanan -->
+        <div style="display: flex; align-items: center; gap: 4px; width: 100%; justify-content: center; border-top: 1px dashed var(--border-soft); padding-top: 5px;">
+          <button type="button" onclick="kiosk.panCamera(-0.25, 0)" style="width: 30px; height: 28px; border-radius: 8px; border: 1.5px solid var(--border-soft); background: #ffffff; color: var(--caramel-brown); font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Geser ke Kiri">◀</button>
+          <button type="button" onclick="kiosk.panCamera(0, -0.25)" style="padding: 0 8px; height: 28px; border-radius: 8px; border: 1.5px solid var(--border-soft); background: #ffffff; color: var(--caramel-brown); font-size: 10.5px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px;" title="Geser ke Atas">▲ Atas</button>
+          <button type="button" onclick="kiosk.panCamera(0, 0.25)" style="padding: 0 8px; height: 28px; border-radius: 8px; border: 1.5px solid var(--border-soft); background: #ffffff; color: var(--caramel-brown); font-size: 10.5px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px;" title="Geser ke Bawah">▼ Bawah</button>
+          <button type="button" onclick="kiosk.panCamera(0.25, 0)" style="width: 30px; height: 28px; border-radius: 8px; border: 1.5px solid var(--border-soft); background: #ffffff; color: var(--caramel-brown); font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Geser ke Kanan">▶</button>
+        </div>
+
+        <!-- 5. Pilih Sumber Kamera Live -->
+        <div style="display: flex; align-items: center; gap: 4px; width: 100%; border-top: 1px dashed var(--border-soft); padding-top: 5px;">
+          <select id="kioskQuickCameraSelect" onchange="kiosk.onQuickCameraSelectChange(this.value)" style="width: 100%; padding: 4px 6px; border-radius: 8px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10.5px; font-weight: 800; cursor: pointer;" title="Pilih Sumber Kamera Live">
             <option value="">📹 Pilih Kamera...</option>
           </select>
         </div>
 
-        <!-- Tombol Buka Panel Pengaturan ISO, Fokus, Shutter, WB & Cahaya -->
-        <div style="display: flex; align-items: center; gap: 4px; width: 100%; border-top: 1px dashed var(--border-soft); padding-top: 5px; margin-top: 2px;">
-          <button type="button" id="btnToggleCameraSettings" onclick="kiosk.toggleCameraSettingsDrawer()" style="flex: 1; padding: 5px 8px; border-radius: 9px; border: 1.5px solid var(--coral); background: rgba(230, 120, 107, 0.12); color: var(--coral); font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;" title="Buka Pengaturan ISO, Fokus, Shutter Speed, Diafragma & Cahaya Kamera">
-            🎛️ Setting ISO &amp; Fokus
+        <!-- 6. Tombol Buka Panel ISO & Auto Focus -->
+        <div style="display: flex; align-items: center; gap: 4px; width: 100%; border-top: 1px dashed var(--border-soft); padding-top: 5px;">
+          <button type="button" id="btnToggleCameraSettings" onclick="kiosk.toggleCameraSettingsDrawer()" style="flex: 1; padding: 5px 8px; border-radius: 9px; border: 1.5px solid var(--coral); background: rgba(230, 120, 107, 0.12); color: var(--coral); font-size: 10.5px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px;" title="Buka Pengaturan ISO, Shutter Speed, Aperture & Cahaya Kamera">
+            🎛️ Setting ISO &amp; Cahaya
           </button>
-          <button type="button" onclick="kiosk.triggerCanonAutoFocus()" style="padding: 5px 8px; border-radius: 9px; border: 1.5px solid var(--dusty-teal); background: rgba(74, 143, 135, 0.14); color: var(--dusty-teal); font-size: 11px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Klik untuk Fokus Otomatis (Auto Focus) Kamera">
+          <button type="button" onclick="kiosk.triggerCanonAutoFocus()" style="padding: 5px 8px; border-radius: 9px; border: 1.5px solid var(--dusty-teal); background: rgba(74, 143, 135, 0.14); color: var(--dusty-teal); font-size: 10.5px; font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Klik untuk Auto Focus Kamera">
             🎯 AF
           </button>
         </div>
 
-        <!-- Baris Resolusi Capture Card HDMI (Untuk Canon 1300D / UVC03) -->
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; border-top: 1px dashed var(--border-soft); padding-top: 5px; margin-top: 2px;">
-          <span style="font-size: 10.5px; font-weight: 800; color: var(--caramel-brown);">📺 HDMI:</span>
-          <button type="button" id="btnUvcRes480" onclick="kiosk.setUvcResolution('480p')" style="padding: 3px 7px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10.5px; font-weight: 800; cursor: pointer;" title="Resolusi 480p (Bebas Error UVC03 untuk Canon 1300D Mode Foto)">480p</button>
-          <button type="button" id="btnUvcRes720" onclick="kiosk.setUvcResolution('720p')" style="padding: 3px 7px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10.5px; font-weight: 800; cursor: pointer;" title="Resolusi 720p HD (Untuk Canon 1300D Mode Video)">720p</button>
-          <button type="button" id="btnUvcRes1080" onclick="kiosk.setUvcResolution('1080p')" style="padding: 3px 7px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10.5px; font-weight: 800; cursor: pointer;" title="Resolusi 1080p Full HD">1080p</button>
+        <!-- 7. Resolusi HDMI Capture Card -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; border-top: 1px dashed var(--border-soft); padding-top: 5px;">
+          <span style="font-size: 10px; font-weight: 800; color: var(--caramel-brown);">📺 HDMI:</span>
+          <button type="button" id="btnUvcRes480" onclick="kiosk.setUvcResolution('480p')" style="padding: 3px 6px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Resolusi 480p">480p</button>
+          <button type="button" id="btnUvcRes720" onclick="kiosk.setUvcResolution('720p')" style="padding: 3px 6px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Resolusi 720p HD">720p</button>
+          <button type="button" id="btnUvcRes1080" onclick="kiosk.setUvcResolution('1080p')" style="padding: 3px 6px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Resolusi 1080p Full HD">1080p</button>
         </div>
       </div>
 
       <!-- Floating Panel Pengaturan ISO, Fokus, Shutter, Aperture, WB & Cahaya Kamera -->
-      <div id="kioskCameraSettingsDrawer" onclick="event.stopPropagation()" style="display: none; position: absolute; bottom: 235px; right: 28px; width: 320px; max-height: calc(100vh - 265px); overflow-y: auto; z-index: 75; background: rgba(255, 251, 245, 0.98); backdrop-filter: blur(10px); padding: 14px 15px; border-radius: 20px; border: 2px solid var(--coral); box-shadow: 0 14px 36px rgba(38, 21, 14, 0.28); flex-direction: column; gap: 10px;">
+      <div id="kioskCameraSettingsDrawer" onclick="event.stopPropagation()" style="display: none; position: absolute; bottom: 165px; right: 20px; width: 310px; max-height: calc(100vh - 185px); overflow-y: auto; z-index: 75; background: rgba(255, 251, 245, 0.98); backdrop-filter: blur(12px); padding: 13px 14px; border-radius: 20px; border: 2px solid var(--coral); box-shadow: 0 14px 36px rgba(38, 21, 14, 0.28); flex-direction: column; gap: 9px;">
         <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1.5px dashed var(--border-soft); padding-bottom: 7px;">
           <div style="font-size: 13px; font-weight: 800; color: var(--caramel-brown); display: flex; align-items: center; gap: 6px;">
             <span>📷 Pengaturan Kamera &amp; Fokus</span>
@@ -1164,6 +1192,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v7.4"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v7.5"></script>
 </body>
 </html>
