@@ -1514,15 +1514,16 @@ class KioskEngine {
     const sel = document.getElementById('kioskQuickCameraSelect');
     if (!sel) return;
     let optsHtml = '';
-    if (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active) {
-      const camTitle = this.canonUsbBridgeInfo.camera || 'Canon EOS 1300D';
-      const isCanonSel = activeDeviceId === 'canon_usb_direct' ? 'selected' : '';
-      optsHtml += `<option value="canon_usb_direct" ${isCanonSel}>📷 ${camTitle} (Kabel USB)</option>`;
-    }
+    const isCanonActive = this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active;
+    const camTitle = isCanonActive ? (this.canonUsbBridgeInfo.camera || 'Canon EOS (Kabel USB)') : 'Canon EOS (Kabel USB)';
+    const statusIcon = isCanonActive ? '🟢' : '🔌';
+    const isCanonSel = activeDeviceId === 'canon_usb_direct' ? 'selected' : '';
+    optsHtml += `<option value="canon_usb_direct" ${isCanonSel}>${statusIcon} ${camTitle}</option>`;
+
     if (Array.isArray(videoInputs)) {
       optsHtml += videoInputs.map((d, i) => {
         const label = d.label || `Kamera #${i + 1}`;
-        const selected = d.deviceId === activeDeviceId ? 'selected' : '';
+        const selected = (d.deviceId === activeDeviceId && activeDeviceId !== 'canon_usb_direct') ? 'selected' : '';
         return `<option value="${d.deviceId}" ${selected}>📹 ${label}</option>`;
       }).join('');
     }
@@ -1616,8 +1617,8 @@ class KioskEngine {
       const canonBridge = await this.checkCanonUsbBridgeStatus();
       const savedPrefId = this.cameraConfig?.preferredVideoDeviceId || localStorage.getItem('pb_preferred_video_device_id') || '';
 
-      // Jika Canon EOS 1300D USB Bridge aktif (dan user belum memilih kamera lain secara spesifik, atau memilih canon_usb_direct)
-      if (canonBridge && canonBridge.active && (!savedPrefId || savedPrefId === 'canon_usb_direct')) {
+      // Jika Canon EOS USB Bridge aktif (dan user belum memilih kamera lain secara spesifik, atau memilih canon_usb_direct)
+      if (savedPrefId === 'canon_usb_direct' || (canonBridge && canonBridge.active && !savedPrefId)) {
         let videoInputs = [];
         try {
           if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
@@ -1626,8 +1627,15 @@ class KioskEngine {
           }
         } catch (e) {}
         this.populateQuickCameraSelect(videoInputs, 'canon_usb_direct');
-        await this.startCanonUsbDirectStream(canonBridge);
-        return;
+
+        if (canonBridge && canonBridge.active) {
+          await this.startCanonUsbDirectStream(canonBridge);
+          return;
+        } else if (savedPrefId === 'canon_usb_direct') {
+          if (window.pbNotify) {
+            window.pbNotify.info('Menunggu koneksi Canon USB Bridge (Port 19898)... Pastikan Pasang-dan-Jalankan-Canon-USB-Bridge.bat sudah berjalan & kamera ON.', { title: 'Canon USB Bridge', duration: 4000 });
+          }
+        }
       }
 
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
