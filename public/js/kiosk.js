@@ -1281,6 +1281,10 @@ class KioskEngine {
       this.mediaStream = null;
     }
 
+    if (bridgeInfo) {
+      this.syncCanonHardwareControlsUI(bridgeInfo);
+    }
+
     const w = (bridgeInfo && bridgeInfo.width) || 1056;
     const h = (bridgeInfo && bridgeInfo.height) || 704;
     if (!this.canonUsbCanvas) {
@@ -1304,39 +1308,6 @@ class KioskEngine {
         }
         ctx.drawImage(bmp, 0, 0, w, h);
         bmp.close();
-
-        // Cek apakah gambar dari sensor Canon EOS 1300D masih sangat gelap (tutup lensa belum dibuka / ISO terlalu rendah)
-        try {
-          const sample = ctx.getImageData(Math.floor(w * 0.25), Math.floor(h * 0.25), 60, 60).data;
-          let sum = 0;
-          for (let i = 0; i < sample.length; i += 16) {
-            sum += sample[i] + sample[i + 1] + sample[i + 2];
-          }
-          const avg = sum / ((sample.length / 16) * 3);
-          if (avg < 8) {
-            ctx.save();
-            ctx.translate(w, 0);
-            ctx.scale(-1, 1);
-            ctx.fillStyle = 'rgba(28, 18, 12, 0.85)';
-            ctx.fillRect(w * 0.08, h * 0.30, w * 0.84, h * 0.38);
-            ctx.strokeStyle = '#E6786B';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(w * 0.08, h * 0.30, w * 0.84, h * 0.38);
-            ctx.fillStyle = '#2ECC71';
-            ctx.textAlign = 'center';
-            ctx.font = 'bold 25px sans-serif';
-            ctx.fillText('✅ Canon EOS 1300D Terhubung via Kabel USB!', w * 0.5, h * 0.41);
-            ctx.fillStyle = '#FFD166';
-            ctx.font = 'bold 19px sans-serif';
-            ctx.fillText('Lensa Kamera Masih Gelap (Hitam):', w * 0.5, h * 0.49);
-            ctx.fillStyle = '#FFFBF5';
-            ctx.font = '17px sans-serif';
-            ctx.fillText('1. Buka tutup lensa depan (Lens Cap) Canon 1300D', w * 0.5, h * 0.56);
-            ctx.fillText('2. Putar roda atas kamera ke P / Av (atau naikkan ISO di mode M)', w * 0.5, h * 0.62);
-            ctx.restore();
-          }
-        } catch (err) {}
-
         this.canonUsbLoopTimer = setTimeout(drawNextFrame, 42);
       } catch (err) {
         if (!this.canonUsbStreamActive) return;
@@ -1350,6 +1321,176 @@ class KioskEngine {
     const qrVideo = document.getElementById('qrVideoFeed');
     if (video) video.srcObject = this.mediaStream;
     if (qrVideo) qrVideo.srcObject = this.mediaStream;
+    this.applyCameraImageAdjustToLiveVideo();
+  }
+
+  toggleCameraSettingsDrawer(forceState = null) {
+    const drawer = document.getElementById('kioskCameraSettingsDrawer');
+    if (!drawer) return;
+    const isHidden = drawer.style.display === 'none' || !drawer.style.display;
+    const nextShow = forceState !== null ? Boolean(forceState) : isHidden;
+    drawer.style.display = nextShow ? 'flex' : 'none';
+    if (nextShow) {
+      this.loadSavedCameraImageAdjust();
+      this.checkCanonUsbBridgeStatus().then(info => {
+        if (info) this.syncCanonHardwareControlsUI(info);
+      });
+    }
+  }
+
+  syncCanonHardwareControlsUI(info) {
+    if (!info) return;
+    const isoEl = document.getElementById('canonSelectIso');
+    const tvEl = document.getElementById('canonSelectTv');
+    const avEl = document.getElementById('canonSelectAv');
+    const wbEl = document.getElementById('canonSelectWb');
+    const hintEl = document.getElementById('canonHwStatusHint');
+
+    if (isoEl && info.iso !== undefined) {
+      const valStr = String(info.iso);
+      if (Array.from(isoEl.options).some(o => o.value === valStr)) {
+        isoEl.value = valStr;
+      }
+    }
+    if (tvEl && info.tv !== undefined && info.tv > 0) {
+      const valStr = String(info.tv);
+      if (Array.from(tvEl.options).some(o => o.value === valStr)) {
+        tvEl.value = valStr;
+      }
+    }
+    if (avEl && info.av !== undefined && info.av > 0) {
+      const valStr = String(info.av);
+      if (Array.from(avEl.options).some(o => o.value === valStr)) {
+        avEl.value = valStr;
+      }
+    }
+    if (wbEl && info.wb !== undefined) {
+      const valStr = String(info.wb);
+      if (Array.from(wbEl.options).some(o => o.value === valStr)) {
+        wbEl.value = valStr;
+      }
+    }
+    if (hintEl && info.active) {
+      const modeNames = { 0: 'P (Program)', 1: 'Tv', 2: 'Av', 3: 'M (Manual)', 4: 'Bulb' };
+      const modeLabel = modeNames[info.aeMode] || `Mode #${info.aeMode ?? 0}`;
+      hintEl.innerHTML = `✅ <strong>${info.camera || 'Canon EOS 1300D'}</strong> Terhubung (${modeLabel})`;
+      hintEl.style.color = '#2ECC71';
+    }
+  }
+
+  async setCanonHardwareProperty(propName, value) {
+    const hintEl = document.getElementById('canonHwStatusHint');
+    if (hintEl) {
+      hintEl.innerText = `⏳ Mengirim pengaturan ${propName.toUpperCase()} ke kamera Canon...`;
+      hintEl.style.color = 'var(--coral)';
+    }
+    try {
+      const res = await fetch(`http://127.0.0.1:19898/control?${encodeURIComponent(propName)}=${encodeURIComponent(value)}&t=${Date.now()}`, {
+        cache: 'no-store'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        this.syncCanonHardwareControlsUI(data);
+        if (data && data.cmdError === 0) {
+          this.showToast(`Setelan ${propName.toUpperCase()} kamera berhasil diubah! ✨`, '📷', 1600);
+        } else if (hintEl) {
+          hintEl.innerText = `⚠️ Pastikan roda mode kamera di posisi M / Av / P agar ${propName.toUpperCase()} bisa diubah.`;
+          hintEl.style.color = '#D97706';
+        }
+      }
+    } catch (err) {
+      if (hintEl) {
+        hintEl.innerText = '⚠️ Koneksi Canon USB Bridge belum merespons.';
+        hintEl.style.color = 'var(--coral)';
+      }
+    }
+  }
+
+  async triggerCanonAutoFocus() {
+    this.showToast('🎯 Mengunci Fokus Otomatis (Auto Focus)...', '🔍', 1600);
+    try {
+      const res = await fetch(`http://127.0.0.1:19898/control?af=1&t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        this.syncCanonHardwareControlsUI(data);
+      }
+    } catch (err) {}
+  }
+
+  async stepCanonFocus(stepCode) {
+    try {
+      const res = await fetch(`http://127.0.0.1:19898/control?focus=${encodeURIComponent(stepCode)}&t=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        this.syncCanonHardwareControlsUI(data);
+      }
+    } catch (err) {}
+  }
+
+  loadSavedCameraImageAdjust() {
+    if (!this.cameraImageAdjust) {
+      let saved = null;
+      try {
+        saved = JSON.parse(localStorage.getItem('pb_camera_image_adjust') || 'null');
+      } catch (e) {}
+      this.cameraImageAdjust = {
+        brightness: Number(saved?.brightness) || 100,
+        contrast: Number(saved?.contrast) || 100,
+        saturation: Number(saved?.saturation) || 100
+      };
+    }
+    const b = this.cameraImageAdjust.brightness;
+    const c = this.cameraImageAdjust.contrast;
+    const s = this.cameraImageAdjust.saturation;
+    const rngB = document.getElementById('rngCamBrightness');
+    const rngC = document.getElementById('rngCamContrast');
+    const rngS = document.getElementById('rngCamSaturation');
+    const lblB = document.getElementById('lblCamBrightness');
+    const lblC = document.getElementById('lblCamContrast');
+    const lblS = document.getElementById('lblCamSaturation');
+    if (rngB) rngB.value = b;
+    if (rngC) rngC.value = c;
+    if (rngS) rngS.value = s;
+    if (lblB) lblB.innerText = `${b}%`;
+    if (lblC) lblC.innerText = `${c}%`;
+    if (lblS) lblS.innerText = `${s}%`;
+  }
+
+  getCameraCssFilterString() {
+    this.loadSavedCameraImageAdjust();
+    const { brightness, contrast, saturation } = this.cameraImageAdjust;
+    if (brightness === 100 && contrast === 100 && saturation === 100) {
+      return 'none';
+    }
+    return `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
+  }
+
+  updateCameraImageAdjust(key, val) {
+    this.loadSavedCameraImageAdjust();
+    const num = Math.max(40, Math.min(250, Number(val) || 100));
+    this.cameraImageAdjust[key] = num;
+    try {
+      localStorage.setItem('pb_camera_image_adjust', JSON.stringify(this.cameraImageAdjust));
+    } catch (e) {}
+    this.loadSavedCameraImageAdjust();
+    this.applyCameraImageAdjustToLiveVideo();
+  }
+
+  resetCameraImageAdjust() {
+    this.cameraImageAdjust = { brightness: 100, contrast: 100, saturation: 100 };
+    try {
+      localStorage.setItem('pb_camera_image_adjust', JSON.stringify(this.cameraImageAdjust));
+    } catch (e) {}
+    this.loadSavedCameraImageAdjust();
+    this.applyCameraImageAdjustToLiveVideo();
+    this.showToast('Kecerahan & warna dikembalikan ke 100% ✨', '🔄', 1500);
+  }
+
+  applyCameraImageAdjustToLiveVideo() {
+    const video = document.getElementById('videoFeed');
+    if (video) {
+      video.style.filter = this.getCameraCssFilterString();
+    }
   }
 
   async onQuickCameraSelectChange(deviceId) {
@@ -1988,6 +2129,7 @@ class KioskEngine {
     const video = document.getElementById('videoFeed');
     if (video) {
       video.style.transform = `scaleX(-1) scale(${zoom}) translate(${tx}%, ${ty}%)`;
+      video.style.filter = this.getCameraCssFilterString();
     }
     const label = document.getElementById('cameraZoomLabel');
     if (label) {
@@ -2004,6 +2146,7 @@ class KioskEngine {
 
     // Jangan di-mirror pada hasil tangkapan agar tulisan/teks terbaca normal (tidak terbalik) saat dicetak
     if (video) {
+      ctx.filter = this.getCameraCssFilterString();
       const zoom = Math.max(1.0, Math.min(3.0, this.cameraZoom || 1.0));
       const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
       const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
@@ -2016,6 +2159,7 @@ class KioskEngine {
       const cropX = Math.max(0, Math.min(vw - cropW, maxOffX - (panX * maxOffX)));
       const cropY = Math.max(0, Math.min(vh - cropH, maxOffY + (panY * maxOffY)));
       ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+      ctx.filter = 'none';
     }
 
     const photoDataUrl = canvas.toDataURL('image/jpeg', 0.88);
