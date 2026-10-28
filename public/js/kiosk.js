@@ -1633,8 +1633,17 @@ class KioskEngine {
           return;
         } else if (savedPrefId === 'canon_usb_direct') {
           if (window.pbNotify) {
-            window.pbNotify.info('Menunggu koneksi Canon USB Bridge (Port 19898)... Pastikan Pasang-dan-Jalankan-Canon-USB-Bridge.bat sudah berjalan & kamera ON.', { title: 'Canon USB Bridge', duration: 4000 });
+            window.pbNotify.info('Menghubungkan ke Canon USB Bridge (Port 19898)... Pastikan aplikasi Pasang-dan-Jalankan-Canon-USB-Bridge.bat sudah berjalan dan kamera Canon sudah ON.', { title: 'Canon USB Bridge', duration: 4000 });
           }
+          // Hentikan stream webcam sebelumnya dan tetap di mode tunggu Canon USB (JANGAN fallback ke OBS/webcam!)
+          if (this.mediaStream) {
+            this.mediaStream.getTracks().forEach(t => t.stop());
+            this.mediaStream = null;
+          }
+          // Polling otomatis setiap 1.5 detik sampai bridge/kamera Canon aktif
+          if (this.canonWaitTimer) clearTimeout(this.canonWaitTimer);
+          this.canonWaitTimer = setTimeout(() => this.startCamera(), 1500);
+          return;
         }
       }
 

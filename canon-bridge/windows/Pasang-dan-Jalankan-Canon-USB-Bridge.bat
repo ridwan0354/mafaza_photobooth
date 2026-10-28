@@ -43,10 +43,12 @@ echo.
 echo [3/3] Menjalankan Mafaza Canon USB Bridge di Port 19898...
 echo.
 echo ======================================================================
-echo  PETUNJUK:
-echo  1. Sambungkan kabel USB dari Kamera Canon EOS ke port USB Laptop/PC.
-echo  2. Putar dial kamera ke mode M / Av / Tv lalu nyalakan kamera.
-echo  3. Jendela ini harus tetap terbuka selama Kiosk Photobooth berjalan.
+echo  PETUNJUK PENTING:
+echo  1. Pastikan aplikasi 'EOS Webcam Utility' atau 'EOS Utility' DITUTUP
+echo     agar kabel USB kamera Canon tidak terkunci / sibuk.
+echo  2. Sambungkan kabel USB dari Kamera Canon EOS ke port USB Laptop/PC.
+echo  3. Putar dial kamera ke mode M / Av / Tv lalu nyalakan kamera.
+echo  4. Jendela ini harus tetap terbuka selama Kiosk Photobooth berjalan.
 echo     (Atau jalankan 'Pasang-AutoStart-Windows.bat' agar jalan di background)
 echo ======================================================================
 echo.

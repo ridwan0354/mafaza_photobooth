@@ -393,6 +393,9 @@ namespace MafazaCanonBridge
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr LoadLibrary(string dllToLoad);
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern bool SetDllDirectory(string lpPathName);
+
         [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern uint EdsInitializeSDK();
 
@@ -446,12 +449,20 @@ namespace MafazaCanonBridge
             try
             {
                 // Check if EDSDK.dll exists in local folder or standard program files
-                string[] possiblePaths = new string[] {
+                List<string> possiblePaths = new List<string> {
                     Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "EDSDK.dll"),
-                    @"C:\Program Files\digiCamControl\EDSDK.dll",
-                    @"C:\Program Files (x86)\digiCamControl\EDSDK.dll",
+                    @"C:\Program Files (x86)\Canon\EOS Utility\EU3\EDSDK.dll",
+                    @"C:\Program Files\Canon\EOS Utility\EU3\EDSDK.dll",
+                    @"C:\Program Files (x86)\Canon\EOS Utility\EU2\EDSDK.dll",
+                    @"C:\Program Files\Canon\EOS Utility\EU2\EDSDK.dll",
+                    @"C:\Program Files (x86)\Canon\EOS Utility\EDSDK.dll",
                     @"C:\Program Files\Canon\EOS Utility\EDSDK.dll",
-                    @"C:\Program Files (x86)\Canon\EOS Utility\EDSDK.dll"
+                    @"C:\Program Files\Canon\EOS Webcam Utility\EDSDK.dll",
+                    @"C:\Program Files (x86)\Canon\EOS Webcam Utility\EDSDK.dll",
+                    @"C:\Program Files\Canon\EOS Webcam Utility Pro\EDSDK.dll",
+                    @"C:\Program Files (x86)\Canon\EOS Webcam Utility Pro\EDSDK.dll",
+                    @"C:\Program Files (x86)\digiCamControl\EDSDK.dll",
+                    @"C:\Program Files\digiCamControl\EDSDK.dll"
                 };
 
                 string foundDll = null;
@@ -464,9 +475,39 @@ namespace MafazaCanonBridge
                     }
                 }
 
+                // If not found in known paths, scan Canon program directories
+                if (foundDll == null)
+                {
+                    string[] scanRoots = new string[] {
+                        @"C:\Program Files\Canon",
+                        @"C:\Program Files (x86)\Canon",
+                        @"C:\Program Files\digiCamControl",
+                        @"C:\Program Files (x86)\digiCamControl"
+                    };
+                    foreach (var root in scanRoots)
+                    {
+                        if (Directory.Exists(root))
+                        {
+                            try
+                            {
+                                string[] matches = Directory.GetFiles(root, "EDSDK.dll", SearchOption.AllDirectories);
+                                if (matches != null && matches.Length > 0)
+                                {
+                                    foundDll = matches[0];
+                                    break;
+                                }
+                            }
+                            catch { }
+                        }
+                    }
+                }
+
                 if (foundDll != null)
                 {
                     Console.WriteLine("[EDSDK] Menemukan EDSDK.dll di: " + foundDll);
+                    string dllDir = Path.GetDirectoryName(foundDll);
+                    try { SetDllDirectory(dllDir); } catch { }
+
                     IntPtr hLib = LoadLibrary(foundDll);
                     if (hLib != IntPtr.Zero)
                     {
@@ -479,12 +520,22 @@ namespace MafazaCanonBridge
                             Console.ResetColor();
                             TryConnectEdsdkCamera();
                         }
+                        else
+                        {
+                            Console.WriteLine("[EDSDK] EdsInitializeSDK error: 0x" + err.ToString("X"));
+                        }
+                    }
+                    else
+                    {
+                        int winErr = Marshal.GetLastWin32Error();
+                        Console.WriteLine("[EDSDK] LoadLibrary gagal (Win32 Error: " + winErr + ").");
                     }
                 }
                 else
                 {
-                    Console.WriteLine("[INFO] EDSDK.dll belum ditemukan di folder lokal.");
-                    Console.WriteLine("       Bridge akan menggunakan mode digiCamControl / WebServer otomatis.");
+                    Console.WriteLine("[INFO] EDSDK.dll belum ditemukan di folder Canon / digiCamControl.");
+                    Console.WriteLine("       Tips: Instal Canon EOS Utility atau digiCamControl jika ingin");
+                    Console.WriteLine("       menggunakan kontrol ISO & Fokus secara langsung.");
                 }
             }
             catch (Exception ex)

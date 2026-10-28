@@ -5,6 +5,13 @@ langsung ke Kiosk Photobooth hanya dengan KABEL USB standar (tanpa capture card 
 Menyediakan Live View jernih 30fps + kontrol real-time ISO, Shutter Speed, Aperture,
 White Balance, Auto Focus (AF), dan Manual Focus Stepping dari layar Kiosk.
 
+PENTING - HINDARI BENTROK APLIKASI CANON:
+-----------------------------------------
+Jika Anda pernah memasang 'EOS Webcam Utility' atau 'EOS Utility', pastikan
+aplikasi tersebut di-TUTUP (Quit) dan tidak berjalan di background/system tray
+saat menggunakan Canon USB Bridge, karena aplikasi tersebut akan mengunci
+kabel USB kamera sehingga bridge tidak bisa mengakses kontrol ISO & Fokus.
+
 CARA PENGGUNAAN:
 ----------------
 1. Ekstrak (Extract All) folder zip ini ke folder pilihan Anda di PC / Laptop Windows.
