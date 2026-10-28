@@ -32,6 +32,7 @@ class KioskEngine {
     this.reviewAutoAdvanceTimerId = null;
     this.modalSelectedPoseIndex = null;
     this.toastTimerId = null;
+    this.cameraZoom = 1.0;
 
     // Interactive Photo Selection & Panning State in Preview
     this.slotAssignments = [];
@@ -1554,7 +1555,14 @@ class KioskEngine {
           c.height = img.naturalHeight || 1280;
           const ctx = c.getContext('2d');
           // Jangan di-mirror agar teks pada papan/baju/properti terbaca normal (tidak terbalik) saat dicetak
-          ctx.drawImage(img, 0, 0, c.width, c.height);
+          const zoom = Math.max(1.0, Math.min(3.0, this.cameraZoom || 1.0));
+          const iw = img.naturalWidth || c.width;
+          const ih = img.naturalHeight || c.height;
+          const cropW = iw / zoom;
+          const cropH = ih / zoom;
+          const cropX = (iw - cropW) / 2;
+          const cropY = (ih - cropH) / 2;
+          ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height);
           const flashDataUrl = c.toDataURL('image/jpeg', 0.88);
           this.posesCaptured[poseIndex] = flashDataUrl;
           this.renderFilmstripDock();
@@ -1597,6 +1605,27 @@ class KioskEngine {
     } catch (e) {}
   }
 
+  adjustCameraZoom(delta) {
+    const nextZoom = Math.max(1.0, Math.min(3.0, Math.round(((this.cameraZoom || 1.0) + delta) * 10) / 10));
+    this.setCameraZoom(nextZoom);
+  }
+
+  resetCameraZoom() {
+    this.setCameraZoom(1.0);
+  }
+
+  setCameraZoom(zoomLevel) {
+    this.cameraZoom = Math.max(1.0, Math.min(3.0, Math.round(zoomLevel * 10) / 10));
+    const video = document.getElementById('videoFeed');
+    if (video) {
+      video.style.transform = `scaleX(-1) scale(${this.cameraZoom})`;
+    }
+    const label = document.getElementById('cameraZoomLabel');
+    if (label) {
+      label.innerText = `🔍 ${this.cameraZoom.toFixed(1)}x`;
+    }
+  }
+
   captureFrame(poseIndex) {
     const video = document.getElementById('videoFeed');
     const canvas = document.createElement('canvas');
@@ -1606,7 +1635,14 @@ class KioskEngine {
 
     // Jangan di-mirror pada hasil tangkapan agar tulisan/teks terbaca normal (tidak terbalik) saat dicetak
     if (video) {
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const zoom = Math.max(1.0, Math.min(3.0, this.cameraZoom || 1.0));
+      const vw = video.videoWidth || canvas.width;
+      const vh = video.videoHeight || canvas.height;
+      const cropW = vw / zoom;
+      const cropH = vh / zoom;
+      const cropX = (vw - cropW) / 2;
+      const cropY = (vh - cropH) / 2;
+      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
     }
 
     const photoDataUrl = canvas.toDataURL('image/jpeg', 0.88);
