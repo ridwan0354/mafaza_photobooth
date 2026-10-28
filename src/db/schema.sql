@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS templates (
   dpi INTEGER NOT NULL DEFAULT 300,
   orientation TEXT NOT NULL DEFAULT 'portrait', -- 'portrait', 'landscape', 'strip'
   qr_position TEXT NOT NULL DEFAULT 'bottom-right', -- 'bottom-right', 'bottom-left', 'top-right', 'top-left', 'none'
+  shots_mode TEXT NOT NULL DEFAULT 'event', -- 'event', 'slots', or '1'..'10'
   current_version_id TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

@@ -954,6 +954,35 @@ class KioskEngine {
     this.renderTemplateSelection(category);
   }
 
+  resolveTemplatePosesCount(tpl) {
+    const mode = tpl && tpl.shots_mode ? String(tpl.shots_mode).trim() : 'event';
+    // 1. Jika template disetel eksplisit jumlah pose (1..10)
+    const explicitNum = parseInt(mode, 10);
+    if (!isNaN(explicitNum) && explicitNum >= 1 && explicitNum <= 10) {
+      return explicitNum;
+    }
+    // 2. Jika template disetel mengikuti jumlah lubang hijau frame ('slots')
+    if (mode === 'slots') {
+      if (tpl && Array.isArray(tpl.slots) && tpl.slots.length > 0) {
+        const maxPoseIdx = Math.max(...tpl.slots.map(s => parseInt(s.pose_index, 10) || 1));
+        return Math.max(tpl.slots.length, maxPoseIdx);
+      }
+    }
+    // 3. Default ('event'): ikut pengaturan Event aktif (atau event_shots_count dari template)
+    if (this.eventConfig && this.eventConfig.shotsCount) {
+      const evCount = parseInt(this.eventConfig.shotsCount, 10);
+      if (!isNaN(evCount) && evCount >= 1) return evCount;
+    }
+    if (tpl && tpl.event_shots_count) {
+      const tplEvCount = parseInt(tpl.event_shots_count, 10);
+      if (!isNaN(tplEvCount) && tplEvCount >= 1) return tplEvCount;
+    }
+    if (tpl && Array.isArray(tpl.slots) && tpl.slots.length > 0) {
+      return Math.max(tpl.slots.length, ...tpl.slots.map(s => parseInt(s.pose_index, 10) || 1));
+    }
+    return (tpl && tpl.orientation === 'strip') ? 3 : 1;
+  }
+
   renderTemplateSelection(filter = 'all') {
     const container = document.getElementById('templateListContainer');
     container.innerHTML = '';
@@ -976,6 +1005,8 @@ class KioskEngine {
     const displayTemplates = filtered.length > 0 ? filtered : this.templates;
 
     displayTemplates.forEach((tpl, idx) => {
+      const poseCount = this.resolveTemplatePosesCount(tpl);
+      const formatShort = tpl.orientation === 'strip' ? 'Strip' : 'Single';
       const card = document.createElement('div');
       card.className = `template-retro-card ${idx === 0 ? 'selected' : ''}`;
       card.onclick = () => {
@@ -983,7 +1014,7 @@ class KioskEngine {
         card.classList.add('selected');
         this.selectedTemplate = tpl;
         this.selectedMode = tpl.orientation === 'strip' ? 'strip' : 'single';
-        this.totalPosesRequired = (this.selectedMode === 'strip') ? 3 : 1;
+        this.totalPosesRequired = this.resolveTemplatePosesCount(tpl);
       };
       card.innerHTML = `
         <div class="template-check-badge">✓</div>
@@ -991,7 +1022,7 @@ class KioskEngine {
           <img src="${tpl.image_storage_key}" style="max-height: 100%; max-width: 100%; object-fit: contain;">
         </div>
         <span class="badge-pill ${tpl.orientation === 'strip' ? 'badge-coral' : 'badge-active'}" style="font-size: 11px; margin-bottom: 6px;">
-          ${tpl.orientation === 'strip' ? '3 Pose Strip' : '1 Pose Single'}
+          📸 ${poseCount}x Pose (${formatShort})
         </span>
         <h4 style="font-size: 16px; font-weight: 700; color: #7B482E; margin-top: 4px; font-family: var(--font-heading);">${tpl.name}</h4>
       `;
@@ -1000,7 +1031,7 @@ class KioskEngine {
 
     this.selectedTemplate = displayTemplates[0];
     this.selectedMode = this.selectedTemplate.orientation === 'strip' ? 'strip' : 'single';
-    this.totalPosesRequired = (this.selectedMode === 'strip') ? 3 : 1;
+    this.totalPosesRequired = this.resolveTemplatePosesCount(this.selectedTemplate);
   }
 
   // Camera 3-Button Control Bar Handlers (Gambar 2 Screen 3)
@@ -1376,13 +1407,7 @@ class KioskEngine {
 
   async startCountdownSequence() {
     this.clearAllTimers();
-    if (this.eventConfig && this.eventConfig.shotsCount) {
-      this.totalPosesRequired = parseInt(this.eventConfig.shotsCount);
-    } else if (this.selectedTemplate && this.selectedTemplate.slots && this.selectedTemplate.slots.length > 0) {
-      this.totalPosesRequired = Math.max(...this.selectedTemplate.slots.map(s => s.pose_index));
-    } else {
-      this.totalPosesRequired = (this.selectedMode === 'strip') ? 3 : 1;
-    }
+    this.totalPosesRequired = this.resolveTemplatePosesCount(this.selectedTemplate);
 
     this.posesCaptured = new Array(this.totalPosesRequired).fill(null);
     this.activePoseIndex = 0;

@@ -121,6 +121,8 @@ function runMigrations() {
   ensureColumn('photo_sessions', 'template_id', 'TEXT');
   // Posisi QR Galeri pada hasil cetak (bottom-right, bottom-left, top-right, top-left, none)
   ensureColumn('templates', 'qr_position', "TEXT DEFAULT 'bottom-right'");
+  // Mode jumlah pose/cekrek per template ('event' = ikut pengaturan event, 'slots' = sesuai lubang hijau, atau angka '1'..'10')
+  ensureColumn('templates', 'shots_mode', "TEXT DEFAULT 'event'");
 }
 
 function seedDatabase() {

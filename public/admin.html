@@ -897,6 +897,27 @@
                 </div>
               </div>
 
+              <!-- Pengaturan Berapa Kali Pose / Cekrek untuk Template Ini -->
+              <div style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px;">
+                <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">
+                  📸 Berapa Kali Pose / Cekrek (Sesi Foto):
+                </label>
+                <select id="editorTemplateShotsMode" class="form-control" style="width: 100%; font-size: 12.5px; font-weight: 700; padding: 7px 10px; border-radius: 8px;" onchange="onEditorShotsModeChange(this.value)">
+                  <option value="event" id="editorTemplateShotsEventOpt">📌 Ikut Pengaturan Event (Otomatis)</option>
+                  <option value="slots">🟩 Otomatis Sesuai Jumlah Lubang Hijau Frame</option>
+                  <option value="1">📸 1 Kali Pose / Cekrek</option>
+                  <option value="2">📸 2 Kali Pose / Cekrek</option>
+                  <option value="3">📸 3 Kali Pose / Cekrek</option>
+                  <option value="4">📸 4 Kali Pose / Cekrek</option>
+                  <option value="5">📸 5 Kali Pose / Cekrek</option>
+                  <option value="6">📸 6 Kali Pose / Cekrek</option>
+                  <option value="8">📸 8 Kali Pose / Cekrek</option>
+                </select>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                  * Jika pilih "Ikut Pengaturan Event" &amp; di Event disetel 4x Pose, maka Kiosk otomatis mengambil 4x cekrek.
+                </div>
+              </div>
+
               <!-- Pengaturan Posisi QR Cetak untuk Template Ini -->
               <div style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px;">
                 <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">
@@ -1717,7 +1738,7 @@
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
           <div>
             <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Tautkan ke Event</label>
-            <select id="tplModalEventTarget" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
+            <select id="tplModalEventTarget" onchange="onUploadModalEventTargetChange()" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
               <!-- Populated dynamically with active event as primary choice -->
             </select>
           </div>
@@ -1728,6 +1749,27 @@
               <option value="portrait">Single Photo 4×6 (1200×1800 px)</option>
               <option value="square">Square 4×4 (1200×1200 px)</option>
             </select>
+          </div>
+        </div>
+
+        <!-- Pilihan Berapa Kali Pose / Cekrek saat Unggah Template -->
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+            📸 Berapa Kali Pose / Cekrek?
+          </label>
+          <select id="tplModalShotsMode" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--dark-roast);">
+            <option value="event" id="tplModalShotsEventOpt" selected>📌 Ikut Pengaturan Event (Otomatis)</option>
+            <option value="slots">🟩 Otomatis Sesuai Jumlah Lubang Hijau Frame</option>
+            <option value="1">📸 1 Kali Pose / Cekrek</option>
+            <option value="2">📸 2 Kali Pose / Cekrek</option>
+            <option value="3">📸 3 Kali Pose / Cekrek</option>
+            <option value="4">📸 4 Kali Pose / Cekrek</option>
+            <option value="5">📸 5 Kali Pose / Cekrek</option>
+            <option value="6">📸 6 Kali Pose / Cekrek</option>
+            <option value="8">📸 8 Kali Pose / Cekrek</option>
+          </select>
+          <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">
+            * Jika memilih <strong>"Ikut Pengaturan Event"</strong>, jumlah foto mengikuti pengaturan Event (misal Event disetel <strong>4x Pose</strong>, maka otomatis <strong>4x Pose / Cekrek</strong>).
           </div>
         </div>
 
@@ -2021,6 +2063,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/admin.js?v=warm-retro-v4.8"></script>
+  <script src="/js/admin.js?v=warm-retro-v4.9"></script>
 </body>
 </html>

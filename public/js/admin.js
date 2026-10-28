@@ -1303,6 +1303,13 @@ function renderTemplatesGallery() {
     const isGlobal = !t.event_id;
     const formatLabel = t.orientation === 'strip' ? 'Photo Strip 2×6' : 'Single Photo 4×6';
     const slotsCount = t.slots ? t.slots.length : 0;
+    const shotsMode = t.shots_mode || 'event';
+    const evShots = t.event_shots_count || (activeEvent && activeEvent.config && activeEvent.config.shotsCount) || 3;
+    const shotsBadgeLabel = shotsMode === 'event'
+      ? `📌 Ikut Event (${evShots}x Pose)`
+      : shotsMode === 'slots'
+      ? `🟩 Sesuai Slot (${slotsCount}x Pose)`
+      : `📸 ${shotsMode}x Pose / Cekrek`;
 
     return `
       <div class="card-retro" style="display: flex; flex-direction: column; padding: 14px; position: relative; border-color: ${isSelected ? 'var(--coral)' : 'var(--border-soft)'}; box-shadow: ${isSelected ? '0 8px 24px rgba(230,120,107,0.25)' : 'none'}; transform: ${isSelected ? 'translateY(-4px)' : 'none'};">
@@ -1319,7 +1326,8 @@ function renderTemplatesGallery() {
         <!-- Badges -->
         <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
           <span class="sticker-badge sticker-mustard" style="font-size: 10.5px; padding: 3px 8px;">${formatLabel}</span>
-          <span class="sticker-badge sticker-teal" style="font-size: 10.5px; padding: 3px 8px;">📸 ${slotsCount} Slot</span>
+          <span class="sticker-badge sticker-teal" style="font-size: 10.5px; padding: 3px 8px;">🟩 ${slotsCount} Slot</span>
+          <span class="sticker-badge sticker-coral" style="font-size: 10.5px; padding: 3px 8px; background: rgba(230,120,107,0.16); border-color: rgba(230,120,107,0.45); color: #A63A2E; font-weight: 800;">${shotsBadgeLabel}</span>
           <span class="sticker-badge sticker-mustard" style="font-size: 10px; padding: 3px 7px; background: rgba(212,167,84,0.18); border-color: rgba(212,167,84,0.4); color: #7a581a;">
             ${t.qr_position === 'bottom-left' ? '↙️ QR Kiri Bawah' : t.qr_position === 'top-right' ? '↗️ QR Kanan Atas' : t.qr_position === 'top-left' ? '↖️ QR Kiri Atas' : t.qr_position === 'none' ? '🚫 Tanpa QR' : '↘️ QR Kanan Bawah'}
           </span>
@@ -1384,6 +1392,16 @@ function selectTemplateForEditor(templateId, scroll = true) {
     qrSelect.value = activeTemplate.qr_position || 'bottom-right';
   }
 
+  const shotsSelect = document.getElementById('editorTemplateShotsMode');
+  const shotsEventOpt = document.getElementById('editorTemplateShotsEventOpt');
+  if (shotsEventOpt) {
+    const evShots = activeTemplate.event_shots_count || (activeEvent && activeEvent.config && activeEvent.config.shotsCount) || 3;
+    shotsEventOpt.textContent = `📌 Ikut Pengaturan Event (${evShots}x Pose / Cekrek)`;
+  }
+  if (shotsSelect) {
+    shotsSelect.value = activeTemplate.shots_mode || 'event';
+  }
+
   renderSlotsList();
   updateSlotInspector();
   renderEditorCanvas();
@@ -1393,6 +1411,12 @@ function selectTemplateForEditor(templateId, scroll = true) {
     const editorEl = document.getElementById('templateEditorCanvas');
     if (editorEl) editorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
+}
+
+function onEditorShotsModeChange(val) {
+  if (!activeTemplate) return;
+  activeTemplate.shots_mode = val || 'event';
+  renderTemplatesGallery();
 }
 
 function onEditorQrPositionChange(val) {
@@ -1443,7 +1467,46 @@ function openUploadTemplateModal() {
     targetSelect.innerHTML = opts;
   }
 
+  const shotsModeSelect = document.getElementById('tplModalShotsMode');
+  if (shotsModeSelect) {
+    shotsModeSelect.value = 'event';
+  }
+  onUploadModalEventTargetChange();
+
   setupDropzone();
+}
+
+function getEventShotsCountById(eventId) {
+  if (!eventId) {
+    if (activeEvent && activeEvent.config && activeEvent.config.shotsCount) {
+      return parseInt(activeEvent.config.shotsCount, 10) || 3;
+    }
+    return 3;
+  }
+  const ev = eventsList.find(e => e.id === eventId) || (activeEvent && activeEvent.id === eventId ? activeEvent : null);
+  if (ev) {
+    let cfg = ev.config;
+    if (!cfg && ev.config_json) {
+      try { cfg = JSON.parse(ev.config_json); } catch (_) { cfg = {}; }
+    }
+    if (cfg && cfg.shotsCount) {
+      return parseInt(cfg.shotsCount, 10) || 3;
+    }
+  }
+  return 3;
+}
+
+function onUploadModalEventTargetChange() {
+  const targetSelect = document.getElementById('tplModalEventTarget');
+  const eventOpt = document.getElementById('tplModalShotsEventOpt');
+  if (!eventOpt) return;
+  const selectedEventId = targetSelect ? targetSelect.value : '';
+  const shots = getEventShotsCountById(selectedEventId);
+  if (selectedEventId) {
+    eventOpt.textContent = `📌 Ikut Pengaturan Event (${shots}x Pose / Cekrek)`;
+  } else {
+    eventOpt.textContent = `📌 Ikut Pengaturan Event Aktif (${shots}x Pose / Cekrek)`;
+  }
 }
 
 function closeUploadTemplateModal(event) {
@@ -1563,6 +1626,7 @@ async function submitTemplateUpload(event) {
   const eventTarget = document.getElementById('tplModalEventTarget').value;
   const format = document.getElementById('tplModalFormat').value;
   const qrPosition = document.getElementById('tplModalQrPosition')?.value || 'bottom-right';
+  const shotsMode = document.getElementById('tplModalShotsMode')?.value || 'event';
 
   const btnSubmit = document.getElementById('btnSubmitUploadTemplate');
   const originalText = btnSubmit ? btnSubmit.innerText : '🚀 Unggah & Buka di Canvas';
@@ -1578,6 +1642,7 @@ async function submitTemplateUpload(event) {
     if (eventTarget) formData.append('eventId', eventTarget);
     formData.append('orientation', format);
     formData.append('qrPosition', qrPosition);
+    formData.append('shotsMode', shotsMode);
     formData.append('width', format === 'strip' ? '600' : '1200');
     formData.append('height', '1800');
 
@@ -2090,11 +2155,12 @@ async function saveTemplateVersion() {
     return;
   }
   const qrPosition = document.getElementById('editorTemplateQrPos')?.value || activeTemplate.qr_position || 'bottom-right';
+  const shotsMode = document.getElementById('editorTemplateShotsMode')?.value || activeTemplate.shots_mode || 'event';
   try {
     const res = await fetch(`/api/templates/${activeTemplate.id}/slots`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slots: editorSlots, qrPosition, width: canvas.width, height: canvas.height })
+      body: JSON.stringify({ slots: editorSlots, qrPosition, shotsMode, width: canvas.width, height: canvas.height })
     });
     if (res.ok) {
       alert('✅ Konfigurasi slot pose template berhasil disimpan & dipublikasikan untuk Kiosk Event!');

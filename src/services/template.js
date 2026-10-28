@@ -20,7 +20,8 @@ function detectImageDimensions(storageKey) {
 export function getTemplates(tenantId, eventId = null, scope = null) {
   let query = `
     SELECT t.*, tv.slots_json, tv.layers_json, tv.image_storage_key,
-           (SELECT name FROM events e WHERE e.id = t.event_id) as event_name
+           (SELECT name FROM events e WHERE e.id = t.event_id) as event_name,
+           (SELECT config_json FROM events e WHERE e.id = t.event_id) as event_config_json
     FROM templates t 
     LEFT JOIN template_versions tv ON t.current_version_id = tv.id 
     WHERE t.tenant_id = ?
@@ -41,16 +42,28 @@ export function getTemplates(tenantId, eventId = null, scope = null) {
   }
   query += ' ORDER BY t.created_at DESC';
 
-  return db.prepare(query).all(...params).map(t => ({
-    ...t,
-    slots: JSON.parse(t.slots_json || '[]'),
-    layers: JSON.parse(t.layers_json || '[]')
-  }));
+  return db.prepare(query).all(...params).map(t => {
+    let eventShotsCount = null;
+    if (t.event_config_json) {
+      try {
+        const cfg = JSON.parse(t.event_config_json);
+        if (cfg && cfg.shotsCount) eventShotsCount = parseInt(cfg.shotsCount, 10) || null;
+      } catch (e) {}
+    }
+    return {
+      ...t,
+      shots_mode: t.shots_mode || 'event',
+      event_shots_count: eventShotsCount,
+      slots: JSON.parse(t.slots_json || '[]'),
+      layers: JSON.parse(t.layers_json || '[]')
+    };
+  });
 }
 
 export function getTemplateById(templateId, tenantId = null) {
   let query = `
-    SELECT t.*, tv.slots_json, tv.layers_json, tv.image_storage_key, tv.version
+    SELECT t.*, tv.slots_json, tv.layers_json, tv.image_storage_key, tv.version,
+           (SELECT config_json FROM events e WHERE e.id = t.event_id) as event_config_json
     FROM templates t
     LEFT JOIN template_versions tv ON t.current_version_id = tv.id
     WHERE t.id = ?
@@ -63,8 +76,18 @@ export function getTemplateById(templateId, tenantId = null) {
   const t = db.prepare(query).get(...params);
   if (!t) return null;
 
+  let eventShotsCount = null;
+  if (t.event_config_json) {
+    try {
+      const cfg = JSON.parse(t.event_config_json);
+      if (cfg && cfg.shotsCount) eventShotsCount = parseInt(cfg.shotsCount, 10) || null;
+    } catch (e) {}
+  }
+
   return {
     ...t,
+    shots_mode: t.shots_mode || 'event',
+    event_shots_count: eventShotsCount,
     slots: JSON.parse(t.slots_json || '[]'),
     layers: JSON.parse(t.layers_json || '[]')
   };
@@ -74,14 +97,15 @@ export function createTemplate(tenantId, data) {
   const templateId = 'tpl_' + crypto.randomBytes(8).toString('hex');
   const versionId = 'ver_' + crypto.randomBytes(8).toString('hex');
   const qrPosition = data.qrPosition || data.qr_position || 'bottom-right';
+  const shotsMode = data.shotsMode || data.shots_mode || 'event';
 
   const detected = detectImageDimensions(data.imageUrl);
   const finalWidth = parseInt(data.width) || (detected ? detected.width : 1200);
   const finalHeight = parseInt(data.height) || (detected ? detected.height : 1800);
 
   db.prepare(`
-    INSERT INTO templates (id, tenant_id, event_id, name, status, width, height, dpi, orientation, qr_position, current_version_id)
-    VALUES (?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?)
+    INSERT INTO templates (id, tenant_id, event_id, name, status, width, height, dpi, orientation, qr_position, shots_mode, current_version_id)
+    VALUES (?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?)
   `).run(
     templateId,
     tenantId,
@@ -92,6 +116,7 @@ export function createTemplate(tenantId, data) {
     data.dpi || 300,
     data.orientation || 'portrait',
     qrPosition,
+    shotsMode,
     versionId
   );
 
@@ -109,7 +134,7 @@ export function createTemplate(tenantId, data) {
   return getTemplateById(templateId, tenantId);
 }
 
-export function updateTemplateSlots(templateId, tenantId, slots, layers = null, qrPosition = null, width = null, height = null) {
+export function updateTemplateSlots(templateId, tenantId, slots, layers = null, qrPosition = null, width = null, height = null, shotsMode = null) {
   const template = getTemplateById(templateId, tenantId);
   if (!template) throw new Error('Template tidak ditemukan');
 
@@ -134,6 +159,10 @@ export function updateTemplateSlots(templateId, tenantId, slots, layers = null, 
   if (qrPosition) {
     updates.push('qr_position = ?');
     params.push(qrPosition);
+  }
+  if (shotsMode) {
+    updates.push('shots_mode = ?');
+    params.push(String(shotsMode));
   }
 
   let finalW = parseInt(width);
@@ -167,6 +196,10 @@ export function updateTemplateConfig(templateId, tenantId, updates = {}) {
   if (updates.qrPosition !== undefined || updates.qr_position !== undefined) {
     fields.push('qr_position = ?');
     params.push(updates.qrPosition || updates.qr_position || 'bottom-right');
+  }
+  if (updates.shotsMode !== undefined || updates.shots_mode !== undefined) {
+    fields.push('shots_mode = ?');
+    params.push(String(updates.shotsMode || updates.shots_mode || 'event'));
   }
   if (updates.orientation !== undefined) { fields.push('orientation = ?'); params.push(updates.orientation); }
 

@@ -707,7 +707,7 @@ apiRouter.get('/templates', (req, res) => {
 
 apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (req, res) => {
   try {
-    const { name, eventId, width, height, orientation, slotsJson, qrPosition } = req.body;
+    const { name, eventId, width, height, orientation, slotsJson, qrPosition, shotsMode } = req.body;
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : '/assets/templates/single-green-template.svg';
     const slots = slotsJson ? JSON.parse(slotsJson) : [];
 
@@ -718,6 +718,7 @@ apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (r
       height: parseInt(height) || 1800,
       orientation: orientation || 'portrait',
       qrPosition: qrPosition || 'bottom-right',
+      shotsMode: shotsMode || 'event',
       imageUrl,
       slots
     });
@@ -729,8 +730,8 @@ apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (r
 
 apiRouter.patch('/templates/:id/slots', authMiddleware(), (req, res) => {
   try {
-    const { slots, layers, qrPosition, width, height } = req.body;
-    const updated = templateService.updateTemplateSlots(req.params.id, req.user.tenantId, slots, layers, qrPosition, width, height);
+    const { slots, layers, qrPosition, width, height, shotsMode } = req.body;
+    const updated = templateService.updateTemplateSlots(req.params.id, req.user.tenantId, slots, layers, qrPosition, width, height, shotsMode);
     res.json(updated);
   } catch (err) {
     res.status(400).json({ error: err.message });
