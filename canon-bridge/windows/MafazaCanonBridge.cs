@@ -35,6 +35,12 @@ namespace MafazaCanonBridge
         private static bool _edsdkLoaded = false;
         private static Thread _workerThread;
 
+        private static readonly DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        private static long GetCurrentUnixTimeMs()
+        {
+            return (long)(DateTime.UtcNow - UnixEpoch).TotalMilliseconds;
+        }
+
         static void Main(string[] args)
         {
             Console.Title = "Mafaza Canon USB Bridge (Windows) - Port 19898";
@@ -161,7 +167,7 @@ namespace MafazaCanonBridge
 
         private static void HandleStatus(HttpListenerResponse res)
         {
-            long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            long now = GetCurrentUnixTimeMs();
             long age = (_lastFrameTime > 0) ? (now - _lastFrameTime) : 999999;
             bool active = _isConnected && (age < 3500);
 
@@ -311,7 +317,7 @@ namespace MafazaCanonBridge
                             lock (_frameLock)
                             {
                                 _latestJpeg = data;
-                                _lastFrameTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                                _lastFrameTime = GetCurrentUnixTimeMs();
                             }
                             _isConnected = true;
                             _activeMode = "digicamcontrol";
@@ -329,27 +335,35 @@ namespace MafazaCanonBridge
         {
             try
             {
-                using (WebClient wc = new WebClient())
+                if (!string.IsNullOrEmpty(af) && af == "1")
                 {
-                    wc.Timeout = 500;
-                    if (!string.IsNullOrEmpty(af) && af == "1")
-                    {
-                        wc.DownloadString("http://127.0.0.1:5513/?CMD=AutoFocus");
-                    }
-                    if (!string.IsNullOrEmpty(focus))
-                    {
-                        int f = int.Parse(focus);
-                        string cmd = f > 0 ? "FocusStepNear" : "FocusStepFar";
-                        wc.DownloadString("http://127.0.0.1:5513/?CMD=" + cmd);
-                    }
-                    if (!string.IsNullOrEmpty(iso))
-                    {
-                        wc.DownloadString("http://127.0.0.1:5513/?CMD=SetIso&param1=" + iso);
-                    }
-                    return true;
+                    SendDccCommand("http://127.0.0.1:5513/?CMD=AutoFocus");
                 }
+                if (!string.IsNullOrEmpty(focus))
+                {
+                    int f = int.Parse(focus);
+                    string cmd = f > 0 ? "FocusStepNear" : "FocusStepFar";
+                    SendDccCommand("http://127.0.0.1:5513/?CMD=" + cmd);
+                }
+                if (!string.IsNullOrEmpty(iso))
+                {
+                    SendDccCommand("http://127.0.0.1:5513/?CMD=SetIso&param1=" + iso);
+                }
+                return true;
             }
             catch { return false; }
+        }
+
+        private static void SendDccCommand(string url)
+        {
+            try
+            {
+                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
+                req.Timeout = 1000;
+                req.ReadWriteTimeout = 1000;
+                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse()) { }
+            }
+            catch { }
         }
 
         // ==========================================
@@ -524,7 +538,7 @@ namespace MafazaCanonBridge
                                 lock (_frameLock)
                                 {
                                     _latestJpeg = frameData;
-                                    _lastFrameTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                                    _lastFrameTime = GetCurrentUnixTimeMs();
                                 }
                                 _isConnected = true;
                                 _activeMode = "edsdk";
