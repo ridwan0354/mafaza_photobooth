@@ -1002,15 +1002,12 @@ class KioskEngine {
 
   // Camera 3-Button Control Bar Handlers (Gambar 2 Screen 3)
   handleShutterClick() {
-    // 1. Jika preview foto barusan sedang tampil (seperti di screenshot user):
-    // Klik tombol merah, layar live photo, atau tombol perkecil volume = tutup preview dan MULAI HITUNG MUNDUR pose berikutnya!
+    // 1. Jika preview foto barusan sedang tampil:
+    // Tutup preview hasil foto dan masuk ke tampilan Live Camera pose berikutnya TANPA langsung hitung mundur,
+    // supaya para tamu bisa melihat kamera live dan menyusun posisi/gaya terlebih dahulu!
     const holdOverlay = document.getElementById('postCapturePreviewOverlay');
     if (holdOverlay && holdOverlay.style.display !== 'none') {
-      const nextEmptyIndex = this.posesCaptured.findIndex(p => p === null);
       this.finishPostCaptureHold();
-      if (nextEmptyIndex !== -1) {
-        this.startCountdown(nextEmptyIndex);
-      }
       return;
     }
 
@@ -1681,19 +1678,41 @@ class KioskEngine {
       poseIndicatorText.innerText = `✨ Hasil Pose ${justCapturedIndex + 1}/${this.totalPosesRequired}`;
     }
 
+    if (this.postCaptureHoldTimerId) {
+      clearInterval(this.postCaptureHoldTimerId);
+      this.postCaptureHoldTimerId = null;
+    }
+
     if (nextEmptyIndex !== -1) {
+      let holdSecs = 2;
       if (holdTimerText) {
-        holdTimerText.innerText = `👉 Klik foto, tombol merah, atau remote volume untuk Pose ${nextEmptyIndex + 1}`;
+        holdTimerText.innerText = `⏳ Membuka kamera live Pose ${nextEmptyIndex + 1} dalam ${holdSecs} dtk...`;
       }
       if (holdBtnNext) {
         holdBtnNext.innerText = `Lanjut ke Pose ${nextEmptyIndex + 1} ➔`;
       }
       if (smileHintText) {
-        smileHintText.innerText = `Lihat hasil Pose ${justCapturedIndex + 1} • Klik untuk bersiap Pose ${nextEmptyIndex + 1} 😊`;
+        smileHintText.innerText = `Lihat hasil Pose ${justCapturedIndex + 1} • Bersiap masuk ke Pose ${nextEmptyIndex + 1} 😊`;
       }
+
+      // Setelah melihat hasil foto selama 2 detik, otomatis masuk ke Live Camera pose berikutnya
+      // TANPA langsung menghitung mundur, agar tamu leluasa menyusun posisi mereka dulu!
+      this.postCaptureHoldTimerId = setInterval(() => {
+        holdSecs--;
+        if (holdSecs > 0) {
+          if (holdTimerText) {
+            holdTimerText.innerText = `⏳ Membuka kamera live Pose ${nextEmptyIndex + 1} dalam ${holdSecs} dtk...`;
+          }
+        } else {
+          clearInterval(this.postCaptureHoldTimerId);
+          this.postCaptureHoldTimerId = null;
+          this.finishPostCaptureHold();
+        }
+      }, 1000);
     } else {
+      let holdSecs = 2;
       if (holdTimerText) {
-        holdTimerText.innerText = `🎉 Semua Pose Selesai! Klik untuk lihat hasil`;
+        holdTimerText.innerText = `🎉 Semua Pose Selesai!`;
       }
       if (holdBtnNext) {
         holdBtnNext.innerText = `Selesai & Lihat Hasil ➔`;
@@ -1701,12 +1720,14 @@ class KioskEngine {
       if (smileHintText) {
         smileHintText.innerText = `Semua pose telah diambil! 🎉`;
       }
-    }
-
-    // Pastikan tidak ada timer otomatis yang menghitung mundur
-    if (this.postCaptureHoldTimerId) {
-      clearInterval(this.postCaptureHoldTimerId);
-      this.postCaptureHoldTimerId = null;
+      this.postCaptureHoldTimerId = setInterval(() => {
+        holdSecs--;
+        if (holdSecs <= 0) {
+          clearInterval(this.postCaptureHoldTimerId);
+          this.postCaptureHoldTimerId = null;
+          this.finishPostCaptureHold();
+        }
+      }, 1000);
     }
   }
 
@@ -1728,11 +1749,11 @@ class KioskEngine {
         poseIndicatorText.innerText = `📷 Pose ${nextEmptyIndex + 1} dari ${this.totalPosesRequired}`;
       }
       if (smileHintText) {
-        smileHintText.innerText = `Sentuh kamera atau tombol merah untuk mulai Pose ${nextEmptyIndex + 1}! 😊`;
+        smileHintText.innerText = `Silakan susun posisi untuk Pose ${nextEmptyIndex + 1}, lalu klik tombol merah / remote saat siap! 😊`;
       }
-      this.showToast(`📸 Kamera siap untuk Pose ${nextEmptyIndex + 1}! Sentuh kamera atau tombol merah saat siap.`, '✨', 2200);
+      this.showToast(`📸 Silakan atur gaya Pose ${nextEmptyIndex + 1}! Klik tombol merah / layar / remote saat siap.`, '✨', 2600);
       this.renderFilmstripDock();
-      // TIDAK ADA AUTO-COUNTDOWN: Menunggu klik shutter atau live photo
+      // TIDAK ADA AUTO-COUNTDOWN: Menunggu tamu selesai menyusun posisi lalu klik shutter / remote
     } else {
       // Semua pose selesai -> Masuk mode review atau lanjut preview
       this.activePoseIndex = null;
@@ -1767,11 +1788,9 @@ class KioskEngine {
   }
 
   skipHoldOverlay() {
-    const nextEmptyIndex = this.posesCaptured.findIndex(p => p === null);
+    // Langsung tutup preview hasil foto & kembali ke tampilan Live Camera pose berikutnya
+    // TANPA langsung hitung mundur agar tamu bisa menyusun posisi mereka terlebih dahulu
     this.finishPostCaptureHold();
-    if (nextEmptyIndex !== -1) {
-      this.startCountdown(nextEmptyIndex);
-    }
   }
 
   renderFilmstripDock() {
