@@ -33,6 +33,8 @@ class KioskEngine {
     this.modalSelectedPoseIndex = null;
     this.toastTimerId = null;
     this.cameraZoom = 1.0;
+    this.cameraPanX = 0;
+    this.cameraPanY = 0;
 
     // Interactive Photo Selection & Panning State in Preview
     this.slotAssignments = [];
@@ -1556,12 +1558,16 @@ class KioskEngine {
           const ctx = c.getContext('2d');
           // Jangan di-mirror agar teks pada papan/baju/properti terbaca normal (tidak terbalik) saat dicetak
           const zoom = Math.max(1.0, Math.min(3.0, this.cameraZoom || 1.0));
+          const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
+          const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
           const iw = img.naturalWidth || c.width;
           const ih = img.naturalHeight || c.height;
           const cropW = iw / zoom;
           const cropH = ih / zoom;
-          const cropX = (iw - cropW) / 2;
-          const cropY = (ih - cropH) / 2;
+          const maxOffX = (iw - cropW) / 2;
+          const maxOffY = (ih - cropH) / 2;
+          const cropX = Math.max(0, Math.min(iw - cropW, maxOffX - (panX * maxOffX)));
+          const cropY = Math.max(0, Math.min(ih - cropH, maxOffY + (panY * maxOffY)));
           ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height);
           const flashDataUrl = c.toDataURL('image/jpeg', 0.88);
           this.posesCaptured[poseIndex] = flashDataUrl;
@@ -1607,22 +1613,53 @@ class KioskEngine {
 
   adjustCameraZoom(delta) {
     const nextZoom = Math.max(1.0, Math.min(3.0, Math.round(((this.cameraZoom || 1.0) + delta) * 10) / 10));
+    if (nextZoom <= 1.0) {
+      this.cameraPanX = 0;
+      this.cameraPanY = 0;
+    }
     this.setCameraZoom(nextZoom);
   }
 
+  panCamera(deltaX, deltaY) {
+    if ((this.cameraZoom || 1.0) <= 1.0) {
+      // Jika masih 1.0x lalu ditekan Atas/Bawah/Kiri/Kanan, otomatis zoom sedikit ke 1.2x agar bisa digeser
+      this.cameraZoom = 1.2;
+    }
+    this.cameraPanX = Math.max(-1, Math.min(1, Math.round(((this.cameraPanX || 0) + deltaX) * 100) / 100));
+    this.cameraPanY = Math.max(-1, Math.min(1, Math.round(((this.cameraPanY || 0) + deltaY) * 100) / 100));
+    this.applyCameraTransform();
+  }
+
   resetCameraZoom() {
+    this.cameraPanX = 0;
+    this.cameraPanY = 0;
     this.setCameraZoom(1.0);
   }
 
   setCameraZoom(zoomLevel) {
     this.cameraZoom = Math.max(1.0, Math.min(3.0, Math.round(zoomLevel * 10) / 10));
+    if (this.cameraZoom <= 1.0) {
+      this.cameraPanX = 0;
+      this.cameraPanY = 0;
+    }
+    this.applyCameraTransform();
+  }
+
+  applyCameraTransform() {
+    const zoom = Math.max(1.0, Math.min(3.0, this.cameraZoom || 1.0));
+    const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
+    const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
+    const maxTranslatePct = ((zoom - 1) / (2 * zoom)) * 100;
+    const tx = (panX * maxTranslatePct).toFixed(2);
+    const ty = (-panY * maxTranslatePct).toFixed(2);
+
     const video = document.getElementById('videoFeed');
     if (video) {
-      video.style.transform = `scaleX(-1) scale(${this.cameraZoom})`;
+      video.style.transform = `scaleX(-1) scale(${zoom}) translate(${tx}%, ${ty}%)`;
     }
     const label = document.getElementById('cameraZoomLabel');
     if (label) {
-      label.innerText = `🔍 ${this.cameraZoom.toFixed(1)}x`;
+      label.innerText = `🔍 ${zoom.toFixed(1)}x`;
     }
   }
 
@@ -1636,12 +1673,16 @@ class KioskEngine {
     // Jangan di-mirror pada hasil tangkapan agar tulisan/teks terbaca normal (tidak terbalik) saat dicetak
     if (video) {
       const zoom = Math.max(1.0, Math.min(3.0, this.cameraZoom || 1.0));
+      const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
+      const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
       const vw = video.videoWidth || canvas.width;
       const vh = video.videoHeight || canvas.height;
       const cropW = vw / zoom;
       const cropH = vh / zoom;
-      const cropX = (vw - cropW) / 2;
-      const cropY = (vh - cropH) / 2;
+      const maxOffX = (vw - cropW) / 2;
+      const maxOffY = (vh - cropH) / 2;
+      const cropX = Math.max(0, Math.min(vw - cropW, maxOffX - (panX * maxOffX)));
+      const cropY = Math.max(0, Math.min(vh - cropH, maxOffY + (panY * maxOffY)));
       ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
     }
 
