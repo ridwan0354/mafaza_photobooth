@@ -3,625 +3,1076 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mafaza — Setiap Momen Punya Cerita (By Galipat Story)</title>
+  <title>MAFAZA — Photobooth Studio & Digital Guestbook | By Galipat Story</title>
+  <meta name="description" content="Sewa Photobooth Instan & Digital Guestbook Eksklusif untuk Wedding, Birthday, Wisuda & Corporate Event. Mulai dari 800 ribuan! Cetak kilat, kamera studio DSLR, & free backdrop maroon.">
+  <meta name="keywords" content="photobooth wedding, photobooth murah, sewa photobooth, digital guestbook, buku tamu digital, photobooth mataram, photobooth lombok, mafaza photobooth">
+  
+  <!-- Open Graph / Meta Social -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://mafaza.galipatsistem.com/">
+  <meta property="og:title" content="MAFAZA — Little Snaps, Big Memories! Photobooth & Digital Guestbook">
+  <meta property="og:description" content="Paket Photobooth & Digital Guestbook mulai dari 800 ribuan! Diskon bundling 300K + Free backdrop maroon & custom frame.">
+  <meta property="og:image" content="/assets/pl/pl_original_1.jpeg">
+
   <link rel="icon" type="image/jpeg" href="/assets/logo-mafaza.jpg">
   <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
-  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v2.1">
-  <style>
-    :root {
-      --board-bg: #F9E9D7;
-      --card-cream: #FFFBF5;
-      --border-warm: #EAD8C7;
-      --caramel-brown: #7B482E;
-      --dark-roast: #381E11;
-      --coral: #E6786B;
-      --mustard: #D4A754;
-      --teal: #5F8F8A;
-      --plum: #886B8F;
-    }
 
-    body {
-      background-color: var(--board-bg);
-      color: var(--dark-roast);
-      font-family: var(--font-body);
-      min-height: 100vh;
-      overflow-x: hidden;
-      padding-bottom: 60px;
-    }
+  <!-- Google Fonts: Romantic Serif, Playful Script & Clean Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,600;1,9..144,700&family=Great+Vibes&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-    /* Top Concept Board Hero Header */
-    .concept-hero {
-      background: linear-gradient(135deg, #FFF9F2 0%, #F6E2CD 100%);
-      border-bottom: 3px solid var(--border-warm);
-      padding: 40px 24px;
-      position: relative;
-      overflow: hidden;
-      box-shadow: 0 10px 30px rgba(123, 72, 46, 0.06);
-    }
-
-    .hero-container {
-      max-width: 1280px;
-      margin: 0 auto;
-      display: grid;
-      grid-template-columns: 1.1fr 1fr;
-      gap: 36px;
-      align-items: center;
-    }
-
-    @media (max-width: 900px) {
-      .hero-container {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    /* Retro Photo Booth Showcase Mockup in Hero */
-    .booth-showcase-box {
-      background: linear-gradient(145deg, #4A2714 0%, #2A1308 100%);
-      border: 6px solid #D4A754;
-      border-radius: 36px;
-      padding: 24px;
-      color: #fff;
-      box-shadow: 0 20px 45px rgba(42, 19, 8, 0.4), inset 0 2px 6px rgba(212, 167, 84, 0.6);
-      position: relative;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    .booth-screen-preview {
-      background: #F9E9D7;
-      border-radius: 22px;
-      padding: 24px;
-      color: var(--caramel-brown);
-      text-align: center;
-      border: 4px solid #FFFBF5;
-      box-shadow: inset 0 4px 12px rgba(123, 72, 46, 0.15);
-    }
-
-    .retro-badge-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 16px;
-      border-radius: var(--radius-pill);
-      font-size: 13px;
-      font-weight: 700;
-      border: 1.5px solid;
-    }
-    .badge-coral-retro {
-      background: rgba(230, 120, 107, 0.15);
-      color: var(--coral);
-      border-color: var(--coral);
-    }
-    .badge-gold-retro {
-      background: rgba(212, 167, 84, 0.18);
-      color: #8c6517;
-      border-color: var(--mustard);
-    }
-    .badge-teal-retro {
-      background: rgba(95, 143, 138, 0.18);
-      color: var(--teal);
-      border-color: var(--teal);
-    }
-
-    /* Section 1-5 Concept Pillars Grid */
-    .pillars-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 18px;
-      margin: 36px 0;
-    }
-
-    .pillar-card {
-      background: var(--card-cream);
-      border: 2.5px solid var(--border-warm);
-      border-radius: 22px;
-      padding: 20px;
-      box-shadow: 0 6px 18px rgba(123, 72, 46, 0.05);
-    }
-    .pillar-card h3 {
-      font-size: 16px;
-      font-weight: 800;
-      color: #fff;
-      background: var(--caramel-brown);
-      display: inline-block;
-      padding: 4px 14px;
-      border-radius: var(--radius-pill);
-      margin-bottom: 14px;
-    }
-
-    /* 4 Screens Interactive Showcase */
-    .screens-section-title {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: 48px;
-      margin-bottom: 24px;
-      flex-wrap: wrap;
-      gap: 14px;
-    }
-
-    .screens-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 20px;
-    }
-
-    @media (max-width: 1100px) {
-      .screens-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-    }
-    @media (max-width: 640px) {
-      .screens-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    .screen-card-box {
-      background: var(--card-cream);
-      border: 3px solid var(--border-warm);
-      border-radius: 24px;
-      padding: 18px;
-      display: flex;
-      flex-direction: column;
-      box-shadow: 0 8px 24px rgba(123, 72, 46, 0.08);
-      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-    }
-    .screen-card-box:hover {
-      transform: translateY(-6px);
-      box-shadow: 0 16px 36px rgba(123, 72, 46, 0.16);
-      border-color: var(--coral);
-    }
-
-    .screen-header-badge {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
-      font-weight: 800;
-      color: #fff;
-      background: var(--caramel-brown);
-      padding: 4px 12px;
-      border-radius: var(--radius-pill);
-      width: fit-content;
-      margin-bottom: 12px;
-    }
-
-    .mini-screen-viewport {
-      border-radius: 16px;
-      border: 2px solid var(--border-warm);
-      background: var(--board-bg);
-      padding: 16px;
-      min-height: 280px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-      margin-bottom: 16px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    /* Color Palette Swatches */
-    .color-swatch-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 8px;
-    }
-    .swatch-circle {
-      width: 26px;
-      height: 26px;
-      border-radius: 50%;
-      border: 2px solid #fff;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-      flex-shrink: 0;
-    }
-  </style>
+  <!-- Custom Landing Page Stylesheet -->
+  <link rel="stylesheet" href="/css/landing.css?v=2.0">
 </head>
 <body>
 
-  <!-- 1. TOP CONCEPT BOARD HERO -->
-  <header class="concept-hero">
+  <!-- Floating Sparkle Background Layer -->
+  <div class="sparkle-bg-layer" aria-hidden="true">
+    <div class="floating-sparkle" style="top: 15%; left: 8%;">✨</div>
+    <div class="floating-sparkle" style="top: 28%; right: 10%; animation-delay: 2s;">💖</div>
+    <div class="floating-sparkle" style="top: 45%; left: 4%; animation-delay: 4s;">✨</div>
+    <div class="floating-sparkle" style="top: 65%; right: 6%; animation-delay: 1.5s;">🌸</div>
+    <div class="floating-sparkle" style="top: 82%; left: 12%; animation-delay: 3s;">✨</div>
+  </div>
+
+  <!-- 1. Top Announcement Bar (Promo Urgency) -->
+  <div class="top-announcement-bar">
+    <span>🎉 <strong>PROMO BUNDLING SPESIAL:</strong> Ambil Photobooth + Digital Guestbook hemat hingga <strong>Rp 300.000!</strong></span>
+    <a href="#simulasi-harga">Hitung &amp; Klaim Promo ➔</a>
+  </div>
+
+  <!-- 2. Sticky Elegant Navbar -->
+  <nav class="site-navbar">
+    <div class="nav-container">
+      <a href="/" class="brand-wrapper" title="Mafaza by Galipat Story">
+        <img src="/assets/logo-mafaza.jpg" alt="Logo Mafaza" class="brand-logo-img">
+        <div>
+          <div class="brand-title">MAFAZA</div>
+          <div class="brand-subtitle">SETIAP MOMEN PUNYA CERITA • BY GALIPAT STORY</div>
+        </div>
+      </a>
+
+      <ul class="nav-links" id="navLinks">
+        <li><a href="#paket-photobooth" class="nav-link-item">Paket Photobooth</a></li>
+        <li><a href="#digital-guestbook" class="nav-link-item">Digital Guestbook</a></li>
+        <li><a href="#fasilitas" class="nav-link-item">Fasilitas</a></li>
+        <li><a href="#pilihan-frame" class="nav-link-item">Pilihan Frame</a></li>
+        <li><a href="#simulasi-harga" class="nav-link-item">Kalkulator Biaya <span class="nav-badge-hot">Promo</span></a></li>
+        <li><a href="#faq" class="nav-link-item">FAQ</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <a href="/kiosk" class="btn-cta btn-cta-kiosk" title="Buka Mode Layar Kiosk Booth">
+          📸 Buka Kiosk
+        </a>
+        <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20tertarik%20tanya%20paket%20Photobooth%20dan%20Digital%20Guestbook%20untuk%20acara%20saya.%20Boleh%20cek%20slot%20tanggal%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-whatsapp">
+          <span>💬</span> Chat WhatsApp
+        </a>
+        <button type="button" class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Toggle Navigation">
+          ☰
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 3. Hero Section (High Converting First Impression) -->
+  <header class="hero-section">
     <div class="hero-container">
-      <div>
-        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 18px;">
-          <img src="/assets/logo-mafaza.jpg" alt="Mafaza Logo" style="width: 72px; height: 72px; border-radius: 18px; object-fit: cover; border: 2px solid #D4A754; box-shadow: 0 8px 20px rgba(0,0,0,0.2);">
-          <div>
-            <span class="retro-badge-pill badge-gold-retro" style="margin-bottom: 6px; display: inline-flex;">
-              ✨ BY GALIPAT STORY
-            </span>
-            <div style="font-size: 13px; font-weight: 700; color: var(--caramel-brown);">Setiap Momen Punya Cerita</div>
+      <div class="hero-content-col">
+        <div class="hero-pill-badge">
+          <span>🌸</span> 2 Layanan Spesial untuk Momen Bahagiamu
+        </div>
+
+        <span class="hero-script-tagline">Setiap Momen Punya Cerita 💕</span>
+        
+        <h1 class="hero-main-title">
+          Little Snaps,<br>
+          <span class="text-highlight">Big Memories!</span>
+        </h1>
+
+        <p class="hero-lead-text">
+          Abadikan keceriaan para tamu dengan foto instan berkualitas studio dan buku tamu digital modern. Kenangan manis pernikahan, ulang tahun, wisuda, atau event perusahaanmu tersimpan abadi dan estetik selamanya.
+        </p>
+
+        <!-- Feature Chips -->
+        <div class="hero-features-chips">
+          <div class="feature-chip">
+            <span>📸</span> <strong>Foto Cetak Kilat</strong>
+          </div>
+          <div class="feature-chip">
+            <span>📱</span> <strong>Free Soft File QR Code</strong>
+          </div>
+          <div class="feature-chip">
+            <span>🎨</span> <strong>Free Custom Frame</strong>
+          </div>
+          <div class="feature-chip">
+            <span>🎁</span> <strong>Mulai dari 800 Ribuan</strong>
           </div>
         </div>
 
-        <h1 style="font-size: 48px; font-weight: 800; color: var(--caramel-brown); line-height: 1.15; margin-bottom: 10px;">
-          MAFAZA<br><span style="color: var(--coral);">Photobooth Studio</span>
-        </h1>
-        <p style="font-size: 17px; color: var(--text-muted); line-height: 1.6; margin-bottom: 24px;">
-          Pengalaman foto yang hangat, menyenangkan, dan berkesan untuk setiap momen spesial. Menggabungkan estetika klasik photobooth kayu &amp; emas dengan teknologi touchscreen modern, hitungan mundur animasi, live camera besar, dan kemudahan hapus/foto ulang.
-        </p>
+        <!-- Call to Action Buttons -->
+        <div class="hero-cta-group">
+          <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20mau%20konsultasi%20dan%20cek%20ketersediaan%20slot%20tanggal%20acara%20saya.%20Boleh%20minta%20info%20lengkapnya%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink hero-btn-main">
+            <span>💬</span> Kunci Tanggal Acara Sekarang ➔
+          </a>
+          <a href="#paket-photobooth" class="btn-cta btn-cta-outline">
+            ✨ Lihat Pilihan Paket
+          </a>
+        </div>
 
-        <div style="display: flex; gap: 14px; flex-wrap: wrap;">
-          <a href="/kiosk" class="btn btn-coral" style="font-size: 16px; padding: 14px 32px;">
-            📸 Buka Kiosk Booth (Layar Penuh) ➔
-          </a>
-          <a href="/admin" class="btn btn-secondary" style="font-size: 15px; padding: 14px 26px;">
-            📊 Dashboard Admin ➔
-          </a>
-          <a href="/operator" class="btn btn-teal" style="font-size: 15px; padding: 14px 26px;">
-            🛠️ Operator Lapangan ➔
-          </a>
+        <div style="margin-top: 22px;">
+          <div class="hero-price-anchor">
+            <span>⭐ Rating 4.9/5 dari 500+ Acara</span> • <span>Paket Termasuk <strong>Free Backdrop Maroon</strong></span>
+          </div>
         </div>
       </div>
 
-      <!-- Wooden Booth Vintage Showcase -->
-      <div class="booth-showcase-box">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <div style="width: 14px; height: 14px; border-radius: 50%; background: #D4A754; box-shadow: 0 0 10px #D4A754;"></div>
-            <span style="font-size: 13px; font-weight: 700; color: #D4A754; letter-spacing: 1px;">VINTAGE HARDWARE PHOTOBOOTH</span>
-          </div>
-          <span style="font-size: 12px; color: #EAD8C7; background: rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 999px;">
-            iPad Pro 13 • 1376x1032
-          </span>
+      <!-- Hero Visual Showcase -->
+      <div class="hero-media-wrapper">
+        <div class="hero-poster-frame">
+          <img src="/assets/pl/pl_original_1.jpeg" alt="Mafaza Photobooth & Digital Guestbook Showcase" loading="eager">
         </div>
 
-        <div class="booth-screen-preview">
-          <div style="font-size: 26px; margin-bottom: 6px;">📷</div>
-          <h4 style="font-size: 18px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">
-            Abadikan Momen Spesialmu!
-          </h4>
-          <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 14px;">
-            Sentuhan klasik dengan pengalaman modern yang menyenangkan.
-          </p>
-          <a href="/kiosk" class="btn btn-coral" style="padding: 10px 22px; font-size: 13px; text-decoration: none;">
-            Mulai Foto Sekarang ➔
-          </a>
+        <!-- Floating Badges on Hero -->
+        <div class="floating-hero-badge badge-top-left">
+          <span>📷</span> Kamera Studio DSLR Tajam
         </div>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #EAD8C7;">
-          <span>🌾 Tekstur Kayu Hangat &amp; Ring Kamera Emas</span>
-          <span>❤️ FOTO LEBIH DARI SEKEDAR KENANGAN</span>
+        <div class="floating-hero-badge badge-bottom-right">
+          <span>🎀</span> Diskon Bundling 300K
         </div>
       </div>
     </div>
   </header>
 
-  <main style="max-width: 1280px; margin: 0 auto; padding: 24px; width: 100%;">
+  <!-- 4. Event Types Ticker Ribbon -->
+  <section class="event-types-ribbon">
+    <div class="event-types-container">
+      <div class="event-type-item"><span>💍</span> Wedding &amp; Lamaran</div>
+      <div class="event-type-dot">•</div>
+      <div class="event-type-item"><span>🎂</span> Birthday &amp; Sweet 17</div>
+      <div class="event-type-dot">•</div>
+      <div class="event-type-item"><span>🎓</span> Graduation &amp; Wisuda</div>
+      <div class="event-type-dot">•</div>
+      <div class="event-type-item"><span>🥂</span> Private Party &amp; Gathering</div>
+      <div class="event-type-dot">•</div>
+      <div class="event-type-item"><span>🏢</span> Corporate &amp; Brand Launch</div>
+      <div class="event-type-dot">•</div>
+      <div class="event-type-item"><span>🌟</span> And More Celebrations!</div>
+    </div>
+  </section>
 
-    <!-- 2. SECTION 1 TO 5 CONCEPT PILLARS (From Gambar 2) -->
-    <div class="pillars-grid">
-      <!-- 1. Konsep Utama -->
-      <div class="pillar-card">
-        <h3>1. Konsep Utama</h3>
-        <ul style="list-style: none; font-size: 13px; line-height: 1.8; color: var(--dark-roast);">
-          <li>❤️ <strong>Hangat &amp; Berkarakter:</strong> Selaras dengan booth kayu &amp; emas.</li>
-          <li>😊 <strong>Fun &amp; Playful:</strong> Mengundang semangat berfoto.</li>
-          <li>👆 <strong>Mudah Dipakai:</strong> Intuitif untuk semua kalangan.</li>
-          <li>👥 <strong>Semua Event:</strong> Wedding, ultah, gathering, brand activation.</li>
+  <!-- 5. 2 Core Services Overview -->
+  <section class="section-wrapper" id="layanan">
+    <div class="section-header-center">
+      <span class="section-kicker-script">Solusi Spesial Acara Impian</span>
+      <h2 class="section-title-large">2 Layanan Terbaik untuk Momenmu</h2>
+      <p class="section-subtitle-text">
+        Kombinasi sempurna yang membuat antrean tamu seru dan buku tamu tertata rapi tanpa ribet.
+      </p>
+    </div>
+
+    <div class="services-duo-grid">
+      <!-- Service 1: Photobooth -->
+      <div class="service-card-box">
+        <div>
+          <span class="service-card-badge">✨ Layanan Utama</span>
+          <h3 class="service-card-title">📸 Photobooth Studio</h3>
+          <p class="service-card-desc">
+            Foto instan berkualitas lab, langsung cetak dalam hitungan detik. Tamu pulang membawa kenangan fisik yang tahan puluhan tahun plus soft file instan di smartphone.
+          </p>
+
+          <div class="service-card-image-preview">
+            <img src="/assets/pl/crop_booth.jpg" alt="Vintage Photobooth Hardware Mafaza">
+          </div>
+
+          <ul class="service-checklist">
+            <li><span class="icon-check">✓</span> Cetak foto cepat &amp; hasil jernih berkualitas tinggi</li>
+            <li><span class="icon-check">✓</span> Kamera DSLR / Mirrorless profesional studio</li>
+            <li><span class="icon-check">✓</span> Free custom frame sesuai nama &amp; tema acara</li>
+            <li><span class="icon-check">✓</span> Free soft file instan via scan barcode di tempat</li>
+            <li><span class="icon-check">✓</span> Properti lucu &amp; kru ramah yang mendampingi</li>
+          </ul>
+        </div>
+
+        <a href="#paket-photobooth" class="btn-cta btn-cta-pink" style="width: 100%;">
+          Lihat Paket Photobooth ➔
+        </a>
+      </div>
+
+      <!-- Service 2: Digital Guestbook -->
+      <div class="service-card-box">
+        <div>
+          <span class="service-card-badge">💌 Solusi Modern</span>
+          <h3 class="service-card-title">📱 Digital Guestbook</h3>
+          <p class="service-card-desc">
+            Buku tamu digital interaktif by MAFAZA x Galipat Story. Bebas antrean desak-desakan, tamu bisa check-in, selfie ucapan, dan tanda tangan langsung di layar tablet.
+          </p>
+
+          <div class="service-card-image-preview">
+            <img src="/assets/pl/crop_tablet.jpg" alt="Digital Guestbook Tablet Mafaza">
+          </div>
+
+          <ul class="service-checklist">
+            <li><span class="icon-check">✓</span> Undangan digital eksklusif &amp; sistem QR check-in</li>
+            <li><span class="icon-check">✓</span> Perangkat tablet touch &amp; layar sapa otomatis</li>
+            <li><span class="icon-check">✓</span> Kru penerima tamu siap sedia mendampingi</li>
+            <li><span class="icon-check">✓</span> Rekap data tamu &amp; doa ucapan tersimpan selamanya</li>
+            <li><span class="icon-check">✓</span> Praktis, modern, higienis, dan tanpa buku kertas</li>
+          </ul>
+        </div>
+
+        <a href="#digital-guestbook" class="btn-cta btn-cta-gold" style="width: 100%;">
+          Lihat Paket Digital Guestbook ➔
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. Special Bundle Deal Banner (Diskon 300K) -->
+  <section class="bundle-deal-banner-section">
+    <div class="bundle-deal-card">
+      <div class="bundle-ribbon-tag">SPECIAL DEAL</div>
+
+      <div>
+        <span class="hero-pill-badge" style="background: rgba(255,255,255,0.85); color: var(--maroon-deep); border-color: var(--maroon-deep);">
+          🎁 Penawaran Bundling Terlaris
+        </span>
+
+        <h2 class="bundle-deal-title">
+          Photobooth + Digital Guestbook
+        </h2>
+
+        <p style="font-size: 16px; color: var(--text-dark); margin-bottom: 8px;">
+          Ambil kedua layanan sekaligus dalam satu paket untuk acara impianmu dan nikmati:
+        </p>
+
+        <div class="bundle-discount-highlight">
+          DISKON SPESIAL RP 300.000! 🎉
+        </div>
+
+        <p style="font-size: 14px; color: var(--text-muted); line-height: 1.5;">
+          Lebih hemat, lebih praktis cukup dengan 1 vendor terpercaya, dan tamu akan takjub sejak pertama kali datang hingga berfoto pulang!
+        </p>
+
+        <ul class="bundle-features-list">
+          <li><span>🌸</span> Free Backdrop Maroon Elegan</li>
+          <li><span>🎨</span> Free Custom Design Frame</li>
+          <li><span>📱</span> Free Soft File QR Code Real-time</li>
+          <li><span>🤵</span> Didampingi Kru Profesional &amp; Ramah</li>
+        </ul>
+
+        <div style="margin-top: 26px;">
+          <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20tertarik%20dengan%20*PROMO%20BUNDLING%20DISKON%20300K*%20(Photobooth%20%2B%20Digital%20Guestbook).%20Boleh%20minta%20info%20slot%20dan%20penjelasannya%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink" style="padding: 14px 28px; font-size: 15px;">
+            <span>💬</span> Klaim Diskon Bundling 300K Sekarang ➔
+          </a>
+        </div>
+      </div>
+
+      <div class="bundle-media-box">
+        <img src="/assets/pl/bundle_badge.jpg" alt="Promo Bundling Photobooth dan Digital Guestbook Diskon 300K">
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Photobooth Packages (4 Paket Resmi dari PL) -->
+  <section class="section-wrapper" id="paket-photobooth" style="background: #FFF9F3;">
+    <div class="section-header-center">
+      <span class="section-kicker-script">Pilihan Sesuai Kebutuhan</span>
+      <h2 class="section-title-large">Our Photobooth Packages</h2>
+      <p class="section-subtitle-text">
+        Pilih paket terbaik untuk momen spesialmu. Semua paket sudah termasuk Free Backdrop Maroon Simple Modern!
+      </p>
+    </div>
+
+    <div class="packages-grid-4">
+      <!-- Paket 1: Sweet Start -->
+      <div class="package-card">
+        <div>
+          <div class="package-number-pill">1</div>
+          <h3 class="package-name">Sweet Start</h3>
+          <div class="package-subtag">Paket Hemat Spesial</div>
+
+          <div class="package-price-wrap">
+            <div class="package-price-number">849K</div>
+            <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">Rp 849.000 / event</div>
+          </div>
+
+          <ul class="package-features-list">
+            <li><span class="check-icon">✓</span> Free custom design frame</li>
+            <li><span class="check-icon">✓</span> Free soft file barcode scan</li>
+            <li><span class="check-icon">✓</span> Include properti seru</li>
+            <li><span class="check-icon">✓</span> Free backdrop maroon simple modern</li>
+            <li><span class="check-icon">✓</span> Professional crew standby</li>
+            <li class="negative"><span class="cross-icon">✕</span> Tanpa unlimited print</li>
+          </ul>
+        </div>
+
+        <button type="button" onclick="bookPackageDirectly('Sweet Start (Paket Hemat)')" class="btn-cta btn-cta-outline package-cta-btn">
+          Pilih Sweet Start ➔
+        </button>
+      </div>
+
+      <!-- Paket 2: Little Joy -->
+      <div class="package-card">
+        <div>
+          <div class="package-number-pill">2</div>
+          <h3 class="package-name">Little Joy</h3>
+          <div class="package-subtag">Durasi Ceria 2 Jam</div>
+
+          <div class="package-price-wrap">
+            <div class="package-price-number">1.199K</div>
+            <div class="package-duration-pill">⏱️ 2 Jam Acara</div>
+          </div>
+
+          <ul class="package-features-list">
+            <li><span class="check-icon">✓</span> Free custom design frame</li>
+            <li><span class="check-icon">✓</span> <strong>Unlimited print sepuasnya</strong></li>
+            <li><span class="check-icon">✓</span> Include properti lengkap</li>
+            <li><span class="check-icon">✓</span> Free backdrop maroon simple modern</li>
+            <li><span class="check-icon">✓</span> Free soft file barcode scan</li>
+            <li><span class="check-icon">✓</span> Professional crew</li>
+          </ul>
+        </div>
+
+        <button type="button" onclick="bookPackageDirectly('Little Joy (2 Jam Unlimited)')" class="btn-cta btn-cta-outline package-cta-btn">
+          Pilih Little Joy ➔
+        </button>
+      </div>
+
+      <!-- Paket 3: Sweet Story (Most Loved) -->
+      <div class="package-card most-loved">
+        <div class="package-top-ribbon">⭐ MOST LOVED BY BRIDES</div>
+
+        <div>
+          <div class="package-number-pill" style="background: var(--primary-pink); color: #fff;">3</div>
+          <h3 class="package-name">Sweet Story</h3>
+          <div class="package-subtag" style="color: var(--primary-pink); font-weight: 800;">Paling Diminati &amp; Rekomendasi</div>
+
+          <div class="package-price-wrap">
+            <div class="package-price-number" style="color: var(--primary-pink);">1.499K</div>
+            <div class="package-duration-pill" style="background: rgba(230, 120, 107, 0.15); color: var(--primary-pink);">⏱️ 3 Jam Acara Penuh</div>
+          </div>
+
+          <ul class="package-features-list">
+            <li><span class="check-icon">✓</span> Free custom design frame</li>
+            <li><span class="check-icon">✓</span> <strong>Unlimited print sepuasnya 3 Jam</strong></li>
+            <li><span class="check-icon">✓</span> Include properti seru &amp; lengkap</li>
+            <li><span class="check-icon">✓</span> Free backdrop maroon simple modern</li>
+            <li><span class="check-icon">✓</span> Free soft file barcode scan instan</li>
+            <li><span class="check-icon">✓</span> 2 Kru profesional &amp; ramah</li>
+          </ul>
+        </div>
+
+        <button type="button" onclick="bookPackageDirectly('Sweet Story (3 Jam Unlimited - Most Loved)')" class="btn-cta btn-cta-pink package-cta-btn">
+          Pilih Sweet Story (Favorit) ➔
+        </button>
+      </div>
+
+      <!-- Paket 4: Grand Moment -->
+      <div class="package-card">
+        <div>
+          <div class="package-number-pill">4</div>
+          <h3 class="package-name">Grand Moment</h3>
+          <div class="package-subtag">Grand Wedding &amp; Corporate</div>
+
+          <div class="package-price-wrap">
+            <div class="package-price-number">1.799K</div>
+            <div class="package-duration-pill">⏱️ 4 Jam Penuh</div>
+          </div>
+
+          <ul class="package-features-list">
+            <li><span class="check-icon">✓</span> Free custom design frame</li>
+            <li><span class="check-icon">✓</span> <strong>Unlimited print sepuasnya 4 Jam</strong></li>
+            <li><span class="check-icon">✓</span> Include properti premium &amp; lengkap</li>
+            <li><span class="check-icon">✓</span> Free backdrop maroon simple modern</li>
+            <li><span class="check-icon">✓</span> Free soft file barcode scan</li>
+            <li><span class="check-icon">✓</span> Full crew pendampingan</li>
+          </ul>
+        </div>
+
+        <button type="button" onclick="bookPackageDirectly('Grand Moment (4 Jam Unlimited)')" class="btn-cta btn-cta-outline package-cta-btn">
+          Pilih Grand Moment ➔
+        </button>
+      </div>
+    </div>
+
+    <!-- Backdrop Note Banner -->
+    <div style="max-width: 860px; margin: 36px auto 0; background: var(--bg-card); border: 2px dashed var(--border-gold-accent); border-radius: var(--radius-pill); padding: 12px 28px; text-align: center; font-size: 14px; font-weight: 700; color: var(--text-caramel); box-shadow: 0 4px 14px rgba(212,167,84,0.1);">
+      💖 <strong>Backdrop maroon simple modern</strong> sudah termasuk di semua paket photobooth. Harga dapat menyesuaikan lokasi &amp; kebutuhan acara.
+    </div>
+  </section>
+
+  <!-- 8. What's Included? (6 Keunggulan Fasilitas Resmi) -->
+  <section class="section-wrapper" id="fasilitas">
+    <div class="section-header-center">
+      <span class="section-kicker-script">Semua Kebutuhan Lengkap</span>
+      <h2 class="section-title-large">What's Included?</h2>
+      <p class="section-subtitle-text">
+        Semua yang kamu butuhkan untuk membuat momen lebih berkesan tanpa biaya tersembunyi!
+      </p>
+    </div>
+
+    <div class="included-grid-6">
+      <!-- 1. Kamera DSLR -->
+      <div class="included-feature-card">
+        <img src="/assets/pl/feat_kamera.jpg" alt="Kamera DSLR / Mirrorless Studio" class="feature-img-thumbnail">
+        <h3 class="feature-card-title">Kamera DSLR/Mirrorless</h3>
+        <p class="feature-card-desc">
+          Menggunakan kamera profesional studio asli (bukan webcam). Hasil foto jauh lebih tajam, jernih, dan berkualitas tinggi.
+        </p>
+      </div>
+
+      <!-- 2. Custom Frame -->
+      <div class="included-feature-card">
+        <img src="/assets/pl/feat_custom_frame.jpg" alt="Custom Design Frame" class="feature-img-thumbnail">
+        <h3 class="feature-card-title">Custom Design Frame</h3>
+        <p class="feature-card-desc">
+          Didesain khusus oleh tim grafis kami disesuaikan dengan tema, nama pengantin, tanggal, dan warna acaramu.
+        </p>
+      </div>
+
+      <!-- 3. Free Backdrop Maroon -->
+      <div class="included-feature-card">
+        <img src="/assets/pl/feat_backdrop.jpg" alt="Free Backdrop Maroon Simple Modern" class="feature-img-thumbnail">
+        <h3 class="feature-card-title">Free Backdrop Maroon</h3>
+        <p class="feature-card-desc">
+          Backdrop maroon simple modern yang mewah dan elegan siap pakai di lokasi tanpa perlu biaya sewa add-on.
+        </p>
+      </div>
+
+      <!-- 4. Property Aksesoris -->
+      <div class="included-feature-card">
+        <img src="/assets/pl/feat_property.jpg" alt="Property Aksesoris Lucu dan Unik" class="feature-img-thumbnail">
+        <h3 class="feature-card-title">Property Aksesoris</h3>
+        <p class="feature-card-desc">
+          Berbagai properti seru, kacamata unik, bando lucu, dan papan tulisan ekspresi untuk foto yang lebih berkarakter.
+        </p>
+      </div>
+
+      <!-- 5. Free Barcode Scan -->
+      <div class="included-feature-card">
+        <img src="/assets/pl/feat_barcode.jpg" alt="Free Soft File Barcode Scan" class="feature-img-thumbnail">
+        <h3 class="feature-card-title">Free Soft File Barcode</h3>
+        <p class="feature-card-desc">
+          Semua hasil foto langsung bisa diunduh ke smartphone tamu detik itu juga dengan scan barcode QR instan.
+        </p>
+      </div>
+
+      <!-- 6. Professional Crew -->
+      <div class="included-feature-card">
+        <img src="/assets/pl/feat_crew.jpg" alt="Professional Crew Ramah" class="feature-img-thumbnail">
+        <h3 class="feature-card-title">Professional Crew</h3>
+        <p class="feature-card-desc">
+          Tim kru yang ramah, sopan, dan berpenampilan rapi siap mendampingi serta membantu tamu berpose selama acara.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. Pick Your Frame! (Interactive Layout Showcase) -->
+  <section class="section-wrapper" id="pilihan-frame" style="background: #FFF9F3;">
+    <div class="section-header-center">
+      <span class="section-kicker-script">Pilihan Layout Cantik</span>
+      <h2 class="section-title-large">Pick Your Frame!</h2>
+      <p class="section-subtitle-text">
+        Pilih berbagai pilihan layout dan desain frame sesuai dengan tema acaramu!
+      </p>
+    </div>
+
+    <div class="frame-showcase-container">
+      <!-- Tabs Selector -->
+      <div class="frame-tabs-nav">
+        <button type="button" class="frame-tab-btn active" data-target="tab-strip3">🎞️ Strip 3 (Paling Populer)</button>
+        <button type="button" class="frame-tab-btn" data-target="tab-single">🖼️ Single (1 Foto Besar)</button>
+        <button type="button" class="frame-tab-btn" data-target="tab-2shots">📸 2 Shots</button>
+        <button type="button" class="frame-tab-btn" data-target="tab-strip4">👭 Strip 4 (Girls Club)</button>
+        <button type="button" class="frame-tab-btn" data-target="tab-landscape">🌅 Landscape (Horisontal)</button>
+      </div>
+
+      <!-- Tab Content: Strip 3 -->
+      <div class="frame-tab-content active" id="tab-strip3">
+        <div class="frame-preview-image-box">
+          <img src="/assets/pl/frame_strip3.jpg" alt="Layout Frame Strip 3 Mafaza">
+        </div>
+        <div class="frame-info-box">
+          <span class="hero-pill-badge">⭐ Paling Diminati Tamu</span>
+          <h3>Strip 3 — Classic Photobooth</h3>
+          <p>
+            Layout 3 pose memanjang ke bawah bergaya photobooth vintage retro. Paling digemari para tamu karena ukurannya pas disimpan di dompet, casing handphone, atau diselipkan di album kenangan.
+          </p>
+          <ul class="frame-perks-list">
+            <li><span>🌸</span> 3 Pose Berbeda dengan jeda countdown 3..2..1</li>
+            <li><span>🎨</span> Ruang teks nama pengantin / tanggal di bagian bawah</li>
+            <li><span>🖨️</span> Hasil cetak proporsional dan fotogenik</li>
+          </ul>
+          <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20suka%20layout%20*Frame%20Strip%203*.%20Bisa%20dibuatkan%20desain%20custom%20sesuai%20nama%20dan%20tema%20acara%20saya%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink">
+            Request Desain Strip 3 ➔
+          </a>
+        </div>
+      </div>
+
+      <!-- Tab Content: Single -->
+      <div class="frame-tab-content" id="tab-single">
+        <div class="frame-preview-image-box">
+          <img src="/assets/pl/frame_single.jpg" alt="Layout Frame Single Mafaza">
+        </div>
+        <div class="frame-info-box">
+          <span class="hero-pill-badge">✨ Portrait Eksklusif</span>
+          <h3>Single — 1 Foto Besar Megah</h3>
+          <p>
+            Menampilkan 1 pose foto besar dengan frame bunga-bunga elegan. Sangat cocok untuk pose pasangan, keluarga kecil, atau tamu yang ingin fotonya tampil dominan dan jelas.
+          </p>
+          <ul class="frame-perks-list">
+            <li><span>🌸</span> Fokus penuh pada wajah dan busana tamu</li>
+            <li><span>🎨</span> Frame berornamen cantik sesuai tema dekorasi</li>
+            <li><span>🖨️</span> Kualitas gambar maksimal resolusi tinggi</li>
+          </ul>
+          <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20tertarik%20dengan%20layout%20*Frame%20Single*.%20Boleh%20konsultasi%20desainnya%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink">
+            Request Desain Single ➔
+          </a>
+        </div>
+      </div>
+
+      <!-- Tab Content: 2 Shots -->
+      <div class="frame-tab-content" id="tab-2shots">
+        <div class="frame-preview-image-box">
+          <img src="/assets/pl/frame_2shots.jpg" alt="Layout Frame 2 Shots Mafaza">
+        </div>
+        <div class="frame-info-box">
+          <span class="hero-pill-badge">💕 Dua Momen Manis</span>
+          <h3>2 Shots — Dual Moments</h3>
+          <p>
+            Dua foto bertingkat yang seimbang. Cocok untuk mengabadikan dua ekspresi berbeda (misalnya pose senyum anggun dan pose ceria lucu).
+          </p>
+          <ul class="frame-perks-list">
+            <li><span>🌸</span> 2 Tangkapan pose yang pas dan tidak terburu-buru</li>
+            <li><span>🎨</span> Desain tengah estetik dengan kutipan romantis</li>
+            <li><span>🖨️</span> Komposisi foto proporsional</li>
+          </ul>
+          <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20mau%20tanya%20tentang%20layout%20*Frame%202%20Shots*.%20Boleh%20kirimkan%20contoh%20desainnya%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink">
+            Request Desain 2 Shots ➔
+          </a>
+        </div>
+      </div>
+
+      <!-- Tab Content: Strip 4 -->
+      <div class="frame-tab-content" id="tab-strip4">
+        <div class="frame-preview-image-box">
+          <img src="/assets/pl/frame_strip4.jpg" alt="Layout Frame Strip 4 Mafaza">
+        </div>
+        <div class="frame-info-box">
+          <span class="hero-pill-badge">👭 Seru Bareng Sahabat</span>
+          <h3>Strip 4 — Girls Club &amp; Bestie</h3>
+          <p>
+            Empat foto berurutan yang sangat seru untuk teman sebaya, bridesmaids, atau geng kawan yang ingin banyak variasi gaya gila-gilaan dan seru.
+          </p>
+          <ul class="frame-perks-list">
+            <li><span>🌸</span> 4 Pose berturut-turut untuk ekspresi maksimal</li>
+            <li><span>🎨</span> Khas strip photobooth ala Korea kekinian</li>
+            <li><span>🖨️</span> Paling disukai remaja &amp; tamu berjiwa muda</li>
+          </ul>
+          <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20suka%20layout%20*Frame%20Strip%204*.%20Boleh%20minta%20info%20paketnya%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink">
+            Request Desain Strip 4 ➔
+          </a>
+        </div>
+      </div>
+
+      <!-- Tab Content: Landscape -->
+      <div class="frame-tab-content" id="tab-landscape">
+        <div class="frame-preview-image-box">
+          <img src="/assets/pl/frame_landscape.jpg" alt="Layout Frame Landscape Mafaza">
+        </div>
+        <div class="frame-info-box">
+          <span class="hero-pill-badge">👨‍👩‍👧‍👦 Foto Rombongan &amp; Keluarga</span>
+          <h3>Landscape — Melebar &amp; Luas</h3>
+          <p>
+            Orientasi horisontal yang lapang. Solusi ideal untuk foto rombongan keluarga besar, rekan kantor, atau tamu dalam jumlah banyak agar semua orang masuk frame tanpa terpotong.
+          </p>
+          <ul class="frame-perks-list">
+            <li><span>🌸</span> Sudut pandang luas untuk foto 4 - 8 orang sekaligus</li>
+            <li><span>🎨</span> Frame bunga anggun membingkai seluruh sisi</li>
+            <li><span>🖨️</span> Cocok dijadikan pajangan meja atau pigura</li>
+          </ul>
+          <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20tertarik%20dengan%20layout%20*Frame%20Landscape*%20untuk%20foto%20keluarga%20besar.%20Boleh%20cek%20slot%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink">
+            Request Desain Landscape ➔
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10. Digital Guestbook Packages (Official PL Page 6) -->
+  <section class="section-wrapper" id="digital-guestbook">
+    <div class="section-header-center">
+      <span class="section-kicker-script">by MAFAZA x Galipat Story</span>
+      <h2 class="section-title-large">Digital Guestbook</h2>
+      <p class="section-subtitle-text">
+        Solusi manajemen tamu anti ribet, modern, dan kenangan ucapan tamu tersimpan selamanya.
+      </p>
+    </div>
+
+    <div class="guestbook-grid-3">
+      <!-- 1. Silver -->
+      <div class="guestbook-card">
+        <div>
+          <div class="guestbook-tier-badge">SILVER TIER</div>
+          <div class="guestbook-old-price">Rp 650.000</div>
+          <div class="guestbook-new-price">Rp 479.000</div>
+
+          <div style="width: 100%; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 20px; border: 1.5px solid var(--border-gold-soft);">
+            <img src="/assets/pl/guestbook_silver.jpg" alt="Digital Guestbook Silver Mafaza" style="width: 100%; height: auto; display: block;">
+          </div>
+
+          <ul class="package-features-list">
+            <li><span class="check-icon">✓</span> Undangan Digital Eksklusif</li>
+            <li><span class="check-icon">✓</span> Sistem Buku Tamu Digital QR</li>
+            <li><span class="check-icon">✓</span> Meeting Online Support</li>
+          </ul>
+        </div>
+
+        <button type="button" onclick="bookPackageDirectly('Digital Guestbook (Silver)', 'Guestbook')" class="btn-cta btn-cta-outline" style="width: 100%;">
+          Pilih Paket Silver ➔
+        </button>
+      </div>
+
+      <!-- 2. Gold (Paling Populer) -->
+      <div class="guestbook-card gold-tier">
+        <div class="package-top-ribbon" style="background: var(--border-gold-accent);">⭐ BEST VALUE GOLD</div>
+
+        <div>
+          <div class="guestbook-tier-badge" style="color: #8C6517;">GOLD TIER</div>
+          <div class="guestbook-old-price">Rp 1.250.000</div>
+          <div class="guestbook-new-price" style="color: #8C6517;">Rp 979.000</div>
+
+          <div style="width: 100%; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 20px; border: 1.5px solid var(--border-gold-accent);">
+            <img src="/assets/pl/guestbook_gold.jpg" alt="Digital Guestbook Gold Mafaza" style="width: 100%; height: auto; display: block;">
+          </div>
+
+          <ul class="package-features-list">
+            <li><span class="check-icon">✓</span> Undangan Digital Eksklusif</li>
+            <li><span class="check-icon">✓</span> Sistem Buku Tamu Digital QR</li>
+            <li><span class="check-icon">✓</span> Meeting online / offline</li>
+            <li><span class="check-icon">✓</span> <strong>1 Perangkat Tablet</strong></li>
+            <li><span class="check-icon">✓</span> 1 Kru pendamping acara</li>
+            <li><span class="check-icon">✓</span> 1 Penerima tamu</li>
+            <li><span class="check-icon">✓</span> Layar Sapa otomatis</li>
+          </ul>
+        </div>
+
+        <button type="button" onclick="bookPackageDirectly('Digital Guestbook (Gold)', 'Guestbook')" class="btn-cta btn-cta-gold" style="width: 100%;">
+          Pilih Paket Gold (Favorit) ➔
+        </button>
+      </div>
+
+      <!-- 3. Diamond -->
+      <div class="guestbook-card">
+        <div>
+          <div class="guestbook-tier-badge">DIAMOND TIER</div>
+          <div class="guestbook-old-price">Rp 1.450.000</div>
+          <div class="guestbook-new-price">Rp 1.179.000</div>
+
+          <div style="width: 100%; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 20px; border: 1.5px solid var(--border-gold-soft);">
+            <img src="/assets/pl/guestbook_diamond.jpg" alt="Digital Guestbook Diamond Mafaza" style="width: 100%; height: auto; display: block;">
+          </div>
+
+          <ul class="package-features-list">
+            <li><span class="check-icon">✓</span> Undangan Digital Eksklusif</li>
+            <li><span class="check-icon">✓</span> Sistem Buku Tamu Digital QR</li>
+            <li><span class="check-icon">✓</span> Meeting online / offline</li>
+            <li><span class="check-icon">✓</span> <strong>2 Perangkat Tablet (Antrean Cepat)</strong></li>
+            <li><span class="check-icon">✓</span> 1 Kru pendamping acara</li>
+            <li><span class="check-icon">✓</span> 2 Penerima tamu</li>
+            <li><span class="check-icon">✓</span> Layar Sapa interaktif</li>
+          </ul>
+        </div>
+
+        <button type="button" onclick="bookPackageDirectly('Digital Guestbook (Diamond)', 'Guestbook')" class="btn-cta btn-cta-outline" style="width: 100%;">
+          Pilih Paket Diamond ➔
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 11. Add-on Services (Make It Even More Special) -->
+  <section class="section-wrapper" style="background: #FFF9F3;">
+    <div class="section-header-center">
+      <span class="section-kicker-script">Layanan Tambahan</span>
+      <h2 class="section-title-large">Make It Even More Special!</h2>
+      <p class="section-subtitle-text">
+        Tambahkan layanan ekstra untuk pengalaman yang lebih lengkap sesuai kebutuhan acaramu.
+      </p>
+    </div>
+
+    <div class="addons-grid-2">
+      <div class="addon-card">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <div class="addon-icon">⏰</div>
+          <div>
+            <h3 class="addon-title">Overtime</h3>
+            <p class="addon-desc">Tambah durasi waktu acara sesuai kebutuhan pesta.</p>
+          </div>
+        </div>
+        <div class="addon-price-tag">150K / Jam</div>
+      </div>
+
+      <div class="addon-card">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <div class="addon-icon">🖨️</div>
+          <div>
+            <h3 class="addon-title">Cetak Foto Tambahan</h3>
+            <p class="addon-desc">Untuk kenangan foto fisik yang jauh lebih banyak.</p>
+          </div>
+        </div>
+        <div class="addon-price-tag">120K / 100 lbr</div>
+      </div>
+    </div>
+
+    <div style="text-align: center;">
+      <p style="font-size: 14.5px; color: var(--text-muted); margin-bottom: 12px;">
+        💬 Butuh request dekorasi khusus, custom backdrop, atau konsep lain?
+      </p>
+      <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20mau%20tanya%20tentang%20request%20khusus%20untuk%20acara%20saya.%20Apakah%20bisa%20diskusi%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-outline">
+        Tanya Admin untuk Penyesuaian Acara ➔
+      </a>
+    </div>
+  </section>
+
+  <!-- 12. Interactive Price Calculator & WA Booking (Conversion Booster) -->
+  <section class="section-wrapper" id="simulasi-harga">
+    <div class="section-header-center">
+      <span class="section-kicker-script">Kalkulator Biaya Instan</span>
+      <h2 class="section-title-large">Simulasi Biaya &amp; Cek Diskon Bundling</h2>
+      <p class="section-subtitle-text">
+        Pilih paket yang kamu sukai dan sistem otomatis menghitung total harga beserta diskon bundling Rp 300.000!
+      </p>
+    </div>
+
+    <div class="calculator-box">
+      <div class="calc-grid">
+        <!-- Input Form Col -->
+        <div>
+          <!-- 1. Photobooth -->
+          <div class="calc-section-title">
+            <span>📸</span> 1. Pilih Paket Photobooth
+          </div>
+          <select id="calcSelectBooth" class="calc-select">
+            <option value="sweet_story" selected>Sweet Story (3 Jam Unlimited - Most Loved) — Rp 1.499.000</option>
+            <option value="little_joy">Little Joy (2 Jam Unlimited) — Rp 1.199.000</option>
+            <option value="sweet_start">Sweet Start (Paket Hemat) — Rp 849.000</option>
+            <option value="grand_moment">Grand Moment (4 Jam Unlimited) — Rp 1.799.000</option>
+            <option value="none">Tanpa Photobooth (Hanya Guestbook)</option>
+          </select>
+
+          <!-- 2. Digital Guestbook -->
+          <div class="calc-section-title">
+            <span>💌</span> 2. Pilih Digital Guestbook (Dapatkan Diskon 300K!)
+          </div>
+          <select id="calcSelectGuestbook" class="calc-select">
+            <option value="gold" selected>Digital Guestbook (Gold Tier) — Rp 979.000</option>
+            <option value="silver">Digital Guestbook (Silver Tier) — Rp 479.000</option>
+            <option value="diamond">Digital Guestbook (Diamond Tier) — Rp 1.179.000</option>
+            <option value="none">Tanpa Digital Guestbook</option>
+          </select>
+
+          <!-- 3. Add-ons -->
+          <div class="calc-section-title">
+            <span>⏱️</span> 3. Tambahan Overtime (Opsional)
+          </div>
+          <select id="calcInputOvertime" class="calc-select">
+            <option value="0" selected>Tidak ada overtime (+0 Jam)</option>
+            <option value="1">Tambah 1 Jam (+Rp 150.000)</option>
+            <option value="2">Tambah 2 Jam (+Rp 300.000)</option>
+            <option value="3">Tambah 3 Jam (+Rp 450.000)</option>
+          </select>
+
+          <!-- 4. Date & Location -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+            <div>
+              <div class="calc-section-title"><span>📅</span> Tanggal Acara</div>
+              <input type="date" id="calcInputDate" class="calc-input">
+            </div>
+            <div>
+              <div class="calc-section-title"><span>📍</span> Kota / Lokasi</div>
+              <input type="text" id="calcInputLocation" placeholder="Contoh: Mataram / Lombok" class="calc-input">
+            </div>
+          </div>
+        </div>
+
+        <!-- Summary & WA Action Col -->
+        <div class="calc-summary-panel">
+          <div>
+            <div style="font-size: 18px; font-weight: 800; color: var(--text-dark); margin-bottom: 16px; border-bottom: 1.5px solid var(--border-gold-soft); padding-bottom: 10px;">
+              🧾 Rincian Paket Acara
+            </div>
+
+            <div class="calc-line-item">
+              <span id="calcSummaryBoothName">Sweet Story (3 Jam)</span>
+              <strong id="calcSummaryBoothPrice">Rp 1.499.000</strong>
+            </div>
+
+            <div class="calc-line-item">
+              <span id="calcSummaryGuestbookName">Digital Guestbook (Gold)</span>
+              <strong id="calcSummaryGuestbookPrice">Rp 979.000</strong>
+            </div>
+
+            <div class="calc-line-item">
+              <span id="calcSummaryAddonName">Tanpa Add-on</span>
+              <strong id="calcSummaryAddonPrice">-</strong>
+            </div>
+
+            <!-- Discount Row -->
+            <div class="calc-line-item discount" id="calcRowDiscount" style="display: flex;">
+              <span>🎁 Diskon Bundling Spesial</span>
+              <strong>- Rp 300.000</strong>
+            </div>
+          </div>
+
+          <div>
+            <div class="calc-total-box">
+              <div class="calc-total-label">Perkiraan Total Investasi:</div>
+              <div class="calc-total-price" id="calcSummaryTotalPrice">Rp 2.178.000</div>
+              <div style="font-size: 12px; color: #27AE60; font-weight: 700; margin-top: 4px;">
+                ✓ Sudah termasuk diskon bundling Rp 300.000!
+              </div>
+            </div>
+
+            <a href="#" id="calcBtnBookWa" target="_blank" rel="noopener" class="btn-cta btn-cta-whatsapp" style="width: 100%; padding: 16px 20px; font-size: 15px;">
+              <span>💬</span> Cek Slot &amp; Booking via WhatsApp ➔
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 13. Official Flyer Viewer Lightbox Section (Lihat Flyer Asli) -->
+  <section class="section-wrapper" style="text-align: center; background: #FAF3EC;">
+    <div class="section-header-center" style="margin-bottom: 28px;">
+      <span class="section-kicker-script">Katalog Flyer Lengkap</span>
+      <h2 class="section-title-large">Lihat Price List Resmi 7 Halaman</h2>
+      <p class="section-subtitle-text">
+        Ingin melihat flyer desain asli atau membagikannya ke pasangan &amp; keluarga? Klik tombol di bawah untuk membuka viewer katalog resmi MAFAZA.
+      </p>
+    </div>
+
+    <div style="display: flex; justify-content: center; gap: 14px; flex-wrap: wrap;">
+      <button type="button" class="btn-cta btn-cta-gold btn-open-flyer-modal" data-flyer-page="1">
+        📖 Buka Flyer Price List Resmi (Halaman 1-7)
+      </button>
+      <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20bisa%20minta%20dikirimkan%20file%20PDF%20Price%20List%20resminya%20ke%20WhatsApp%3F%20Terima%20kasih!" target="_blank" rel="noopener" class="btn-cta btn-cta-outline">
+        📥 Minta File PDF via WhatsApp
+      </a>
+    </div>
+  </section>
+
+  <!-- 14. FAQ Accordion (Jawaban Tuntas Keraguan Calon Klien) -->
+  <section class="section-wrapper" id="faq" style="background: #FFF9F3;">
+    <div class="section-header-center">
+      <span class="section-kicker-script">Paling Sering Ditanyakan</span>
+      <h2 class="section-title-large">Frequently Asked Questions</h2>
+      <p class="section-subtitle-text">
+        Pertanyaan umum seputar layanan Photobooth &amp; Digital Guestbook MAFAZA.
+      </p>
+    </div>
+
+    <div class="faq-accordion-box">
+      <!-- Q1 -->
+      <div class="faq-item active">
+        <button type="button" class="faq-question-btn">
+          <span>Apakah cetak foto benar-benar unlimited?</span>
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer-body">
+          Ya, benar sekali! Untuk paket Little Joy, Sweet Story, dan Grand Moment, para tamu bebas berfoto dan mencetak foto sepuasnya tanpa batasan jumlah lembar selama durasi paket acara berlangsung.
+        </div>
+      </div>
+
+      <!-- Q2 -->
+      <div class="faq-item">
+        <button type="button" class="faq-question-btn">
+          <span>Berapa ukuran space / area yang dibutuhkan untuk booth?</span>
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer-body">
+          Booth kami sangat ramping dan fleksibel. Luas area ideal adalah sekitar <strong>2.5 x 2.5 meter</strong> atau <strong>2 x 3 meter</strong> untuk photobooth lengkap dengan backdrop dan meja properti. Kami hanya membutuhkan 1 titik stopkontak listrik 220V biasa.
+        </div>
+      </div>
+
+      <!-- Q3 -->
+      <div class="faq-item">
+        <button type="button" class="faq-question-btn">
+          <span>Kapan kru MAFAZA datang ke lokasi acara?</span>
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer-body">
+          Tim kru kami selalu datang <strong>1 hingga 2 jam sebelum acara dimulai</strong> untuk loading barang, memasang backdrop, instalasi pencahayaan studio, dan melakukan uji coba cetak (*test print*) agar saat tamu pertama hadir, booth sudah 100% siap digunakan.
+        </div>
+      </div>
+
+      <!-- Q4 -->
+      <div class="faq-item">
+        <button type="button" class="faq-question-btn">
+          <span>Kapan dan bagaimana proses pembuatan custom design frame?</span>
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer-body">
+          Setelah melakukan booking tanggal, tim desainer grafis kami akan menghubungi Anda untuk meminta detail nama, tanggal, warna tema, serta referensi desain. Kami akan membuatkan draft desain dan Anda berhak mendapatkan revisi hingga desain benar-benar sesuai selera!
+        </div>
+      </div>
+
+      <!-- Q5 -->
+      <div class="faq-item">
+        <button type="button" class="faq-question-btn">
+          <span>Bagaimana cara tamu mengunduh soft file foto ke HP?</span>
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer-body">
+          Sangat mudah dan instan! Setiap foto yang dicetak dilengkapi dengan barcode QR unik. Tamu cukup mengarahkan kamera smartphone mereka ke barcode tersebut, dan foto resolusi tinggi langsung tersimpan di galeri HP detik itu juga.
+        </div>
+      </div>
+
+      <!-- Q6 -->
+      <div class="faq-item">
+        <button type="button" class="faq-question-btn">
+          <span>Bagaimana cara mengunci / booking tanggal acara?</span>
+          <span class="faq-chevron">▼</span>
+        </button>
+        <div class="faq-answer-body">
+          Cukup hubungi Admin kami via WhatsApp di <strong>0818 0330 0354</strong> untuk mengecek ketersediaan tanggal. Jika slot tersedia, Anda cukup membayar tanda jadi (DP booking) dan tanggal acaramu langsung terkunci secara resmi.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 15. Final Call To Action (Let's Make Memories!) -->
+  <section class="section-wrapper" style="padding: 90px 24px; text-align: center; background: linear-gradient(180deg, #FAF3EC 0%, #FFF1F1 100%);">
+    <div style="max-width: 800px; margin: 0 auto;">
+      <span class="hero-script-tagline" style="font-size: 42px;">Let's Make Memories! 💕</span>
+      <h2 class="section-title-large" style="font-size: 44px; margin-bottom: 16px;">
+        Abadikan Setiap Momen Spesialmu Bersama MAFAZA
+      </h2>
+      <p style="font-size: 17px; color: var(--text-muted); line-height: 1.7; margin-bottom: 34px;">
+        Slot tanggal di akhir pekan dan musim pernikahan sangat cepat terisi. Jangan biarkan acaramu tanpa keseruan photobooth dan buku tamu digital eksklusif!
+      </p>
+
+      <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
+        <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20ingin%20*BOOK%20MY%20DATE%20NOW!*%20Boleh%20cek%20apakah%20slot%20tanggal%20acara%20saya%20masih%20tersedia%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink" style="padding: 18px 38px; font-size: 17px; box-shadow: 0 16px 40px rgba(230, 120, 107, 0.45);">
+          <span>💌</span> BOOK YOUR DATE NOW! ➔
+        </a>
+        <a href="https://instagram.com/mafaza.moments" target="_blank" rel="noopener" class="btn-cta btn-cta-outline" style="padding: 18px 30px; font-size: 16px;">
+          <span>📷</span> Kunjungi Instagram @mafaza.moments
+        </a>
+      </div>
+
+      <div style="margin-top: 28px; font-family: var(--font-script); font-size: 26px; color: var(--text-caramel);">
+        "Setiap Momen Punya Cerita" — by Galipat Story
+      </div>
+    </div>
+  </section>
+
+  <!-- 16. Footer & Operational Links -->
+  <footer class="site-footer">
+    <div class="footer-container">
+      <div>
+        <div class="footer-brand-title">MAFAZA PHOTOBOOTH</div>
+        <div class="footer-brand-tagline">SETIAP MOMEN PUNYA CERITA • BY GALIPAT STORY</div>
+        <p class="footer-desc">
+          Vendor penyedia layanan Photobooth instan dan Digital Guestbook profesional untuk pernikahan, ulang tahun, wisuda, gathering, dan corporate event.
+        </p>
+        <div style="font-size: 14px; color: #FFF9F3; font-weight: 700;">
+          📞 WhatsApp: 0818 0330 0354<br>
+          📷 Instagram: @mafaza.moments
+        </div>
+      </div>
+
+      <div>
+        <div class="footer-col-title">Paket Photobooth</div>
+        <ul class="footer-links-list">
+          <li><a href="#paket-photobooth">Sweet Start (849K)</a></li>
+          <li><a href="#paket-photobooth">Little Joy 2 Jam (1.199K)</a></li>
+          <li><a href="#paket-photobooth">Sweet Story 3 Jam (1.499K)</a></li>
+          <li><a href="#paket-photobooth">Grand Moment 4 Jam (1.799K)</a></li>
+          <li><a href="#simulasi-harga">Promo Bundling 300K</a></li>
         </ul>
       </div>
 
-      <!-- 2. Palet Warna -->
-      <div class="pillar-card">
-        <h3>2. Palet Warna</h3>
-        <div class="color-swatch-item">
-          <div class="swatch-circle" style="background: #7B482E;"></div>
-          <span style="font-size: 13px;"><strong>Caramel Brown</strong> <code>#7B482E</code></span>
-        </div>
-        <div class="color-swatch-item">
-          <div class="swatch-circle" style="background: #F9E9D7; border-color: #D4A754;"></div>
-          <span style="font-size: 13px;"><strong>Soft Cream</strong> <code>#F9E9D7</code></span>
-        </div>
-        <div class="color-swatch-item">
-          <div class="swatch-circle" style="background: #E6786B;"></div>
-          <span style="font-size: 13px;"><strong>Coral</strong> <code>#E6786B</code></span>
-        </div>
-        <div class="color-swatch-item">
-          <div class="swatch-circle" style="background: #D4A754;"></div>
-          <span style="font-size: 13px;"><strong>Muted Mustard</strong> <code>#D4A754</code></span>
-        </div>
-        <div class="color-swatch-item">
-          <div class="swatch-circle" style="background: #5F8F8A;"></div>
-          <span style="font-size: 13px;"><strong>Dusty Teal</strong> <code>#5F8F8A</code></span>
-        </div>
-        <div class="color-swatch-item">
-          <div class="swatch-circle" style="background: #886B8F;"></div>
-          <span style="font-size: 13px;"><strong>Soft Plum</strong> <code>#886B8F</code></span>
-        </div>
-      </div>
-
-      <!-- 3. Tipografi -->
-      <div class="pillar-card">
-        <h3>3. Tipografi</h3>
-        <div style="margin-bottom: 14px;">
-          <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">Heading Font:</div>
-          <div style="font-family: var(--font-heading); font-size: 26px; font-weight: 800; color: var(--caramel-brown);">
-            Recoleta
-          </div>
-          <div style="font-size: 12px; color: var(--text-muted);">Bulat, ramah, playful, &amp; fotogenik.</div>
-        </div>
-        <div>
-          <div style="font-size: 12px; color: var(--text-muted); font-weight: 700;">Body Font:</div>
-          <div style="font-family: var(--font-body); font-size: 20px; font-weight: 700; color: var(--dark-roast);">
-            Poppins
-          </div>
-          <div style="font-size: 12px; color: var(--text-muted);">Modern, bersih, dan sangat mudah dibaca.</div>
-        </div>
-      </div>
-
-      <!-- 4. Komponen UI -->
-      <div class="pillar-card">
-        <h3>4. Komponen UI</h3>
-        <div style="display: flex; flex-direction: column; gap: 8px;">
-          <div style="background: var(--coral); color: #fff; padding: 6px 14px; border-radius: 999px; font-size: 12px; text-align: center; font-weight: 700;">
-            Tombol Utama: Mulai Foto ➔
-          </div>
-          <div style="background: var(--caramel-brown); color: #fff; padding: 6px 14px; border-radius: 999px; font-size: 12px; text-align: center; font-weight: 700;">
-            Lihat Template
-          </div>
-          <div style="background: #F9E9D7; color: var(--caramel-brown); border: 1.5px solid var(--caramel-brown); padding: 6px 14px; border-radius: 999px; font-size: 12px; text-align: center; font-weight: 700;">
-            ❮ Kembali
-          </div>
-          <div style="font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 4px;">
-            Progress: 1. Template ➔ 2. Foto ➔ 3. Preview ➔ 4. Selesai
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 3. THE 4 CORE SCREENS FROM GAMBAR 2 -->
-    <div class="screens-section-title">
       <div>
-        <h2 style="font-size: 32px; font-weight: 800; color: var(--caramel-brown);">
-          4 Layar Utama Photobooth (Sesuai Gambar 2)
-        </h2>
-        <p style="color: var(--text-muted); font-size: 15px;">
-          Setiap layar di bawah dapat langsung diuji dan dijalankan secara interaktif.
-        </p>
-      </div>
-      <span class="retro-badge-pill badge-coral-retro">
-        ● Live System Ready (iPad &amp; Touchscreen)
-      </span>
-    </div>
-
-    <div class="screens-grid">
-      <!-- Screen 1: Halaman Utama -->
-      <div class="screen-card-box">
-        <div class="screen-header-badge">
-          <span>1</span> Halaman Utama
-        </div>
-
-        <div class="mini-screen-viewport" style="background: #FDF7F0;">
-          <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; color: var(--caramel-brown);">
-            <span>📷 PHOTOBOOTH</span>
-            <span>🌐 ID</span>
-          </div>
-
-          <div style="text-align: center; margin: auto 0;">
-            <h4 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown); line-height: 1.2; margin-bottom: 12px;">
-              Abadikan<br>Momen Spesialmu<br>Di Sini! 😊
-            </h4>
-            <a href="/kiosk" class="btn btn-coral" style="padding: 8px 18px; font-size: 12px; text-decoration: none;">
-              Mulai Foto ➔
-            </a>
-          </div>
-
-          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; text-align: center; font-size: 9px; color: var(--text-muted); font-weight: 600;">
-            <div>📷 Foto</div>
-            <div>🖼️ Template</div>
-            <div>🖨️ Cetak</div>
-            <div>🎉 Seru!</div>
-          </div>
-        </div>
-
-        <h4 style="font-size: 16px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">
-          Layar Sambutan Kiosk
-        </h4>
-        <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;">
-          Header brand, headline sambutan, tombol coral Mulai Foto, dan 4 ikon fitur photobooth.
-        </p>
-        <a href="/kiosk" class="btn btn-coral" style="width: 100%; font-size: 13px; padding: 10px;">
-          Buka Halaman Utama ➔
-        </a>
+        <div class="footer-col-title">Digital Guestbook</div>
+        <ul class="footer-links-list">
+          <li><a href="#digital-guestbook">Paket Silver (479K)</a></li>
+          <li><a href="#digital-guestbook">Paket Gold Tablet (979K)</a></li>
+          <li><a href="#digital-guestbook">Paket Diamond VIP (1.179K)</a></li>
+          <li><a href="#fasilitas">What's Included</a></li>
+          <li><a href="#pilihan-frame">Pilihan Layout Frame</a></li>
+        </ul>
       </div>
 
-      <!-- Screen 2: Pilih Template -->
-      <div class="screen-card-box">
-        <div class="screen-header-badge">
-          <span>2</span> Pilih Template
-        </div>
-
-        <div class="mini-screen-viewport" style="background: #FDF7F0;">
-          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--caramel-brown);">
-            <span>❮</span>
-            <span>Pilih Template Favoritmu</span>
-          </div>
-
-          <div style="display: flex; gap: 4px; justify-content: center; margin: 8px 0;">
-            <span style="background: var(--coral); color: #fff; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 700;">Semua</span>
-            <span style="background: #EAD8C7; color: var(--caramel-brown); padding: 2px 8px; border-radius: 999px; font-size: 10px;">Wedding</span>
-            <span style="background: #EAD8C7; color: var(--caramel-brown); padding: 2px 8px; border-radius: 999px; font-size: 10px;">Birthday</span>
-          </div>
-
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: auto 0;">
-            <div style="background: #fff; border: 2px solid var(--coral); border-radius: 8px; padding: 4px; text-align: center; font-size: 9px; font-weight: 700; color: var(--caramel-brown);">
-              <div style="background: #F9E9D7; height: 50px; border-radius: 4px; margin-bottom: 4px; display: flex; align-items: center; justify-content: center;">✓</div>
-              Classic
-            </div>
-            <div style="background: #fff; border: 1.5px solid var(--border-warm); border-radius: 8px; padding: 4px; text-align: center; font-size: 9px; font-weight: 600; color: var(--text-muted);">
-              <div style="background: #F9E9D7; height: 50px; border-radius: 4px; margin-bottom: 4px; display: flex; align-items: center; justify-content: center;">🌸</div>
-              Floral
-            </div>
-            <div style="background: #fff; border: 1.5px solid var(--border-warm); border-radius: 8px; padding: 4px; text-align: center; font-size: 9px; font-weight: 600; color: var(--text-muted);">
-              <div style="background: #F9E9D7; height: 50px; border-radius: 4px; margin-bottom: 4px; display: flex; align-items: center; justify-content: center;">🎞️</div>
-              Retro
-            </div>
-          </div>
-
-          <div style="text-align: center;">
-            <a href="/kiosk#template" class="btn btn-secondary" style="padding: 4px 12px; font-size: 11px; text-decoration: none;">
-              Lanjut Siap Foto! ➔
-            </a>
-          </div>
-        </div>
-
-        <h4 style="font-size: 16px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">
-          Pilih Template Favorit
-        </h4>
-        <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;">
-          Tabs kategori (Semua, Wedding, Birthday, Event), 6 frame kartu, dan indikator checkmark.
-        </p>
-        <a href="/kiosk#template" class="btn btn-secondary" style="width: 100%; font-size: 13px; padding: 10px;">
-          Uji Pilih Template ➔
-        </a>
-      </div>
-
-      <!-- Screen 3: Kamera -->
-      <div class="screen-card-box">
-        <div class="screen-header-badge">
-          <span>3</span> Kamera
-        </div>
-
-        <div class="mini-screen-viewport" style="background: #1C120C; color: #fff; border-color: #381E11;">
-          <div style="text-align: center;">
-            <span style="background: var(--coral); color: #fff; padding: 3px 12px; border-radius: 999px; font-size: 11px; font-weight: 800;">
-              Foto 1/3
-            </span>
-          </div>
-
-          <!-- Viewfinder Frame with brackets -->
-          <div style="border: 2px solid rgba(255,255,255,0.25); border-radius: 12px; height: 140px; margin: 10px 0; display: flex; align-items: center; justify-content: center; position: relative;">
-            <span style="position: absolute; top: 4px; left: 4px; font-size: 14px;">┌</span>
-            <span style="position: absolute; top: 4px; right: 4px; font-size: 14px;">┐</span>
-            <span style="position: absolute; bottom: 4px; left: 4px; font-size: 14px;">└</span>
-            <span style="position: absolute; bottom: 4px; right: 4px; font-size: 14px;">┘</span>
-            
-            <div style="width: 48px; height: 48px; border-radius: 50%; border: 3px solid var(--coral); display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800; color: #fff; background: rgba(0,0,0,0.5);">
-              3
-            </div>
-          </div>
-
-          <!-- 3 Buttons Control Bar -->
-          <div style="display: flex; justify-content: space-around; align-items: center;">
-            <span style="font-size: 18px; cursor: pointer;">🖼️</span>
-            <div style="width: 42px; height: 42px; border-radius: 50%; border: 3px solid #fff; background: var(--coral); display: flex; align-items: center; justify-content: center; cursor: pointer;">
-              <div style="width: 28px; height: 28px; border-radius: 50%; background: #fff;"></div>
-            </div>
-            <span style="font-size: 18px; cursor: pointer;">🔄</span>
-          </div>
-        </div>
-
-        <h4 style="font-size: 16px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">
-          Kamera, Countdown &amp; Dock
-        </h4>
-        <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;">
-          Badge Foto 1/3, live view besar, hitungan mundur 3..2..1, tombol shutter coral, hapus &amp; foto ulang.
-        </p>
-        <a href="/kiosk#camera" class="btn btn-coral" style="width: 100%; font-size: 13px; padding: 10px;">
-          Uji Kamera &amp; Shutter ➔
-        </a>
-      </div>
-
-      <!-- Screen 4: Dashboard Admin -->
-      <div class="screen-card-box">
-        <div class="screen-header-badge">
-          <span>4</span> Dashboard Admin
-        </div>
-
-        <div class="mini-screen-viewport" style="background: #FDF7F0;">
-          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 700;">
-            <span style="color: var(--caramel-brown);">📷 PHOTOBOOTH</span>
-            <span style="background: rgba(95,143,138,0.2); color: var(--teal); padding: 2px 8px; border-radius: 999px; font-size: 10px;">Online ➔</span>
-          </div>
-
-          <!-- Ringkasan Hari Ini cards (286, 48, 12) -->
-          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0;">
-            <div style="background: #FFFBF5; border: 1.5px solid var(--border-warm); border-radius: 8px; padding: 6px 4px; text-align: center;">
-              <div style="font-size: 16px; font-weight: 800; color: #8c6517;">286</div>
-              <div style="font-size: 8px; color: var(--text-muted);">Total Foto</div>
-            </div>
-            <div style="background: #FFFBF5; border: 1.5px solid var(--border-warm); border-radius: 8px; padding: 6px 4px; text-align: center;">
-              <div style="font-size: 16px; font-weight: 800; color: var(--teal);">48</div>
-              <div style="font-size: 8px; color: var(--text-muted);">Total Cetak</div>
-            </div>
-            <div style="background: #FFFBF5; border: 1.5px solid var(--border-warm); border-radius: 8px; padding: 6px 4px; text-align: center;">
-              <div style="font-size: 16px; font-weight: 800; color: var(--plum);">12</div>
-              <div style="font-size: 8px; color: var(--text-muted);">Total GIF</div>
-            </div>
-          </div>
-
-          <!-- Foto Terbaru Preview Grid -->
-          <div style="margin-top: auto;">
-            <div style="display: flex; justify-content: space-between; font-size: 10px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 4px;">
-              <span>Foto Terbaru</span>
-              <span style="color: var(--coral);">Lihat Semua &gt;</span>
-            </div>
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
-              <div style="background: #EAD8C7; height: 32px; border-radius: 4px;"></div>
-              <div style="background: #EAD8C7; height: 32px; border-radius: 4px;"></div>
-              <div style="background: #EAD8C7; height: 32px; border-radius: 4px;"></div>
-              <div style="background: #EAD8C7; height: 32px; border-radius: 4px;"></div>
-            </div>
-          </div>
-        </div>
-
-        <h4 style="font-size: 16px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">
-          Dashboard Bisnis Admin
-        </h4>
-        <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5;">
-          Sidebar dark roast #381E11, ringkasan foto hari ini (286 foto, 48 cetak, 12 gif), dan galeri foto terbaru.
-        </p>
-        <a href="/admin" class="btn btn-secondary" style="width: 100%; font-size: 13px; padding: 10px;">
-          Buka Dashboard Admin ➔
-        </a>
+      <div>
+        <div class="footer-col-title">Portal Kiosk &amp; Sistem</div>
+        <ul class="footer-links-list">
+          <li><a href="/kiosk">📸 Kiosk Photobooth Live</a></li>
+          <li><a href="/gallery">📱 Galeri Tamu Online</a></li>
+          <li><a href="/admin">📊 Dashboard Admin Bisnis</a></li>
+          <li><a href="/operator">🛠️ Panel Operator Lapangan</a></li>
+          <li><a href="/super">👑 Super Admin Portal</a></li>
+        </ul>
       </div>
     </div>
 
-    <!-- 4. ACTIVE STATUS & PORTALS BAR -->
-    <div style="margin-top: 48px; background: var(--card-cream); border: 2.5px solid var(--border-warm); border-radius: 28px; padding: 28px 32px; box-shadow: 0 10px 30px rgba(123,72,46,0.06); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
-      <div style="display: flex; align-items: center; gap: 16px;">
-        <div style="width: 56px; height: 56px; border-radius: 20px; background: rgba(95, 143, 138, 0.15); display: flex; align-items: center; justify-content: center; font-size: 28px; border: 2px solid var(--teal);">
-          🌿
-        </div>
-        <div>
-          <h3 style="font-size: 18px; font-weight: 800; color: var(--caramel-brown);">
-            Sistem Localhost: <span style="color: var(--teal);">Ready &amp; Berjalan Lancar</span>
-          </h3>
-          <p style="color: var(--text-muted); font-size: 14px;">
-            Event Aktif: <strong id="indexActiveEvent">Memuat...</strong> • Tema: <strong>Konsep C: Warm Playful Retro</strong> • Printer: <strong>Epson L8050</strong>
-          </p>
+    <div class="footer-bottom-bar">
+      <div>&copy; 2026 MAFAZA Photobooth &amp; Digital Guestbook by Galipat Story. All rights reserved.</div>
+      <div>Designed with Love for Unforgettable Moments.</div>
+    </div>
+  </footer>
+
+  <!-- 17. Floating WhatsApp Widget -->
+  <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20mau%20tanya%20paket%20Photobooth%20dan%20Digital%20Guestbook%20untuk%20acara%20saya.%20Boleh%20info%20ketersediaan%20slot%3F" target="_blank" rel="noopener" class="floating-wa-button" title="Chat WhatsApp Admin MAFAZA">
+    <span class="floating-wa-icon">💬</span>
+    <span>Tanya Slot Acara</span>
+  </a>
+
+  <!-- 18. Mobile Sticky Bottom Quick-Booking Bar -->
+  <div class="mobile-sticky-bar">
+    <div class="mobile-bar-price">
+      <span>Mulai dari:</span>
+      <strong>Rp 849.000</strong>
+    </div>
+    <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20mau%20booking%20paket%20Photobooth%20dan%20Digital%20Guestbook.%20Boleh%20cek%20slot%20tanggal%3F" id="mobileStickyWaBtn" target="_blank" rel="noopener" class="btn-cta btn-cta-whatsapp" style="padding: 10px 18px; font-size: 13.5px;">
+      <span>💬</span> Chat WhatsApp ➔
+    </a>
+  </div>
+
+  <!-- 19. Official Flyer Lightbox Modal -->
+  <div class="flyer-modal-backdrop" id="flyerModalBackdrop">
+    <div class="flyer-modal-content">
+      <button type="button" class="flyer-modal-close" id="flyerModalClose" aria-label="Tutup Flyer">✕</button>
+
+      <div style="text-align: center; margin-bottom: 14px;">
+        <h4 style="font-family: var(--font-heading); font-size: 20px; color: var(--text-dark);">
+          Price List Resmi MAFAZA
+        </h4>
+        <div id="flyerModalPageText" style="font-size: 13px; color: var(--text-muted); font-weight: 700;">
+          Halaman 1 dari 7
         </div>
       </div>
 
-      <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-        <a href="/gallery/g/gst_af33d39082bbd50e0d7d99a763fc89b5" target="_blank" class="btn btn-secondary" style="font-size: 14px; padding: 10px 20px;">
-          📱 Contoh Galeri HP
+      <div style="text-align: center; margin-bottom: 18px;">
+        <img id="flyerModalImage" src="/assets/pl/pl_page_1.jpg" alt="Flyer Halaman 1" style="max-height: 65vh; max-width: 100%; object-fit: contain; border-radius: var(--radius-sm); border: 2px solid var(--border-gold-soft); box-shadow: 0 10px 30px rgba(0,0,0,0.15);">
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
+        <button type="button" class="btn-cta btn-cta-outline" id="flyerModalPrev">❮ Halaman Sebelumnya</button>
+        <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20sudah%20melihat%20Price%20List%20resmi%20dan%20ingin%20booking%20acara.%20Boleh%20cek%20slot%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink">
+          💬 Tanya Paket via WA
         </a>
-        <a href="/operator" class="btn btn-teal" style="font-size: 14px; padding: 10px 22px;">
-          🛠️ Operator Lapangan
-        </a>
-        <a href="/super" class="btn btn-secondary" style="font-size: 14px; padding: 10px 22px;">
-          👑 Super Admin SaaS
-        </a>
-        <a href="/kiosk" class="btn btn-coral" style="font-size: 14px; padding: 10px 24px;">
-          📸 Buka Kiosk Booth ➔
-        </a>
+        <button type="button" class="btn-cta btn-cta-outline" id="flyerModalNext">Halaman Selanjutnya ❯</button>
       </div>
     </div>
+  </div>
 
-  </main>
-
-  <script>
-    fetch('/api/events/active/current')
-      .then(res => res.json())
-      .then(data => {
-        if (data.event && data.event.name) {
-          const el = document.getElementById('indexActiveEvent');
-          if (el) el.innerText = data.event.name;
-        }
-      }).catch(() => {});
-  </script>
+  <!-- Scripts -->
+  <script src="/js/landing.js?v=2.0"></script>
 </body>
 </html>
