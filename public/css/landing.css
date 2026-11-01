@@ -66,6 +66,9 @@
 html {
   scroll-behavior: smooth;
   font-size: 16px;
+  overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
 }
 
 body {
@@ -74,6 +77,8 @@ body {
   color: var(--text-dark);
   line-height: 1.6;
   overflow-x: hidden;
+  max-width: 100vw;
+  width: 100%;
   position: relative;
 }
 
@@ -110,11 +115,16 @@ body {
   position: relative;
   z-index: 100;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 6px 12px;
   letter-spacing: 0.3px;
   box-shadow: 0 2px 10px rgba(114, 27, 41, 0.25);
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  word-break: break-word;
 }
 
 .top-announcement-bar a {
@@ -662,6 +672,8 @@ body {
   max-width: 1140px;
   margin: 30px auto 70px;
   padding: 0 24px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .bundle-deal-card {
@@ -676,6 +688,9 @@ body {
   align-items: center;
   position: relative;
   overflow: hidden;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .bundle-ribbon-tag {
@@ -719,6 +734,11 @@ body {
   margin: 12px 0 16px;
   letter-spacing: 0.5px;
   animation: pulseBundle 2.5s infinite;
+}
+
+.bundle-cta-btn {
+  padding: 14px 28px;
+  font-size: 15px;
 }
 
 @keyframes pulseBundle {
@@ -908,6 +928,21 @@ body {
   width: 100%;
   padding: 12px 18px;
   font-size: 13.5px;
+}
+
+.backdrop-note-banner {
+  max-width: 860px;
+  margin: 36px auto 0;
+  background: var(--bg-card);
+  border: 2px dashed var(--border-gold-accent);
+  border-radius: var(--radius-pill);
+  padding: 14px 26px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-caramel);
+  box-shadow: 0 4px 14px rgba(212,167,84,0.1);
+  box-sizing: border-box;
 }
 
 /* What's Included 6 Cards Grid */
@@ -1110,20 +1145,64 @@ body {
   transform: scale(1.02) translateY(-8px);
 }
 
+.guestbook-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
 .guestbook-tier-badge {
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 800;
-  letter-spacing: 2px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
-  color: var(--text-caramel);
-  margin-bottom: 8px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+}
+
+.guestbook-tier-badge.silver-badge {
+  background: #EEF0F3;
+  color: #4B5563;
+  border: 1px solid #D1D5DB;
+}
+
+.guestbook-tier-badge.gold-badge {
+  background: #FFF3D6;
+  color: #8C6517;
+  border: 1px solid var(--border-gold-accent);
+}
+
+.guestbook-tier-badge.diamond-badge {
+  background: #FDEEEB;
+  color: var(--primary-pink);
+  border: 1px solid var(--primary-pink);
+}
+
+.guestbook-saving-pill {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--primary-pink);
+  background: rgba(230, 120, 107, 0.12);
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+}
+
+.guestbook-saving-pill.gold-saving {
+  color: #8C6517;
+  background: rgba(212, 167, 84, 0.2);
+}
+
+.guestbook-pricing-wrap {
+  margin-bottom: 18px;
 }
 
 .guestbook-old-price {
-  font-size: 15px;
+  font-size: 14px;
   color: var(--text-light);
   text-decoration: line-through;
   font-weight: 600;
+  line-height: 1.2;
 }
 
 .guestbook-new-price {
@@ -1132,7 +1211,90 @@ body {
   font-weight: 900;
   color: var(--primary-pink);
   line-height: 1.1;
-  margin-bottom: 16px;
+}
+
+.guestbook-new-price.gold-price {
+  color: #8C6517;
+}
+
+.guestbook-device-showcase {
+  position: relative;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 22px;
+  border: 1.5px solid var(--border-gold-soft);
+  box-shadow: 0 6px 18px rgba(123, 72, 46, 0.08);
+  background: #FAF5F0;
+}
+
+.guestbook-device-showcase.gold-showcase {
+  border: 2px solid var(--border-gold-accent);
+  box-shadow: 0 8px 24px rgba(212, 167, 84, 0.18);
+}
+
+.guestbook-device-img {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.4s ease;
+}
+
+.guestbook-card:hover .guestbook-device-img {
+  transform: scale(1.03);
+}
+
+.guestbook-device-caption {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  padding: 8px 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-caramel);
+  text-align: center;
+  border-top: 1px solid var(--border-gold-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.guestbook-device-caption.gold-caption {
+  color: #8C6517;
+  background: #FFFDF8;
+  border-top-color: var(--border-gold-accent);
+}
+
+.guestbook-features-list {
+  list-style: none;
+  margin-bottom: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.guestbook-features-list li {
+  font-size: 13.5px;
+  color: var(--text-dark);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.4;
+}
+
+.guestbook-features-list li.feature-muted {
+  color: var(--text-light);
+  font-size: 12.5px;
+}
+
+.check-icon.gold-check {
+  color: #8C6517;
+}
+
+.guestbook-cta-btn {
+  width: 100%;
+  padding: 12px 18px;
+  font-size: 13.5px;
 }
 
 /* Extra Add-ons Cards */
@@ -1520,6 +1682,28 @@ body {
   display: block;
 }
 
+/* Final Call to Action Buttons */
+.final-cta-btn-wrap {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.final-cta-btn {
+  padding: 16px 32px;
+  font-size: 16px;
+  box-shadow: 0 14px 36px rgba(230, 120, 107, 0.4);
+}
+
+/* Flyer Modal Actions */
+.flyer-modal-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
 /* Responsive Media Queries */
 @media (max-width: 1024px) {
   .hero-container {
@@ -1568,56 +1752,540 @@ body {
 }
 
 @media (max-width: 768px) {
-  .top-announcement-bar {
-    font-size: 12px;
-    padding: 7px 12px;
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+    width: 100%;
   }
+
+  /* Top Announcement Bar */
+  .top-announcement-bar {
+    font-size: 11.5px;
+    padding: 7px 12px;
+    flex-wrap: wrap;
+    line-height: 1.35;
+    text-align: center;
+    justify-content: center;
+  }
+
+  /* Compact Mobile Navbar */
+  .site-navbar {
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+  }
+
+  .nav-container {
+    padding: 10px 14px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .brand-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex-shrink: 1;
+  }
+
+  .brand-logo-img {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .brand-title {
+    font-size: 18px;
+    letter-spacing: 0.5px;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .brand-subtitle {
+    display: none !important;
+  }
+
   .nav-links {
     display: none;
   }
+
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .btn-cta-kiosk {
+    padding: 6px 10px !important;
+    font-size: 11.5px !important;
+    border-radius: var(--radius-pill) !important;
+    white-space: nowrap !important;
+  }
+
+  .btn-cta-whatsapp {
+    width: 34px !important;
+    height: 34px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    font-size: 16px !important;
+    min-width: 34px !important;
+  }
+
+  .btn-cta-whatsapp .btn-text-desktop {
+    display: none !important;
+  }
+
   .mobile-menu-btn {
-    display: block;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 34px !important;
+    height: 34px !important;
+    font-size: 18px !important;
+    padding: 0 !important;
+    border-radius: 8px !important;
+    background: rgba(123, 72, 46, 0.08) !important;
+    border: none !important;
   }
+
+  /* Section Containers */
+  .section-wrapper {
+    padding: 44px 14px;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  /* Hero Section */
+  .hero-section {
+    padding: 26px 14px 40px;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+    overflow: hidden;
+  }
+
+  .hero-container {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+    width: 100%;
+    max-width: 100%;
+    text-align: center;
+  }
+
+  .hero-pill-badge {
+    font-size: 12px;
+    padding: 5px 14px;
+    margin-bottom: 12px;
+  }
+
+  .hero-script-tagline {
+    font-size: 26px;
+  }
+
   .hero-main-title {
-    font-size: 34px;
+    font-size: clamp(28px, 7.5vw, 38px);
+    line-height: 1.15;
+    word-break: break-word;
   }
+
+  .hero-lead-text {
+    font-size: 14px;
+    line-height: 1.55;
+    margin: 10px auto 16px;
+  }
+
+  .hero-features-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    margin-bottom: 20px;
+  }
+
+  .feature-chip {
+    font-size: 11.5px;
+    padding: 5px 10px;
+  }
+
+  .hero-cta-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .hero-cta-group .btn-cta {
+    width: 100%;
+    font-size: 14px;
+    padding: 13px 18px;
+    justify-content: center;
+  }
+
+  .hero-price-anchor {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .hero-poster-frame {
+    width: 100%;
+    max-width: 100%;
+    border-width: 3px;
+    border-radius: 18px;
+  }
+
+  .hero-poster-frame img {
+    width: 100%;
+    height: auto;
+    max-height: 400px;
+    object-fit: contain;
+  }
+
+  .section-kicker-script {
+    font-size: 24px;
+  }
+
   .section-title-large {
-    font-size: 30px;
+    font-size: clamp(22px, 6vw, 32px);
+    line-height: 1.2;
+    word-break: break-word;
   }
+
+  .section-subtitle-text {
+    font-size: 13.5px;
+    line-height: 1.5;
+    padding: 0 4px;
+  }
+
+  /* Special Bundle Deal Banner */
+  .bundle-deal-banner-section {
+    padding: 0 12px;
+    margin: 18px auto 36px;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+  }
+
+  .bundle-deal-card {
+    padding: 26px 14px 20px;
+    grid-template-columns: 1fr;
+    gap: 18px;
+    border-radius: 18px;
+    text-align: center;
+    overflow: hidden;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .bundle-ribbon-tag {
+    top: 12px;
+    right: -38px;
+    padding: 4px 38px;
+    font-size: 10px;
+  }
+
+  .bundle-deal-title {
+    font-size: clamp(20px, 5.5vw, 25px);
+    margin-bottom: 6px;
+  }
+
+  .bundle-discount-highlight {
+    font-size: clamp(14px, 4vw, 18px);
+    padding: 7px 12px;
+    margin: 8px auto 12px;
+    max-width: 100%;
+    box-sizing: border-box;
+    white-space: normal;
+    word-break: break-word;
+    display: block;
+    line-height: 1.3;
+  }
+
+  .bundle-features-list {
+    grid-template-columns: 1fr;
+    gap: 7px;
+    text-align: left;
+    margin: 12px 0 18px;
+  }
+
+  .bundle-features-list li {
+    font-size: 13px;
+  }
+
+  .bundle-cta-btn {
+    width: 100% !important;
+    padding: 12px 14px !important;
+    font-size: 13px !important;
+    white-space: normal !important;
+    box-sizing: border-box !important;
+  }
+
+  .bundle-media-box {
+    max-width: 260px;
+    margin: 0 auto;
+    width: 100%;
+  }
+
+  /* Packages Grid */
   .packages-grid-4 {
     grid-template-columns: 1fr;
+    gap: 18px;
   }
+
+  .package-card {
+    padding: 22px 16px;
+    border-radius: 18px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
   .package-card.most-loved {
     transform: none;
   }
+
   .package-card.most-loved:hover {
-    transform: translateY(-8px);
+    transform: translateY(-6px);
   }
+
+  .package-price-number {
+    font-size: 34px;
+  }
+
+  .package-features-list li {
+    font-size: 13px;
+  }
+
+  /* Backdrop Note Banner */
+  .backdrop-note-banner {
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
+    font-size: 12.5px;
+    margin: 24px auto 0;
+    line-height: 1.45;
+  }
+
+  /* Services Duo */
   .services-duo-grid {
     grid-template-columns: 1fr;
+    gap: 18px;
   }
+
+  .service-card-box {
+    padding: 22px 16px;
+    border-radius: 18px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .service-card-title {
+    font-size: 20px;
+  }
+
+  .service-card-desc {
+    font-size: 13.5px;
+  }
+
+  .service-checklist li {
+    font-size: 13px;
+  }
+
+  /* Included 6 Features */
   .included-grid-6 {
     grid-template-columns: 1fr;
+    gap: 14px;
   }
-  .guestbook-grid-3 {
-    grid-template-columns: 1fr;
+
+  .included-feature-card {
+    padding: 18px 14px;
+    border-radius: 16px;
+    width: 100%;
+    box-sizing: border-box;
   }
-  .addons-grid-2 {
-    grid-template-columns: 1fr;
+
+  /* Frame Showcase */
+  .frame-showcase-container {
+    width: 100%;
+    box-sizing: border-box;
   }
+
+  .frame-tabs-nav {
+    display: flex;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding-bottom: 10px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    width: 100%;
+    box-sizing: border-box;
+    justify-content: flex-start;
+  }
+
+  .frame-tabs-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .frame-tab-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 8px 14px;
+    font-size: 12.5px;
+  }
+
   .frame-tab-content.active {
     grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 18px 14px;
+    border-radius: 18px;
+    width: 100%;
+    box-sizing: border-box;
   }
+
+  /* Digital Guestbook */
+  .guestbook-grid-3 {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+
+  .guestbook-card {
+    padding: 22px 16px;
+    border-radius: 18px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .guestbook-card.gold-tier {
+    transform: none;
+  }
+
+  .guestbook-card.gold-tier:hover {
+    transform: translateY(-6px);
+  }
+
+  .guestbook-new-price {
+    font-size: 32px;
+  }
+
+  .guestbook-device-img {
+    height: 160px;
+  }
+
+  /* Addons */
+  .addons-grid-2 {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .addon-card {
+    padding: 16px 14px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .addon-price-tag {
+    align-self: flex-start;
+    font-size: 13px;
+  }
+
+  /* Cost Calculator */
+  .calculator-box {
+    padding: 20px 14px;
+    border-radius: 18px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .calc-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  .calc-summary-card {
+    padding: 18px 14px;
+    border-radius: 16px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .calc-total-amount {
+    font-size: clamp(24px, 6vw, 32px);
+  }
+
+  /* Final CTA */
+  .final-cta-btn {
+    width: 100%;
+    padding: 14px 18px;
+    font-size: 14px;
+    justify-content: center;
+  }
+
+  /* Footer */
   .footer-container {
     grid-template-columns: 1fr;
+    gap: 24px;
+    text-align: left;
   }
+
+  .footer-bottom-bar {
+    flex-direction: column;
+    text-align: center;
+    gap: 8px;
+  }
+
+  /* Flyer Modal */
+  .flyer-modal-actions {
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .flyer-nav-btn, .flyer-wa-btn {
+    width: 100%;
+    font-size: 13px;
+    padding: 10px 14px;
+    justify-content: center;
+  }
+
+  /* Sticky Conversion Bar */
   .mobile-sticky-bar {
     display: flex;
   }
+
   .floating-wa-button {
     display: none;
   }
+
   body {
     padding-bottom: 74px;
+  }
+}
+
+@media (max-width: 480px) {
+  .brand-title {
+    font-size: 16px;
+  }
+  .brand-logo-img {
+    width: 32px;
+    height: 32px;
+  }
+  .btn-cta-kiosk {
+    font-size: 11px !important;
+    padding: 5px 8px !important;
   }
 }

@@ -23,7 +23,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,600;1,9..144,700&family=Great+Vibes&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <!-- Custom Landing Page Stylesheet -->
-  <link rel="stylesheet" href="/css/landing.css?v=2.0">
+  <link rel="stylesheet" href="/css/landing.css?v=2.1">
 </head>
 <body>
 
@@ -38,8 +38,8 @@
 
   <!-- 1. Top Announcement Bar (Promo Urgency) -->
   <div class="top-announcement-bar">
-    <span>🎉 <strong>PROMO BUNDLING SPESIAL:</strong> Ambil Photobooth + Digital Guestbook hemat hingga <strong>Rp 300.000!</strong></span>
-    <a href="#simulasi-harga">Hitung &amp; Klaim Promo ➔</a>
+    <span>🎉 <strong>PROMO BUNDLING:</strong> Photobooth + Digital Guestbook hemat hingga <strong>Rp 300.000!</strong></span>
+    <a href="#simulasi-harga">Klaim Promo ➔</a>
   </div>
 
   <!-- 2. Sticky Elegant Navbar -->
@@ -47,7 +47,7 @@
     <div class="nav-container">
       <a href="/" class="brand-wrapper" title="Mafaza by Galipat Story">
         <img src="/assets/logo-mafaza.jpg" alt="Logo Mafaza" class="brand-logo-img">
-        <div>
+        <div class="brand-text-col">
           <div class="brand-title">MAFAZA</div>
           <div class="brand-subtitle">SETIAP MOMEN PUNYA CERITA • BY GALIPAT STORY</div>
         </div>
@@ -64,10 +64,10 @@
 
       <div class="nav-actions">
         <a href="/kiosk" class="btn-cta btn-cta-kiosk" title="Buka Mode Layar Kiosk Booth">
-          📸 Buka Kiosk
+          📸 <span class="kiosk-text">Buka Kiosk</span>
         </a>
-        <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20tertarik%20tanya%20paket%20Photobooth%20dan%20Digital%20Guestbook%20untuk%20acara%20saya.%20Boleh%20cek%20slot%20tanggal%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-whatsapp">
-          <span>💬</span> Chat WhatsApp
+        <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20tertarik%20tanya%20paket%20Photobooth%20dan%20Digital%20Guestbook%20untuk%20acara%20saya.%20Boleh%20cek%20slot%20tanggal%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-whatsapp" title="Chat WhatsApp Admin">
+          <span>💬</span><span class="btn-text-desktop"> Chat WhatsApp</span>
         </a>
         <button type="button" class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Toggle Navigation">
           ☰
@@ -264,7 +264,7 @@
         </ul>
 
         <div style="margin-top: 26px;">
-          <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20tertarik%20dengan%20*PROMO%20BUNDLING%20DISKON%20300K*%20(Photobooth%20%2B%20Digital%20Guestbook).%20Boleh%20minta%20info%20slot%20dan%20penjelasannya%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink" style="padding: 14px 28px; font-size: 15px;">
+          <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20tertarik%20dengan%20*PROMO%20BUNDLING%20DISKON%20300K*%20(Photobooth%20%2B%20Digital%20Guestbook).%20Boleh%20minta%20info%20slot%20dan%20penjelasannya%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink bundle-cta-btn">
             <span>💬</span> Klaim Diskon Bundling 300K Sekarang ➔
           </a>
         </div>
@@ -399,7 +399,7 @@
     </div>
 
     <!-- Backdrop Note Banner -->
-    <div style="max-width: 860px; margin: 36px auto 0; background: var(--bg-card); border: 2px dashed var(--border-gold-accent); border-radius: var(--radius-pill); padding: 12px 28px; text-align: center; font-size: 14px; font-weight: 700; color: var(--text-caramel); box-shadow: 0 4px 14px rgba(212,167,84,0.1);">
+    <div class="backdrop-note-banner">
       💖 <strong>Backdrop maroon simple modern</strong> sudah termasuk di semua paket photobooth. Harga dapat menyesuaikan lokasi &amp; kebutuhan acara.
     </div>
   </section>
@@ -617,22 +617,34 @@
       <!-- 1. Silver -->
       <div class="guestbook-card">
         <div>
-          <div class="guestbook-tier-badge">SILVER TIER</div>
-          <div class="guestbook-old-price">Rp 650.000</div>
-          <div class="guestbook-new-price">Rp 479.000</div>
-
-          <div style="width: 100%; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 20px; border: 1.5px solid var(--border-gold-soft);">
-            <img src="/assets/pl/guestbook_silver.jpg" alt="Digital Guestbook Silver Mafaza" style="width: 100%; height: auto; display: block;">
+          <div class="guestbook-card-top">
+            <span class="guestbook-tier-badge silver-badge">SILVER TIER</span>
+            <span class="guestbook-saving-pill">Hemat 171K</span>
           </div>
 
-          <ul class="package-features-list">
-            <li><span class="check-icon">✓</span> Undangan Digital Eksklusif</li>
-            <li><span class="check-icon">✓</span> Sistem Buku Tamu Digital QR</li>
-            <li><span class="check-icon">✓</span> Meeting Online Support</li>
+          <div class="guestbook-pricing-wrap">
+            <div class="guestbook-old-price">Rp 650.000</div>
+            <div class="guestbook-new-price">Rp 479.000</div>
+          </div>
+
+          <!-- Real Photo Mockup Device -->
+          <div class="guestbook-device-showcase">
+            <img src="/assets/pl/device_silver.jpg" alt="Mockup Undangan Digital Smartphone" class="guestbook-device-img">
+            <div class="guestbook-device-caption">
+              <span>📱</span> Smartphone Digital Invitation
+            </div>
+          </div>
+
+          <ul class="guestbook-features-list">
+            <li><span class="check-icon">✓</span> <strong>Undangan Digital Eksklusif</strong></li>
+            <li><span class="check-icon">✓</span> <strong>Sistem Buku Tamu Digital QR</strong></li>
+            <li><span class="check-icon">✓</span> <strong>Meeting Online Support</strong></li>
+            <li class="feature-muted"><span class="cross-icon">✕</span> Tanpa perangkat tablet fisik</li>
+            <li class="feature-muted"><span class="cross-icon">✕</span> Tanpa kru penerima di lokasi</li>
           </ul>
         </div>
 
-        <button type="button" onclick="bookPackageDirectly('Digital Guestbook (Silver)', 'Guestbook')" class="btn-cta btn-cta-outline" style="width: 100%;">
+        <button type="button" onclick="bookPackageDirectly('Digital Guestbook (Silver)', 'Guestbook')" class="btn-cta btn-cta-outline guestbook-cta-btn">
           Pilih Paket Silver ➔
         </button>
       </div>
@@ -642,26 +654,36 @@
         <div class="package-top-ribbon" style="background: var(--border-gold-accent);">⭐ BEST VALUE GOLD</div>
 
         <div>
-          <div class="guestbook-tier-badge" style="color: #8C6517;">GOLD TIER</div>
-          <div class="guestbook-old-price">Rp 1.250.000</div>
-          <div class="guestbook-new-price" style="color: #8C6517;">Rp 979.000</div>
-
-          <div style="width: 100%; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 20px; border: 1.5px solid var(--border-gold-accent);">
-            <img src="/assets/pl/guestbook_gold.jpg" alt="Digital Guestbook Gold Mafaza" style="width: 100%; height: auto; display: block;">
+          <div class="guestbook-card-top">
+            <span class="guestbook-tier-badge gold-badge">GOLD TIER</span>
+            <span class="guestbook-saving-pill gold-saving">Hemat 271K</span>
           </div>
 
-          <ul class="package-features-list">
-            <li><span class="check-icon">✓</span> Undangan Digital Eksklusif</li>
-            <li><span class="check-icon">✓</span> Sistem Buku Tamu Digital QR</li>
-            <li><span class="check-icon">✓</span> Meeting online / offline</li>
-            <li><span class="check-icon">✓</span> <strong>1 Perangkat Tablet</strong></li>
-            <li><span class="check-icon">✓</span> 1 Kru pendamping acara</li>
-            <li><span class="check-icon">✓</span> 1 Penerima tamu</li>
-            <li><span class="check-icon">✓</span> Layar Sapa otomatis</li>
+          <div class="guestbook-pricing-wrap">
+            <div class="guestbook-old-price">Rp 1.250.000</div>
+            <div class="guestbook-new-price gold-price">Rp 979.000</div>
+          </div>
+
+          <!-- Real Photo Mockup Device -->
+          <div class="guestbook-device-showcase gold-showcase">
+            <img src="/assets/pl/device_gold.jpg" alt="Tablet Digital Guestbook Gold" class="guestbook-device-img">
+            <div class="guestbook-device-caption gold-caption">
+              <span>📲</span> 1 Perangkat Tablet Stand + Layar Sapa
+            </div>
+          </div>
+
+          <ul class="guestbook-features-list">
+            <li><span class="check-icon gold-check">✓</span> <strong>Undangan Digital Eksklusif</strong></li>
+            <li><span class="check-icon gold-check">✓</span> <strong>Sistem Buku Tamu Digital QR</strong></li>
+            <li><span class="check-icon gold-check">✓</span> <strong>Meeting online / offline</strong></li>
+            <li><span class="check-icon gold-check">✓</span> <strong>1 Perangkat Tablet Stand</strong></li>
+            <li><span class="check-icon gold-check">✓</span> <strong>1 Kru pendamping acara</strong></li>
+            <li><span class="check-icon gold-check">✓</span> <strong>1 Penerima tamu ramah</strong></li>
+            <li><span class="check-icon gold-check">✓</span> <strong>Layar Sapa otomatis</strong></li>
           </ul>
         </div>
 
-        <button type="button" onclick="bookPackageDirectly('Digital Guestbook (Gold)', 'Guestbook')" class="btn-cta btn-cta-gold" style="width: 100%;">
+        <button type="button" onclick="bookPackageDirectly('Digital Guestbook (Gold)', 'Guestbook')" class="btn-cta btn-cta-gold guestbook-cta-btn">
           Pilih Paket Gold (Favorit) ➔
         </button>
       </div>
@@ -669,26 +691,36 @@
       <!-- 3. Diamond -->
       <div class="guestbook-card">
         <div>
-          <div class="guestbook-tier-badge">DIAMOND TIER</div>
-          <div class="guestbook-old-price">Rp 1.450.000</div>
-          <div class="guestbook-new-price">Rp 1.179.000</div>
-
-          <div style="width: 100%; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 20px; border: 1.5px solid var(--border-gold-soft);">
-            <img src="/assets/pl/guestbook_diamond.jpg" alt="Digital Guestbook Diamond Mafaza" style="width: 100%; height: auto; display: block;">
+          <div class="guestbook-card-top">
+            <span class="guestbook-tier-badge diamond-badge">DIAMOND TIER</span>
+            <span class="guestbook-saving-pill">Hemat 271K</span>
           </div>
 
-          <ul class="package-features-list">
-            <li><span class="check-icon">✓</span> Undangan Digital Eksklusif</li>
-            <li><span class="check-icon">✓</span> Sistem Buku Tamu Digital QR</li>
-            <li><span class="check-icon">✓</span> Meeting online / offline</li>
+          <div class="guestbook-pricing-wrap">
+            <div class="guestbook-old-price">Rp 1.450.000</div>
+            <div class="guestbook-new-price">Rp 1.179.000</div>
+          </div>
+
+          <!-- Real Photo Mockup Device -->
+          <div class="guestbook-device-showcase">
+            <img src="/assets/pl/device_diamond.jpg" alt="Dual Tablet Digital Guestbook Diamond" class="guestbook-device-img">
+            <div class="guestbook-device-caption">
+              <span>📲📲</span> 2 Perangkat Tablet + 2 Kru Penerima
+            </div>
+          </div>
+
+          <ul class="guestbook-features-list">
+            <li><span class="check-icon">✓</span> <strong>Undangan Digital Eksklusif</strong></li>
+            <li><span class="check-icon">✓</span> <strong>Sistem Buku Tamu Digital QR</strong></li>
+            <li><span class="check-icon">✓</span> <strong>Meeting online / offline</strong></li>
             <li><span class="check-icon">✓</span> <strong>2 Perangkat Tablet (Antrean Cepat)</strong></li>
-            <li><span class="check-icon">✓</span> 1 Kru pendamping acara</li>
-            <li><span class="check-icon">✓</span> 2 Penerima tamu</li>
-            <li><span class="check-icon">✓</span> Layar Sapa interaktif</li>
+            <li><span class="check-icon">✓</span> <strong>1 Kru pendamping acara</strong></li>
+            <li><span class="check-icon">✓</span> <strong>2 Penerima tamu profesional</strong></li>
+            <li><span class="check-icon">✓</span> <strong>Layar Sapa interaktif</strong></li>
           </ul>
         </div>
 
-        <button type="button" onclick="bookPackageDirectly('Digital Guestbook (Diamond)', 'Guestbook')" class="btn-cta btn-cta-outline" style="width: 100%;">
+        <button type="button" onclick="bookPackageDirectly('Digital Guestbook (Diamond)', 'Guestbook')" class="btn-cta btn-cta-outline guestbook-cta-btn">
           Pilih Paket Diamond ➔
         </button>
       </div>
@@ -957,11 +989,11 @@
         Slot tanggal di akhir pekan dan musim pernikahan sangat cepat terisi. Jangan biarkan acaramu tanpa keseruan photobooth dan buku tamu digital eksklusif!
       </p>
 
-      <div style="display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;">
-        <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20ingin%20*BOOK%20MY%20DATE%20NOW!*%20Boleh%20cek%20apakah%20slot%20tanggal%20acara%20saya%20masih%20tersedia%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink" style="padding: 18px 38px; font-size: 17px; box-shadow: 0 16px 40px rgba(230, 120, 107, 0.45);">
+      <div class="final-cta-btn-wrap">
+        <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20ingin%20*BOOK%20MY%20DATE%20NOW!*%20Boleh%20cek%20apakah%20slot%20tanggal%20acara%20saya%20masih%20tersedia%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink final-cta-btn">
           <span>💌</span> BOOK YOUR DATE NOW! ➔
         </a>
-        <a href="https://instagram.com/mafaza.moments" target="_blank" rel="noopener" class="btn-cta btn-cta-outline" style="padding: 18px 30px; font-size: 16px;">
+        <a href="https://instagram.com/mafaza.moments" target="_blank" rel="noopener" class="btn-cta btn-cta-outline final-cta-btn">
           <span>📷</span> Kunjungi Instagram @mafaza.moments
         </a>
       </div>
@@ -1062,17 +1094,17 @@
         <img id="flyerModalImage" src="/assets/pl/pl_page_1.jpg" alt="Flyer Halaman 1" style="max-height: 65vh; max-width: 100%; object-fit: contain; border-radius: var(--radius-sm); border: 2px solid var(--border-gold-soft); box-shadow: 0 10px 30px rgba(0,0,0,0.15);">
       </div>
 
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px;">
-        <button type="button" class="btn-cta btn-cta-outline" id="flyerModalPrev">❮ Halaman Sebelumnya</button>
-        <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20sudah%20melihat%20Price%20List%20resmi%20dan%20ingin%20booking%20acara.%20Boleh%20cek%20slot%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink">
-          💬 Tanya Paket via WA
+      <div class="flyer-modal-actions">
+        <button type="button" class="btn-cta btn-cta-outline flyer-nav-btn" id="flyerModalPrev">❮ Sebelumnya</button>
+        <a href="https://wa.me/6281803300354?text=Halo%20Admin%20MAFAZA%2C%20saya%20sudah%20melihat%20Price%20List%20resmi%20dan%20ingin%20booking%20acara.%20Boleh%20cek%20slot%3F" target="_blank" rel="noopener" class="btn-cta btn-cta-pink flyer-wa-btn">
+          💬 Tanya via WA
         </a>
-        <button type="button" class="btn-cta btn-cta-outline" id="flyerModalNext">Halaman Selanjutnya ❯</button>
+        <button type="button" class="btn-cta btn-cta-outline flyer-nav-btn" id="flyerModalNext">Selanjutnya ❯</button>
       </div>
     </div>
   </div>
 
   <!-- Scripts -->
-  <script src="/js/landing.js?v=2.0"></script>
+  <script src="/js/landing.js?v=2.1"></script>
 </body>
 </html>
