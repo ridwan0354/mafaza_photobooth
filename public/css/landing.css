@@ -949,53 +949,177 @@ body {
 .included-grid-6 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 26px;
-  max-width: 1060px;
+  gap: 28px;
+  max-width: 1040px;
   margin: 0 auto;
 }
 
 .included-feature-card {
-  border-radius: 24px;
-  overflow: hidden;
-  box-shadow: 0 10px 28px rgba(123, 72, 46, 0.08);
-  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
   background: #FFFDF9;
+  border: 1.5px solid #E8C99B;
+  border-radius: 28px;
+  padding: 32px 24px 28px;
+  box-shadow: 0 10px 28px rgba(123, 72, 46, 0.07);
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  border: 1.5px solid var(--border-gold-soft);
+  text-align: center;
+  box-sizing: border-box;
 }
 
 .included-feature-card:hover {
-  transform: translateY(-8px) scale(1.02);
-  border-color: var(--border-gold-accent);
-  box-shadow: 0 18px 45px rgba(212, 167, 84, 0.3);
+  transform: translateY(-8px);
+  border-color: #D4A754;
+  box-shadow: 0 20px 45px rgba(212, 167, 84, 0.28);
 }
 
-.feature-card-full-img {
+/* Pink Ribbon Bow on Card 1 */
+.card-ribbon-bow {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  font-size: 26px;
+  line-height: 1;
+  filter: drop-shadow(0 4px 8px rgba(224, 110, 134, 0.35));
+  transform: rotate(-8deg);
+  transition: transform 0.3s ease;
+  pointer-events: none;
+  user-select: none;
+}
+
+.included-feature-card:hover .card-ribbon-bow {
+  transform: rotate(5deg) scale(1.15);
+}
+
+/* 3D Icon Stage & Floating Sparkles */
+.card-art-stage {
+  position: relative;
   width: 100%;
-  height: auto;
-  display: block;
-  border-radius: 22px;
-  transition: transform 0.35s ease;
+  height: 145px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 18px;
 }
 
+.art-icon-3d {
+  max-height: 135px;
+  max-width: 82%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 12px 22px rgba(123, 72, 46, 0.16));
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.4s ease;
+}
+
+.included-feature-card:hover .art-icon-3d {
+  transform: scale(1.08) translateY(-4px);
+  filter: drop-shadow(0 16px 28px rgba(212, 167, 84, 0.35));
+}
+
+/* Sparkles & Hearts */
+.art-sparkle,
+.art-heart {
+  position: absolute;
+  pointer-events: none;
+  user-select: none;
+  font-family: serif;
+  transition: transform 0.3s ease;
+}
+
+.art-sparkle {
+  color: #D4A754;
+  font-size: 16px;
+  opacity: 0.85;
+  text-shadow: 0 0 10px rgba(212, 167, 84, 0.5);
+  animation: sparkleTwinkle 3s ease-in-out infinite alternate;
+}
+
+.art-heart {
+  color: #E27289;
+  font-size: 18px;
+  opacity: 0.85;
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(226, 114, 137, 0.4);
+  animation: heartFloat 2.5s ease-in-out infinite alternate;
+}
+
+.sparkle-tl { top: 6px; left: 18px; }
+.sparkle-tr { top: 10px; right: 20px; animation-delay: 0.8s; }
+.sparkle-bl { bottom: 12px; left: 20px; animation-delay: 1.5s; }
+.sparkle-br { bottom: 8px; right: 20px; animation-delay: 0.4s; }
+
+.heart-bl { bottom: 10px; left: 16px; }
+.heart-tr { top: 12px; right: 16px; }
+.heart-br { bottom: 14px; right: 16px; }
+
+@keyframes sparkleTwinkle {
+  0% { transform: scale(0.85) rotate(0deg); opacity: 0.6; }
+  100% { transform: scale(1.2) rotate(15deg); opacity: 1; }
+}
+
+@keyframes heartFloat {
+  0% { transform: translateY(0px) scale(0.9); }
+  100% { transform: translateY(-4px) scale(1.1); }
+}
+
+/* Card Typography */
+.card-info-content {
+  width: 100%;
+}
+
+.card-feature-title {
+  font-family: var(--font-fraunces, 'Fraunces', Georgia, serif);
+  font-size: 20px;
+  font-weight: 800;
+  color: #4A2E18;
+  line-height: 1.25;
+  margin: 0 0 10px;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.card-feature-desc {
+  font-family: var(--font-plus, 'Plus Jakarta Sans', sans-serif);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #7A6658;
+  line-height: 1.45;
+  margin: 0;
+}
+
+/* Footnote Pill Banner */
 .included-footer-note {
-  max-width: 480px;
-  margin: 32px auto 0;
-  background: linear-gradient(135deg, #FFF6EC 0%, #FEECEB 100%);
-  border: 1.5px solid var(--border-gold-accent);
+  max-width: 440px;
+  margin: 36px auto 0;
+  background: linear-gradient(135deg, #FFF1EE 0%, #FEE8E6 100%);
+  border: 1.5px solid #F5C6C0;
   border-radius: var(--radius-pill);
   padding: 10px 24px;
   text-align: center;
   font-size: 14px;
   font-weight: 700;
-  color: var(--text-caramel);
-  box-shadow: 0 4px 14px rgba(212, 167, 84, 0.12);
+  color: #8A3D42;
+  box-shadow: 0 4px 16px rgba(226, 114, 137, 0.12);
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+}
+
+.included-footer-note .note-icon {
+  font-size: 16px;
+}
+
+.included-footer-note .note-heart {
+  color: #E27289;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .feature-card-title {
@@ -2119,21 +2243,44 @@ body {
   /* Included 6 Features */
   .included-grid-6 {
     grid-template-columns: 1fr;
-    gap: 16px;
-    padding: 0 10px;
+    gap: 18px;
+    padding: 0 16px;
+    max-width: 360px;
+    margin: 0 auto;
   }
 
   .included-feature-card {
-    max-width: 320px;
-    margin: 0 auto;
-    width: 100%;
-    border-radius: 22px;
-    box-sizing: border-box;
+    padding: 24px 20px 22px;
+    border-radius: 24px;
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .card-art-stage {
+    height: 125px;
+    margin-bottom: 14px;
+  }
+
+  .art-icon-3d {
+    max-height: 115px;
+  }
+
+  .card-feature-title {
+    font-size: 18px;
+    min-height: auto;
+    margin-bottom: 8px;
+  }
+
+  .card-feature-desc {
+    font-size: 13px;
   }
 
   .included-footer-note {
-    font-size: 12.5px;
-    padding: 8px 18px;
+    font-size: 13px;
+    padding: 10px 18px;
+    margin-top: 24px;
+    max-width: 90%;
+  }
     margin: 20px auto 0;
   }
 
