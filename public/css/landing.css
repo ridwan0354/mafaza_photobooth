@@ -1903,6 +1903,10 @@ body {
   .footer-container {
     grid-template-columns: repeat(2, 1fr);
   }
+  .guestbook-grid-3 {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
 }
 
 @media (max-width: 768px) {
@@ -2294,10 +2298,8 @@ body {
   .included-footer-note {
     font-size: 13px;
     padding: 10px 18px;
-    margin-top: 24px;
-    max-width: 90%;
-  }
     margin: 20px auto 0;
+    max-width: 90%;
   }
 
   /* Frame Showcase */
@@ -2346,16 +2348,29 @@ body {
     max-height: 330px;
   }
 
-  /* Digital Guestbook */
+  /* Digital Guestbook (1 Baris Horizontal) */
   .guestbook-grid-3 {
-    grid-template-columns: 1fr;
-    gap: 20px;
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    gap: 16px;
+    padding: 12px 16px 24px;
+    margin: 0 -16px;
+    scrollbar-width: none;
+  }
+
+  .guestbook-grid-3::-webkit-scrollbar {
+    display: none;
   }
 
   .guestbook-card {
-    padding: 22px 16px;
-    border-radius: 18px;
-    width: 100%;
+    flex: 0 0 85%;
+    max-width: 320px;
+    scroll-snap-align: center;
+    padding: 24px 18px;
+    border-radius: 20px;
     box-sizing: border-box;
   }
 
