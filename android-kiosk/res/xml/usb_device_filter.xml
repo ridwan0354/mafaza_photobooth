@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Canon Inc. USB Vendor ID: 0x04A9 = 1193 (Includes Canon EOS 1300D, 1100D, 1200D, 1500D, 3000D, 4000D, 600D, 700D, 800D, M50, R50, R100, etc.) -->
+    <!-- Canon Inc. (0x04A9 = 1193) - Canon EOS 1300D, 1100D, 1200D, 1500D, 3000D, 600D, 700D, M50, R, etc. -->
     <usb-device vendor-id="1193" />
-    <!-- Generic PTP / Still Image Class 6 -->
+    <!-- Sony Corp. (0x054C = 1356) - Sony Alpha A7 III (ILCE-7M3), A7 II, A7 IV, A7C, A6000, A6400, ZV-E10, etc. -->
+    <usb-device vendor-id="1356" />
+    <!-- Standard PTP / Still Image Capture Class (Class 6, Subclass 1, Protocol 1) -->
     <usb-device class="6" subclass="1" protocol="1" />
 </resources>

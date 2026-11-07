@@ -23,23 +23,29 @@ import java.nio.ByteOrder;
 import java.util.HashMap;
 
 /**
- * Native Android USB Host PTP Driver for Canon EOS Cameras (e.g. Canon EOS 1300D) on Redmi Pad 2.
- * Communicates directly over USB OTG using ISO 15740 PTP + Canon EOS Vendor Extensions (0x91xx).
+ * Native Android USB Host PTP Driver for:
+ *  1) Canon EOS Cameras (e.g. Canon EOS 1300D) via Canon EOS Vendor Extensions (0x91xx)
+ *  2) Sony Alpha Cameras (e.g. Sony A7 III / ILCE-7M3) via Sony SDIO Remote Control Extensions (0x92xx)
+ *
+ * Supports Live View streaming, ISO, Shutter Speed (Tv), Aperture (Av), White Balance (WB),
+ * Auto Focus (AF), Manual Focus Step, and Physical Shutter + Hotshoe Flash (Godox CT-16) over USB OTG.
  */
 public class CanonUsbPtpEngine {
     private static final String TAG = "CanonUsbPtpEngine";
     public static final String ACTION_USB_PERMISSION = "com.mafaza.photobooth.kiosk.USB_PERMISSION";
-    public static final int CANON_VENDOR_ID = 0x04A9; // 1193
+
+    public static final int CANON_VENDOR_ID = 0x04A9; // 1193 (Canon Inc.)
+    public static final int SONY_VENDOR_ID  = 0x054C; // 1356 (Sony Corp.)
 
     // Standard PTP Operation Codes
     private static final int PTP_OC_OPEN_SESSION = 0x1002;
     private static final int PTP_OC_CLOSE_SESSION = 0x1003;
+    private static final int PTP_OC_GET_OBJECT_INFO = 0x1008;
     private static final int PTP_OC_GET_OBJECT = 0x1009;
     private static final int PTP_OC_INITIATE_CAPTURE = 0x100E;
     private static final int PTP_OC_SET_DEVICE_PROP_VALUE = 0x1016;
 
-    // Canon EOS Vendor PTP Operation Codes
-    private static final int PTP_OC_CANON_GET_PARTIAL_OBJECT = 0x9107;
+    // Canon EOS Vendor PTP Operation Codes (0x91xx)
     private static final int PTP_OC_CANON_CAPTURE = 0x910F;
     private static final int PTP_OC_CANON_SET_PROP_EX = 0x9110;
     private static final int PTP_OC_CANON_SET_REMOTE_MODE = 0x9114;
@@ -52,17 +58,35 @@ public class CanonUsbPtpEngine {
     private static final int PTP_OC_CANON_GET_VIEWFINDER_DATA = 0x9153;
     private static final int PTP_OC_CANON_DO_AF = 0x9154;
     private static final int PTP_OC_CANON_DRIVE_LENS = 0x9155;
-    private static final int PTP_OC_CANON_AF_CANCEL = 0x9160;
 
     // Canon EOS Property Codes
     public static final int PROP_APERTURE = 0xD101;
     public static final int PROP_SHUTTER_SPEED = 0xD102;
     public static final int PROP_ISO = 0xD103;
     public static final int PROP_WHITE_BALANCE = 0xD105;
-    public static final int PROP_AUTO_EXPOSURE_MODE = 0xD105;
     public static final int PROP_CAPTURE_DESTINATION = 0xD11C;
     public static final int PROP_EVF_OUTPUT_DEVICE = 0xD1B0;
     public static final int PROP_EVF_MODE = 0xD1B1;
+
+    // Sony Alpha Remote Control PTP Operation Codes (0x92xx)
+    private static final int PTP_OC_SONY_SDIO_CONNECT = 0x9201;
+    private static final int PTP_OC_SONY_SDIO_GET_EXT_DEVICE_INFO = 0x9202;
+    private static final int PTP_OC_SONY_SET_EXT_DEVICE_PROP_VALUE = 0x9205;
+    private static final int PTP_OC_SONY_CONTROL_DEVICE = 0x9207;
+    private static final int PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO = 0x9209;
+
+    // Sony Alpha Property & Control Codes
+    private static final int SONY_PROP_WHITE_BALANCE = 0x5005;      // UINT16
+    private static final int SONY_PROP_APERTURE = 0x5007;           // UINT16 (F * 100)
+    private static final int SONY_PROP_FOCUS_MODE = 0x500A;         // UINT16 (1=MF, 2=AF-S, 0x8004=AF-C)
+    private static final int SONY_PROP_SHUTTER_SPEED = 0xD20D;      // UINT32 ((num << 16) | den)
+    private static final int SONY_PROP_ISO = 0xD21E;                // UINT32
+    private static final int SONY_PROP_LIVEVIEW_STATUS = 0xD221;    // UINT8
+    private static final int SONY_CTRL_HALF_PRESS_SHUTTER = 0xD2C1; // UINT16 (2=Down, 1=Up)
+    private static final int SONY_CTRL_CAPTURE_SHUTTER = 0xD2C2;    // UINT16 (2=Down, 1=Up)
+    private static final int SONY_CTRL_NEAR_FAR_FOCUS = 0xD2C7;     // INT16  (-7..+7)
+    private static final int SONY_HANDLE_IN_MEMORY_IMAGE = 0xFFFFC001;
+    private static final int SONY_HANDLE_LIVEVIEW_FRAME  = 0xFFFFC002;
 
     // PTP Container Types
     private static final short PTP_CNT_COMMAND = 1;
@@ -71,7 +95,6 @@ public class CanonUsbPtpEngine {
 
     // PTP Response Codes
     private static final int PTP_RC_OK = 0x2001;
-    private static final int PTP_RC_DEVICE_BUSY = 0x2019;
     private static final int PTP_RC_SESSION_ALREADY_OPEN = 0x201E;
 
     public interface Listener {
@@ -94,12 +117,13 @@ public class CanonUsbPtpEngine {
 
     private volatile boolean isRunning = false;
     private volatile boolean isConnected = false;
+    private volatile boolean isSonyCamera = false;
     private volatile String cameraModelName = "Canon EOS 1300D";
     private volatile byte[] latestLiveViewJpeg = null;
     private volatile byte[] lastCapturedFullJpeg = null;
     private int transactionId = 1;
 
-    // Cached Camera Hardware State
+    // Cached Camera Hardware State (using Canon UI code representation for seamless kiosk.html sync)
     private volatile int currentIso = 96; // ISO 800
     private volatile int currentTv = 112; // 1/125
     private volatile int currentAv = 48;  // f/5.6
@@ -119,19 +143,19 @@ public class CanonUsbPtpEngine {
                 UsbDevice dev = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                 boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
                 if (granted && dev != null) {
-                    showToast("📸 Izin USB Canon diberikan! Menghubungkan Live View...");
+                    showToast("📸 Izin USB Kamera diberikan! Menghubungkan Live View...");
                     connectToDeviceAsync(dev);
                 }
             } else if (UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action)) {
                 UsbDevice dev = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
-                if (dev != null && isCanonOrPtpDevice(dev)) {
-                    showToast("🔌 Kamera Canon EOS terdeteksi di USB OTG!");
+                if (dev != null && isSupportedCameraDevice(dev)) {
+                    showToast("🔌 Kamera USB (Canon / Sony) terdeteksi di OTG!");
                     checkAndConnectDevice(dev);
                 }
             } else if (UsbManager.ACTION_USB_DEVICE_DETACHED.equals(action)) {
                 UsbDevice dev = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
                 if (dev != null && activeDevice != null && dev.getDeviceId() == activeDevice.getDeviceId()) {
-                    showToast("⚠️ Kamera Canon EOS terputus dari USB.");
+                    showToast("⚠️ Kamera USB terputus.");
                     closeCurrentConnection();
                 }
             }
@@ -162,7 +186,7 @@ public class CanonUsbPtpEngine {
             context.registerReceiver(usbReceiver, filter);
         }
 
-        workerThread = new Thread(this::runMainLoop, "CanonUsbPtpWorker");
+        workerThread = new Thread(this::runMainLoop, "CanonSonyUsbPtpWorker");
         workerThread.setPriority(Thread.MAX_PRIORITY);
         workerThread.start();
     }
@@ -184,7 +208,7 @@ public class CanonUsbPtpEngine {
     }
 
     public void scanAndConnectIfAvailable() {
-        new Thread(this::scanForCanonDevices, "CanonUsbScan").start();
+        new Thread(this::scanForCameraDevices, "UsbCameraScan").start();
     }
 
     public void setIso(String valStr) {
@@ -207,10 +231,6 @@ public class CanonUsbPtpEngine {
         stepManualFocus(stepCode);
     }
 
-    public boolean isUsbSessionConnected() {
-        return isConnected;
-    }
-
     public String getCameraModelName() {
         return cameraModelName;
     }
@@ -230,9 +250,10 @@ public class CanonUsbPtpEngine {
         mainHandler.post(() -> Toast.makeText(context, msg, Toast.LENGTH_SHORT).show());
     }
 
-    private boolean isCanonOrPtpDevice(UsbDevice dev) {
+    private boolean isSupportedCameraDevice(UsbDevice dev) {
         if (dev == null) return false;
-        if (dev.getVendorId() == CANON_VENDOR_ID) return true;
+        int vid = dev.getVendorId();
+        if (vid == CANON_VENDOR_ID || vid == SONY_VENDOR_ID) return true;
         for (int i = 0; i < dev.getInterfaceCount(); i++) {
             if (dev.getInterface(i).getInterfaceClass() == UsbConstants.USB_CLASS_STILL_IMAGE) {
                 return true;
@@ -277,7 +298,7 @@ public class CanonUsbPtpEngine {
         while (isRunning) {
             try {
                 if (!isConnected) {
-                    scanForCanonDevices();
+                    scanForCameraDevices();
                     Thread.sleep(1500);
                     continue;
                 }
@@ -288,12 +309,16 @@ public class CanonUsbPtpEngine {
 
                     long now = System.currentTimeMillis();
                     if (now - lastKeepAlive > 4000) {
-                        sendPtpCommandLocked(PTP_OC_CANON_KEEP_DEVICE_ON, new int[0], null);
-                        drainCanonEventsLocked();
+                        if (isSonyCamera) {
+                            executePtpTransactionLocked(PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 450);
+                        } else {
+                            sendPtpCommandLocked(PTP_OC_CANON_KEEP_DEVICE_ON, new int[0], null);
+                            drainCanonEventsLocked();
+                        }
                         lastKeepAlive = now;
                     }
 
-                    frame = fetchLiveViewFrameLocked();
+                    frame = isSonyCamera ? fetchSonyLiveViewFrameLocked() : fetchCanonLiveViewFrameLocked();
                 }
 
                 if (frame != null && frame.length > 512) {
@@ -304,11 +329,13 @@ public class CanonUsbPtpEngine {
                     consecutiveFailures++;
                     if (consecutiveFailures % 12 == 0) {
                         synchronized (usbLock) {
-                            enableCanonLiveViewOutputLocked();
+                            if (!isSonyCamera) {
+                                enableCanonLiveViewOutputLocked();
+                            }
                         }
                     }
-                    if (consecutiveFailures > 80) {
-                        Log.w(TAG, "Too many empty EVF frames, resetting Canon PTP session...");
+                    if (consecutiveFailures > 90) {
+                        Log.w(TAG, "Too many empty EVF frames, resetting USB PTP session...");
                         closeCurrentConnection();
                         consecutiveFailures = 0;
                     }
@@ -323,12 +350,12 @@ public class CanonUsbPtpEngine {
         }
     }
 
-    private void scanForCanonDevices() {
+    private void scanForCameraDevices() {
         if (usbManager == null) return;
         HashMap<String, UsbDevice> map = usbManager.getDeviceList();
         if (map == null || map.isEmpty()) return;
         for (UsbDevice dev : map.values()) {
-            if (isCanonOrPtpDevice(dev)) {
+            if (isSupportedCameraDevice(dev)) {
                 checkAndConnectDevice(dev);
                 return;
             }
@@ -378,11 +405,16 @@ public class CanonUsbPtpEngine {
             this.epOut = bulkOut;
             this.epIn = bulkIn;
             this.transactionId = 1;
+            this.isSonyCamera = (dev.getVendorId() == SONY_VENDOR_ID);
 
             String prodName = (Build.VERSION.SDK_INT >= 21 && dev.getProductName() != null)
                     ? dev.getProductName().trim()
                     : "";
-            this.cameraModelName = prodName.isEmpty() ? "Canon EOS 1300D" : prodName;
+            if (prodName.isEmpty()) {
+                this.cameraModelName = isSonyCamera ? "Sony Alpha A7 III" : "Canon EOS 1300D";
+            } else {
+                this.cameraModelName = prodName;
+            }
 
             // 1. Open PTP Session
             int rc = sendPtpCommandLocked(PTP_OC_OPEN_SESSION, new int[]{1}, null);
@@ -392,25 +424,30 @@ public class CanonUsbPtpEngine {
                 sendPtpCommandLocked(PTP_OC_OPEN_SESSION, new int[]{1}, null);
             }
 
-            // 2. Enable Canon EOS Remote Mode & Extended Event Mode
-            sendPtpCommandLocked(PTP_OC_CANON_SET_REMOTE_MODE, new int[]{1}, null);
-            sendPtpCommandLocked(PTP_OC_CANON_SET_EVENT_MODE, new int[]{1}, null);
-            drainCanonEventsLocked();
-
-            // 3. Set Capture Destination to RAM + SD Card (4 = PC/RAM, 2 = SD Card, 6 = Both)
-            setCanonPropExLocked(PROP_CAPTURE_DESTINATION, 6);
-
-            // 4. Enable Live View (EVF Mode = 1, EVF Output Device = 2 [PC] / 3 [TFT+PC])
-            enableCanonLiveViewOutputLocked();
+            if (isSonyCamera) {
+                // Sony Alpha (A7 III / ILCE-7M3) PC Remote Handshake Sequence
+                sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{1, 0, 0}, null);
+                sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{2, 0, 0}, null);
+                executePtpTransactionLocked(PTP_OC_SONY_SDIO_GET_EXT_DEVICE_INFO, new int[]{0x00C8}, null, 800);
+                sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{3, 0, 0}, null);
+                executePtpTransactionLocked(PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 800);
+            } else {
+                // Canon EOS (1300D, etc.) Remote Mode + LiveView Handshake Sequence
+                sendPtpCommandLocked(PTP_OC_CANON_SET_REMOTE_MODE, new int[]{1}, null);
+                sendPtpCommandLocked(PTP_OC_CANON_SET_EVENT_MODE, new int[]{1}, null);
+                drainCanonEventsLocked();
+                setCanonPropExLocked(PROP_CAPTURE_DESTINATION, 6);
+                enableCanonLiveViewOutputLocked();
+            }
 
             this.isConnected = true;
             if (listener != null) {
                 listener.onCameraConnected(this.cameraModelName);
             }
-            showToast("✅ " + this.cameraModelName + " Terhubung! Live View & Flash Hotshoe Aktif.");
-            Log.i(TAG, "Canon PTP Session Connected: " + this.cameraModelName);
+            showToast("✅ " + this.cameraModelName + " Terhubung! Live View, ISO & Flash Aktif.");
+            Log.i(TAG, "USB PTP Session Connected: " + this.cameraModelName + " (Sony=" + isSonyCamera + ")");
         } catch (Exception e) {
-            Log.e(TAG, "Failed to open Canon PTP connection", e);
+            Log.e(TAG, "Failed to open USB PTP connection", e);
             closeCurrentConnection();
         }
     }
@@ -418,7 +455,6 @@ public class CanonUsbPtpEngine {
     private void enableCanonLiveViewOutputLocked() {
         setCanonPropExLocked(PROP_EVF_MODE, 1);
         try { Thread.sleep(60); } catch (InterruptedException ignored) {}
-        // Value 2 = PC/USB stream, Value 3 = Camera LCD + PC/USB stream
         setCanonPropExLocked(PROP_EVF_OUTPUT_DEVICE, 2);
         try { Thread.sleep(150); } catch (InterruptedException ignored) {}
         drainCanonEventsLocked();
@@ -450,114 +486,312 @@ public class CanonUsbPtpEngine {
         }
     }
 
+    /**
+     * Sets ISO, Shutter Speed (Tv), Aperture (Av), or White Balance (WB) from the Web Kiosk UI.
+     * Works transparently for both Canon EOS 1300D and Sony Alpha A7 III!
+     */
     public boolean setHardwareProperty(String propName, int val) {
         synchronized (usbLock) {
             if (!isConnected) return false;
-            int propCode = 0;
-            if ("iso".equalsIgnoreCase(propName)) {
-                propCode = PROP_ISO;
-                currentIso = val;
-            } else if ("tv".equalsIgnoreCase(propName)) {
-                propCode = PROP_SHUTTER_SPEED;
-                currentTv = val;
-            } else if ("av".equalsIgnoreCase(propName)) {
-                propCode = PROP_APERTURE;
-                currentAv = val;
-            } else if ("wb".equalsIgnoreCase(propName)) {
-                propCode = PROP_WHITE_BALANCE;
-                currentWb = val;
-            }
-            if (propCode == 0) return false;
 
-            int rc = setCanonPropExLocked(propCode, val);
-            lastCmdError = (rc == PTP_RC_OK) ? 0 : rc;
-            drainCanonEventsLocked();
-            return rc == PTP_RC_OK;
+            if ("iso".equalsIgnoreCase(propName)) {
+                currentIso = val;
+                if (isSonyCamera) {
+                    int sonyIso = mapCanonIsoToSony(val);
+                    int rc = setSonyExtPropUInt32Locked(SONY_PROP_ISO, sonyIso);
+                    lastCmdError = (rc == PTP_RC_OK) ? 0 : rc;
+                    return rc == PTP_RC_OK;
+                } else {
+                    int rc = setCanonPropExLocked(PROP_ISO, val);
+                    lastCmdError = (rc == PTP_RC_OK) ? 0 : rc;
+                    drainCanonEventsLocked();
+                    return rc == PTP_RC_OK;
+                }
+            } else if ("tv".equalsIgnoreCase(propName)) {
+                currentTv = val;
+                if (isSonyCamera) {
+                    int sonyTv = mapCanonTvToSony(val);
+                    int rc = setSonyExtPropUInt32Locked(SONY_PROP_SHUTTER_SPEED, sonyTv);
+                    lastCmdError = (rc == PTP_RC_OK) ? 0 : rc;
+                    return rc == PTP_RC_OK;
+                } else {
+                    int rc = setCanonPropExLocked(PROP_SHUTTER_SPEED, val);
+                    lastCmdError = (rc == PTP_RC_OK) ? 0 : rc;
+                    drainCanonEventsLocked();
+                    return rc == PTP_RC_OK;
+                }
+            } else if ("av".equalsIgnoreCase(propName)) {
+                currentAv = val;
+                if (isSonyCamera) {
+                    int sonyAv = mapCanonAvToSony(val);
+                    int rc = setSonyExtPropUInt16Locked(SONY_PROP_APERTURE, sonyAv);
+                    lastCmdError = (rc == PTP_RC_OK) ? 0 : rc;
+                    return rc == PTP_RC_OK;
+                } else {
+                    int rc = setCanonPropExLocked(PROP_APERTURE, val);
+                    lastCmdError = (rc == PTP_RC_OK) ? 0 : rc;
+                    drainCanonEventsLocked();
+                    return rc == PTP_RC_OK;
+                }
+            } else if ("wb".equalsIgnoreCase(propName)) {
+                currentWb = val;
+                if (isSonyCamera) {
+                    int sonyWb = mapCanonWbToSony(val);
+                    int rc = setSonyExtPropUInt16Locked(SONY_PROP_WHITE_BALANCE, sonyWb);
+                    lastCmdError = (rc == PTP_RC_OK) ? 0 : rc;
+                    return rc == PTP_RC_OK;
+                } else {
+                    int rc = setCanonPropExLocked(PROP_WHITE_BALANCE, val);
+                    lastCmdError = (rc == PTP_RC_OK) ? 0 : rc;
+                    drainCanonEventsLocked();
+                    return rc == PTP_RC_OK;
+                }
+            }
+            return false;
         }
     }
 
     public boolean triggerAutoFocus() {
         synchronized (usbLock) {
             if (!isConnected) return false;
-            int rc = sendPtpCommandLocked(PTP_OC_CANON_DO_AF, new int[0], null);
-            if (rc != PTP_RC_OK) {
-                sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 0}, null);
-                try { Thread.sleep(280); } catch (InterruptedException ignored) {}
-                sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{1}, null);
+            if (isSonyCamera) {
+                sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 2);
+                try { Thread.sleep(320); } catch (InterruptedException ignored) {}
+                sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 1);
+                return true;
+            } else {
+                int rc = sendPtpCommandLocked(PTP_OC_CANON_DO_AF, new int[0], null);
+                if (rc != PTP_RC_OK) {
+                    sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 0}, null);
+                    try { Thread.sleep(280); } catch (InterruptedException ignored) {}
+                    sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{1}, null);
+                }
+                drainCanonEventsLocked();
+                return true;
             }
-            drainCanonEventsLocked();
-            return true;
         }
     }
 
     public boolean stepManualFocus(int stepCode) {
         synchronized (usbLock) {
             if (!isConnected) return false;
-            int rc = sendPtpCommandLocked(PTP_OC_CANON_DRIVE_LENS, new int[]{stepCode}, null);
-            drainCanonEventsLocked();
-            return rc == PTP_RC_OK;
+            if (isSonyCamera) {
+                // Convert Canon step code (1=Near, 3=Near++, 32769=Far, 32771=Far++) to Sony signed step
+                short sonyStep = 1;
+                if (stepCode == 1) sonyStep = -1;
+                else if (stepCode == 3) sonyStep = -3;
+                else if (stepCode == 32769) sonyStep = 1;
+                else if (stepCode == 32771) sonyStep = 3;
+                setSonyExtPropUInt16Locked(SONY_PROP_FOCUS_MODE, 1); // Ensure MF if stepping manually
+                int rc = sendSonyControlUInt16Locked(SONY_CTRL_NEAR_FAR_FOCUS, sonyStep & 0xFFFF);
+                return rc == PTP_RC_OK;
+            } else {
+                int rc = sendPtpCommandLocked(PTP_OC_CANON_DRIVE_LENS, new int[]{stepCode}, null);
+                drainCanonEventsLocked();
+                return rc == PTP_RC_OK;
+            }
         }
     }
 
     /**
-     * Triggers the physical Canon EOS 1300D shutter over USB.
-     * Drops Live View mirror momentarily so the hotshoe X-Sync pin fires the Godox CT-16 Flash 100%,
-     * downloads the captured JPEG from the camera, and resumes Live View.
+     * Triggers the physical shutter over USB (Canon EOS 1300D or Sony Alpha A7 III).
+     * Fires the Hotshoe X-Sync pin (Godox CT-16 Flash), downloads the captured JPEG, and resumes Live View.
      */
     public byte[] capturePhotoWithFlash() {
         synchronized (usbLock) {
             if (!isConnected) return latestLiveViewJpeg;
+            if (isSonyCamera) {
+                return captureSonyPhotoWithFlashLocked();
+            } else {
+                return captureCanonPhotoWithFlashLocked();
+            }
+        }
+    }
 
-            byte[] backupFrame = latestLiveViewJpeg;
-            lastCapturedFullJpeg = null;
+    private byte[] captureCanonPhotoWithFlashLocked() {
+        byte[] backupFrame = latestLiveViewJpeg;
+        lastCapturedFullJpeg = null;
 
-            try {
-                // 1. Set EVF Output to 0 briefly so mechanical shutter & hotshoe X-sync (Godox CT-16) fire reliably on EOS 1300D
-                setCanonPropExLocked(PROP_EVF_OUTPUT_DEVICE, 0);
-                Thread.sleep(160);
-                drainCanonEventsLocked();
+        try {
+            // 1. Set EVF Output to 0 briefly so mechanical shutter & hotshoe X-sync (Godox CT-16) fire reliably on EOS 1300D
+            setCanonPropExLocked(PROP_EVF_OUTPUT_DEVICE, 0);
+            Thread.sleep(160);
+            drainCanonEventsLocked();
 
-                // 2. Fire Full Shutter Release (Half-press 1 -> Full-press 2 -> Release)
-                int rc1 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 0}, null);
-                int rc2 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 0}, null);
-                Thread.sleep(140);
-                sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{2}, null);
-                sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{1}, null);
+            // 2. Fire Full Shutter Release (Half-press 1 -> Full-press 2 -> Release)
+            int rc1 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 0}, null);
+            int rc2 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 0}, null);
+            Thread.sleep(140);
+            sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{2}, null);
+            sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{1}, null);
 
-                if (rc1 != PTP_RC_OK && rc2 != PTP_RC_OK) {
-                    int rcCap = sendPtpCommandLocked(PTP_OC_CANON_CAPTURE, new int[0], null);
-                    if (rcCap != PTP_RC_OK) {
-                        sendPtpCommandLocked(PTP_OC_INITIATE_CAPTURE, new int[]{0, 0}, null);
+            if (rc1 != PTP_RC_OK && rc2 != PTP_RC_OK) {
+                int rcCap = sendPtpCommandLocked(PTP_OC_CANON_CAPTURE, new int[0], null);
+                if (rcCap != PTP_RC_OK) {
+                    sendPtpCommandLocked(PTP_OC_INITIATE_CAPTURE, new int[]{0, 0}, null);
+                }
+            }
+
+            // 3. Poll Canon events for up to 2.5 seconds to download the newly captured JPEG object
+            long deadline = System.currentTimeMillis() + 2500;
+            while (System.currentTimeMillis() < deadline && lastCapturedFullJpeg == null) {
+                int objHandle = pollCanonTransferObjectHandleLocked();
+                if (objHandle != 0) {
+                    byte[] fullJpeg = downloadCanonObjectJpegLocked(objHandle);
+                    if (fullJpeg != null && fullJpeg.length > 2048) {
+                        lastCapturedFullJpeg = fullJpeg;
+                        break;
                     }
                 }
+                Thread.sleep(90);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Canon capture error: " + e.getMessage());
+        } finally {
+            // 4. Immediately resume Live View for the next pose
+            enableCanonLiveViewOutputLocked();
+        }
 
-                // 3. Poll Canon events for up to 2.5 seconds to download the newly captured JPEG object
-                long deadline = System.currentTimeMillis() + 2500;
-                while (System.currentTimeMillis() < deadline && lastCapturedFullJpeg == null) {
-                    int objHandle = pollCanonTransferObjectHandleLocked();
-                    if (objHandle != 0) {
-                        byte[] fullJpeg = downloadCanonObjectJpegLocked(objHandle);
-                        if (fullJpeg != null && fullJpeg.length > 2048) {
-                            lastCapturedFullJpeg = fullJpeg;
+        if (lastCapturedFullJpeg != null && lastCapturedFullJpeg.length > 2048) {
+            latestLiveViewJpeg = lastCapturedFullJpeg;
+            return lastCapturedFullJpeg;
+        }
+        return (latestLiveViewJpeg != null) ? latestLiveViewJpeg : backupFrame;
+    }
+
+    private byte[] captureSonyPhotoWithFlashLocked() {
+        byte[] backupFrame = latestLiveViewJpeg;
+        lastCapturedFullJpeg = null;
+
+        try {
+            // 1. Half-press + Full-press Sony Shutter (triggers Sony A7 III mechanical shutter & Godox CT-16 hotshoe flash)
+            sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 2);
+            Thread.sleep(80);
+            sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 2);
+            Thread.sleep(150);
+            sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 1);
+            sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 1);
+
+            // 2. Poll Sony In-Memory Image handle (0xFFFFC001) for up to 2.5 seconds
+            long deadline = System.currentTimeMillis() + 2500;
+            while (System.currentTimeMillis() < deadline && lastCapturedFullJpeg == null) {
+                Thread.sleep(120);
+                PtpTransactionResult infoRes = executePtpTransactionLocked(
+                        PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 600);
+                if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
+                    PtpTransactionResult imgRes = executePtpTransactionLocked(
+                            PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 3500);
+                    if (imgRes != null && imgRes.dataPayload != null && imgRes.dataPayload.length > 2048) {
+                        byte[] jpeg = extractJpegFromBuffer(imgRes.dataPayload);
+                        if (jpeg != null && jpeg.length > 2048) {
+                            lastCapturedFullJpeg = jpeg;
                             break;
                         }
                     }
-                    Thread.sleep(90);
                 }
-            } catch (Exception e) {
-                Log.w(TAG, "Capture error: " + e.getMessage());
-            } finally {
-                // 4. Immediately resume Live View for the next pose!
-                enableCanonLiveViewOutputLocked();
             }
+        } catch (Exception e) {
+            Log.w(TAG, "Sony capture error: " + e.getMessage());
+        }
 
-            if (lastCapturedFullJpeg != null && lastCapturedFullJpeg.length > 2048) {
-                latestLiveViewJpeg = lastCapturedFullJpeg;
-                return lastCapturedFullJpeg;
-            }
-            return (latestLiveViewJpeg != null) ? latestLiveViewJpeg : backupFrame;
+        if (lastCapturedFullJpeg != null && lastCapturedFullJpeg.length > 2048) {
+            latestLiveViewJpeg = lastCapturedFullJpeg;
+            return lastCapturedFullJpeg;
+        }
+        return (latestLiveViewJpeg != null) ? latestLiveViewJpeg : backupFrame;
+    }
+
+    // --- Sony Alpha Property Helpers & Value Mappers ---
+
+    private int setSonyExtPropUInt16Locked(int propCode, int val) {
+        ByteBuffer bb = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN);
+        bb.putShort((short) (val & 0xFFFF));
+        int rc = sendPtpCommandLocked(PTP_OC_SONY_SET_EXT_DEVICE_PROP_VALUE, new int[]{propCode}, bb.array());
+        if (rc != PTP_RC_OK) {
+            rc = sendPtpCommandLocked(PTP_OC_SET_DEVICE_PROP_VALUE, new int[]{propCode}, bb.array());
+        }
+        return rc;
+    }
+
+    private int setSonyExtPropUInt32Locked(int propCode, int val) {
+        ByteBuffer bb = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN);
+        bb.putInt(val);
+        int rc = sendPtpCommandLocked(PTP_OC_SONY_SET_EXT_DEVICE_PROP_VALUE, new int[]{propCode}, bb.array());
+        if (rc != PTP_RC_OK) {
+            rc = sendPtpCommandLocked(PTP_OC_SET_DEVICE_PROP_VALUE, new int[]{propCode}, bb.array());
+        }
+        return rc;
+    }
+
+    private int sendSonyControlUInt16Locked(int ctrlCode, int val) {
+        ByteBuffer bb = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN);
+        bb.putShort((short) (val & 0xFFFF));
+        return sendPtpCommandLocked(PTP_OC_SONY_CONTROL_DEVICE, new int[]{ctrlCode}, bb.array());
+    }
+
+    private int mapCanonIsoToSony(int canonCode) {
+        switch (canonCode) {
+            case 0:   return 0x00FFFFFF; // ISO Auto on Sony Alpha
+            case 72:  return 100;
+            case 80:  return 200;
+            case 88:  return 400;
+            case 96:  return 800;
+            case 104: return 1600;
+            case 112: return 3200;
+            case 120: return 6400;
+            default:  return (canonCode >= 100) ? canonCode : 800;
         }
     }
+
+    private int mapCanonTvToSony(int canonCode) {
+        int denom = 125;
+        switch (canonCode) {
+            case 88:  denom = 15; break;
+            case 96:  denom = 30; break;
+            case 101: denom = 50; break;
+            case 104: denom = 60; break;
+            case 109: denom = 100; break;
+            case 112: denom = 125; break;
+            case 115: denom = 160; break;
+            case 117: denom = 200; break;
+            case 120: denom = 250; break;
+            case 128: denom = 500; break;
+            case 136: denom = 1000; break;
+        }
+        return (1 << 16) | (denom & 0xFFFF);
+    }
+
+    private int mapCanonAvToSony(int canonCode) {
+        switch (canonCode) {
+            case 37: return 350;  // f/3.5
+            case 40: return 400;  // f/4.0
+            case 43: return 450;  // f/4.5
+            case 45: return 500;  // f/5.0
+            case 48: return 560;  // f/5.6
+            case 53: return 630;  // f/6.3
+            case 56: return 710;  // f/7.1
+            case 59: return 800;  // f/8.0
+            case 64: return 900;  // f/9.0
+            case 69: return 1100; // f/11
+            case 77: return 1600; // f/16
+            default: return 560;
+        }
+    }
+
+    private int mapCanonWbToSony(int canonCode) {
+        switch (canonCode) {
+            case 0: return 0x0002; // AWB
+            case 1: return 0x0004; // Daylight
+            case 2: return 0x8010; // Cloudy
+            case 3: return 0x0006; // Tungsten / Incandescent
+            case 4: return 0x8001; // Fluorescent Warm White
+            case 5: return 0x0007; // Flash
+            case 8: return 0x8011; // Shade
+            default: return 0x0002;
+        }
+    }
+
+    // --- Canon EOS Property & Event Helpers ---
 
     private int setCanonPropExLocked(int propCode, int value) {
         ByteBuffer payload = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN);
@@ -592,7 +826,6 @@ public class CanonUsbPtpEngine {
             int eventCode = bb.getInt(offset + 4);
             if (recordSize < 8 || offset + recordSize > buf.length) break;
 
-            // 0xC186 = RequestObjectTransfer, 0xC1A7 = RequestObjectTransferEx, 0x4002 = ObjectAdded
             if ((eventCode == 0xC186 || eventCode == 0xC1A7 || eventCode == 0x4002) && recordSize >= 12) {
                 int objectHandle = bb.getInt(offset + 8);
                 if (objectHandle != 0) return objectHandle;
@@ -611,7 +844,6 @@ public class CanonUsbPtpEngine {
                 int eventCode = bb.getInt(offset + 4);
                 if (recordSize < 8 || offset + recordSize > buf.length) break;
 
-                // 0xC189 = PropValueChanged
                 if (eventCode == 0xC189 && recordSize >= 16) {
                     int propCode = bb.getInt(offset + 8);
                     int propVal = bb.getInt(offset + 12);
@@ -635,10 +867,23 @@ public class CanonUsbPtpEngine {
         return null;
     }
 
-    private byte[] fetchLiveViewFrameLocked() {
+    private byte[] fetchCanonLiveViewFrameLocked() {
         PtpTransactionResult res = executePtpTransactionLocked(
                 PTP_OC_CANON_GET_VIEWFINDER_DATA,
                 new int[]{0x00100000},
+                null,
+                600
+        );
+        if (res == null || res.dataPayload == null || res.dataPayload.length < 256) {
+            return null;
+        }
+        return extractJpegFromBuffer(res.dataPayload);
+    }
+
+    private byte[] fetchSonyLiveViewFrameLocked() {
+        PtpTransactionResult res = executePtpTransactionLocked(
+                PTP_OC_GET_OBJECT,
+                new int[]{SONY_HANDLE_LIVEVIEW_FRAME},
                 null,
                 600
         );
@@ -720,7 +965,6 @@ public class CanonUsbPtpEngine {
         PtpTransactionResult result = new PtpTransactionResult();
         byte[] readChunk = new byte[65536];
 
-        // Read first incoming container (either DATA or RESPONSE)
         int r1 = connection.bulkTransfer(epIn, readChunk, readChunk.length, timeoutMs);
         if (r1 < 12) return null;
 
@@ -742,7 +986,6 @@ public class CanonUsbPtpEngine {
             while (bos.size() < expectedDataBytes) {
                 int nr = connection.bulkTransfer(epIn, readChunk, readChunk.length, timeoutMs);
                 if (nr <= 0) break;
-                // Check if the tail of a transfer already includes the 12-byte PTP response container
                 if (bos.size() + nr > expectedDataBytes) {
                     int needed = expectedDataBytes - bos.size();
                     if (needed > 0 && needed <= nr) {
@@ -764,7 +1007,6 @@ public class CanonUsbPtpEngine {
             }
             result.dataPayload = bos.toByteArray();
 
-            // Read the trailing RESPONSE container
             int r2 = connection.bulkTransfer(epIn, readChunk, readChunk.length, timeoutMs);
             if (r2 >= 12) {
                 ByteBuffer header2 = ByteBuffer.wrap(readChunk, 0, r2).order(ByteOrder.LITTLE_ENDIAN);
