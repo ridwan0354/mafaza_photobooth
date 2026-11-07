@@ -84,14 +84,20 @@ class KioskEngine {
     await this.fetchTemplates();
     this.setupAudio();
     this.setupFullScreenSupport();
-    this.setupVirtualCameraFallback();
     this.setupKeyboardRemoteListeners();
+    this.setupMediaDeviceChangeListener();
     this.updateCameraFitButtonsUI();
     this.updateCameraAspectRatioButtonsUI();
     this.applyCameraTransform();
     this.startCanonUsbAutoDetector();
-    // Langsung inisialisasi kamera dengan resolusi UVC yang tepat sejak halaman Kiosk dibuka
-    this.startCamera().catch(err => console.warn('Initial camera warmup:', err));
+
+    // Deteksi iPad / Mobile: Jangan panggil getUserMedia saat #screenCapture masih display:none,
+    // karena WebKit iPadOS akan membekukan/menggelapkan buffer UVC (seperti DJI Osmo Action 4) jika elemen <video> tersembunyi.
+    const isIpadOs = (navigator.userAgent.includes('Macintosh') && (navigator.maxTouchPoints > 1)) || /iPad/i.test(navigator.userAgent || '');
+    const isMobileDevice = /Android|iPhone|iPod/i.test(navigator.userAgent || '') || isIpadOs;
+    if (!isMobileDevice) {
+      this.startCamera().catch(err => console.warn('Initial camera warmup:', err));
+    }
 
     // Support direct testing of screens via hash (e.g. #template, #camera)
     const hash = window.location.hash.toLowerCase();
@@ -102,6 +108,37 @@ class KioskEngine {
       this.selectedTemplate = this.templates[0] || null;
       this.startCountdownSequence();
     }
+  }
+
+  setupMediaDeviceChangeListener() {
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.addEventListener !== 'function') return;
+    if (this._deviceChangeBound) return;
+    this._deviceChangeBound = true;
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+      if (this._deviceChangeTimer) clearTimeout(this._deviceChangeTimer);
+      // Tunggu 1100ms agar endpoint UVC kamera USB (seperti DJI Osmo Action 4) siap sepenuhnya di iPadOS / Mac
+      this._deviceChangeTimer = setTimeout(async () => {
+        try {
+          const devs = await navigator.mediaDevices.enumerateDevices();
+          const videoInputs = devs.filter(d => d.kind === 'videoinput');
+          const activeTrack = this.mediaStream?.getVideoTracks?.()[0];
+          const activeId = activeTrack?.getSettings?.()?.deviceId || '';
+          this.populateQuickCameraSelect(videoInputs, activeId);
+
+          // Jika saat ini di layar kamera/QR dan stream belum aktif, virtual, atau ada kamera eksternal baru dicolok
+          const extCam = videoInputs.find(d => /osmo|action|dji|gopro|insta360|uvc|usb|hdmi|capture|canon|sony/i.test(d.label || ''));
+          const activeLabel = activeTrack?.label || '';
+          const isCurrentlyExt = /osmo|action|dji|gopro|insta360|uvc|usb|hdmi|capture|canon|sony/i.test(activeLabel);
+          if (
+            (this.currentScreen === 'screenCapture' || this.currentScreen === 'screenQR') &&
+            (!this.isMediaStreamLive() || this.isVirtualFallbackStream || (extCam && !isCurrentlyExt))
+          ) {
+            console.log('🔌 Kamera UVC / Eksternal baru terdeteksi, mengalihkan otomatis:', extCam?.label || '');
+            await this.startCamera(null, true);
+          }
+        } catch (e) {}
+      }, 1100);
+    });
   }
 
   setupOfflineEngine() {
@@ -824,6 +861,53 @@ class KioskEngine {
       target.classList.add('active');
       this.currentScreen = screenId;
     }
+    if (screenId === 'screenCapture' || screenId === 'screenQR') {
+      requestAnimationFrame(() => {
+        this.wakeUpVideoFeedOnVisibleScreen(screenId);
+      });
+    }
+  }
+
+  isMediaStreamLive() {
+    if (!this.mediaStream) return false;
+    const tracks = this.mediaStream.getVideoTracks ? this.mediaStream.getVideoTracks() : [];
+    if (!tracks || tracks.length === 0) return false;
+    return tracks[0].readyState === 'live' && tracks[0].enabled !== false;
+  }
+
+  async wakeUpVideoFeedOnVisibleScreen(screenId = 'screenCapture') {
+    const video = document.getElementById('videoFeed');
+    const qrVideo = document.getElementById('qrVideoFeed');
+    const activeVid = screenId === 'screenQR' ? (qrVideo || video) : (video || qrVideo);
+
+    // Jika belum ada stream fisik yang hidup (atau masih virtual simulator), nyalakan kamera sekarang saat <video> sudah visible!
+    if (!this.isMediaStreamLive() || this.isVirtualFallbackStream) {
+      await this.startCamera();
+      return;
+    }
+
+    // Jika stream sudah hidup, pastikan elemen <video> yang baru tampil dari display:none benar-benar memutar frame
+    [video, qrVideo].forEach(v => {
+      if (!v) return;
+      v.muted = true;
+      v.defaultMuted = true;
+      v.playsInline = true;
+      v.setAttribute('playsinline', '');
+      v.setAttribute('webkit-playsinline', '');
+      if (v.srcObject !== this.mediaStream) {
+        v.srcObject = this.mediaStream;
+      }
+      const p = v.play();
+      if (p && typeof p.then === 'function') p.catch(() => {});
+    });
+
+    this.applyCameraTransform();
+    this.updateLiveCameraBadgeUI();
+
+    // Verifikasi apakah frame benar-benar muncul (tidak gelap/hitam di iPadOS UVC seperti DJI Osmo Action 4)
+    if (activeVid) {
+      this.scheduleUvcStreamHealthVerification(activeVid);
+    }
   }
 
   // State 1 -> State 2: Welcome to QR Scan or Directly to Frame Selection
@@ -847,7 +931,6 @@ class KioskEngine {
     // Jika event diatur Tidak Pakai Pindai QR, langsung masuk ke Pilih Frame (No. 1)
     if (this.isQrScanDisabled()) {
       this.stopQrScannerLoop();
-      this.startCamera().catch(err => console.warn('Camera background init:', err));
       this.renderTemplateSelection('all');
       this.showScreen('screenTemplate');
       return;
@@ -859,9 +942,8 @@ class KioskEngine {
       skipBtn.style.display = (this.eventConfig && this.eventConfig.qrRequirement === 'required') ? 'none' : '';
     }
 
-    // Buka Layar Pindai QR Tamu
+    // Buka Layar Pindai QR Tamu (showScreen otomatis membangunkan kamera pada screenQR)
     this.showScreen('screenQR');
-    this.startCamera().catch(err => console.warn('Camera background init:', err));
     this.loadActiveGuestPassesForKiosk();
     this.startQrScannerLoop();
   }
@@ -1661,7 +1743,7 @@ class KioskEngine {
     this.loadSavedCameraImageAdjust();
     const { brightness, contrast, saturation } = this.cameraImageAdjust;
     if (brightness === 100 && contrast === 100 && saturation === 100) {
-      return 'none';
+      return '';
     }
     return `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
   }
@@ -1690,12 +1772,18 @@ class KioskEngine {
   applyCameraImageAdjustToLiveVideo() {
     const video = document.getElementById('videoFeed');
     if (video) {
-      video.style.filter = this.getCameraCssFilterString();
+      const f = this.getCameraCssFilterString();
+      if (f) {
+        video.style.filter = f;
+      } else {
+        video.style.removeProperty('filter');
+      }
     }
   }
 
   async onQuickCameraSelectChange(deviceId) {
     if (!deviceId) return;
+    this.userExplicitPreferredDeviceId = deviceId;
     if (!this.cameraConfig) this.cameraConfig = {};
     this.cameraConfig.preferredVideoDeviceId = deviceId;
     try {
@@ -1708,18 +1796,61 @@ class KioskEngine {
         body: JSON.stringify({ preferredVideoDeviceId: deviceId })
       });
     } catch (e) {}
-    await this.startCamera();
+    await this.startCamera(null, true);
+  }
+
+  async forceReconnectCamera() {
+    this.showToast('🔄 Menyegarkan koneksi kamera UVC / Eksternal...', '📹', 2200);
+    if (this.mediaStream) {
+      try {
+        this.mediaStream.getTracks().forEach(t => t.stop());
+      } catch (e) {}
+      this.mediaStream = null;
+    }
+    this.isVirtualFallbackStream = false;
+    await new Promise(r => setTimeout(r, 350));
+    await this.startCamera(null, true);
+  }
+
+  updateLiveCameraBadgeUI(customLabel = null) {
+    const badge = document.getElementById('liveCameraNameBadge');
+    if (!badge) return;
+    if (customLabel) {
+      badge.innerText = customLabel;
+      return;
+    }
+    if (this.canonUsbStreamActive) {
+      badge.innerText = 'LIVE • Canon USB';
+      return;
+    }
+    if (this.isVirtualFallbackStream) {
+      badge.innerText = 'LIVE • Simulator';
+      return;
+    }
+    const track = this.mediaStream?.getVideoTracks?.()[0];
+    const rawLabel = (track?.label || '').trim();
+    if (rawLabel) {
+      const shortLabel = rawLabel.replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*/gi, '').slice(0, 22);
+      badge.innerText = `LIVE • ${shortLabel}`;
+    } else {
+      badge.innerText = 'LIVE';
+    }
   }
 
   populateQuickCameraSelect(videoInputs, activeDeviceId) {
     const sel = document.getElementById('kioskQuickCameraSelect');
     if (!sel) return;
     let optsHtml = '';
-    const isCanonActive = this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active;
-    const camTitle = isCanonActive ? (this.canonUsbBridgeInfo.camera || 'Canon EOS (Kabel USB)') : 'Canon EOS (Kabel USB)';
-    const statusIcon = isCanonActive ? '🟢' : '🔌';
-    const isCanonSel = activeDeviceId === 'canon_usb_direct' ? 'selected' : '';
-    optsHtml += `<option value="canon_usb_direct" ${isCanonSel}>${statusIcon} ${camTitle}</option>`;
+    const isIpadOs = (navigator.userAgent.includes('Macintosh') && (navigator.maxTouchPoints > 1)) || /iPad/i.test(navigator.userAgent || '');
+    const isMobileDevice = /Android|iPhone|iPod/i.test(navigator.userAgent || '') || isIpadOs;
+
+    if (!isMobileDevice) {
+      const isCanonActive = this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active;
+      const camTitle = isCanonActive ? (this.canonUsbBridgeInfo.camera || 'Canon EOS (Kabel USB)') : 'Canon EOS (Kabel USB)';
+      const statusIcon = isCanonActive ? '🟢' : '🔌';
+      const isCanonSel = activeDeviceId === 'canon_usb_direct' ? 'selected' : '';
+      optsHtml += `<option value="canon_usb_direct" ${isCanonSel}>${statusIcon} ${camTitle}</option>`;
+    }
 
     if (Array.isArray(videoInputs)) {
       optsHtml += videoInputs.map((d, i) => {
@@ -1745,7 +1876,171 @@ class KioskEngine {
         body: JSON.stringify({ uvcResolution: resMode })
       });
     } catch (e) {}
-    await this.startCamera(resMode);
+    await this.startCamera(resMode, true);
+  }
+
+  checkVideoFeedHealth(videoEl) {
+    if (!videoEl || !videoEl.srcObject) {
+      return { healthy: false, reason: 'no_src' };
+    }
+    const track = this.mediaStream?.getVideoTracks?.()[0];
+    if (!track || track.readyState !== 'live' || track.enabled === false) {
+      return { healthy: false, reason: 'track_not_live' };
+    }
+    if (!videoEl.videoWidth || !videoEl.videoHeight || videoEl.readyState < 2) {
+      return { healthy: false, reason: 'zero_dimensions' };
+    }
+    try {
+      if (!this._healthCheckCanvas) {
+        this._healthCheckCanvas = document.createElement('canvas');
+        this._healthCheckCanvas.width = 32;
+        this._healthCheckCanvas.height = 32;
+      }
+      const ctx = this._healthCheckCanvas.getContext('2d', { willReadFrequently: true });
+      ctx.clearRect(0, 0, 32, 32);
+      ctx.drawImage(videoEl, 0, 0, 32, 32);
+      const data = ctx.getImageData(0, 0, 32, 32).data;
+      let maxLuma = 0;
+      for (let i = 0; i < data.length; i += 16) {
+        const luma = Math.max(data[i], data[i + 1], data[i + 2]);
+        if (luma > maxLuma) maxLuma = luma;
+        if (maxLuma > 3) break;
+      }
+      if (maxLuma <= 2) {
+        return { healthy: false, reason: 'black_buffer' };
+      }
+    } catch (e) {}
+    return { healthy: true, reason: 'ok' };
+  }
+
+  scheduleUvcStreamHealthVerification(videoEl) {
+    if (this._uvcHealthTimer) clearTimeout(this._uvcHealthTimer);
+    if (!videoEl) return;
+
+    this._uvcHealthTimer = setTimeout(async () => {
+      if (this.canonUsbStreamActive || this.isVirtualFallbackStream) return;
+      if (this.currentScreen !== 'screenCapture' && this.currentScreen !== 'screenQR') return;
+
+      // Polling hingga ~900ms untuk memberi waktu keyframe pertama UVC (seperti DJI Osmo Action 4) tiba
+      for (let i = 0; i < 6; i++) {
+        const status = this.checkVideoFeedHealth(videoEl);
+        if (status.healthy) {
+          this.updateLiveCameraBadgeUI();
+          return;
+        }
+        try {
+          if (videoEl.paused) {
+            const p = videoEl.play();
+            if (p && typeof p.then === 'function') p.catch(() => {});
+          }
+        } catch (e) {}
+        await new Promise(r => setTimeout(r, 160));
+      }
+
+      const postWaitStatus = this.checkVideoFeedHealth(videoEl);
+      if (postWaitStatus.healthy) {
+        this.updateLiveCameraBadgeUI();
+        return;
+      }
+
+      // Langkah Pemulihan 1: Re-bind srcObject pada elemen <video> yang kini sudah visible di layar (mengatasi bug WebKit iPadOS)
+      console.warn('⚠️ [UVC Watchdog] Stream terdeteksi gelap/beku (' + postWaitStatus.reason + '), menyegarkan binding elemen <video>...');
+      try {
+        const s = this.mediaStream;
+        videoEl.srcObject = null;
+        await new Promise(r => setTimeout(r, 60));
+        videoEl.srcObject = s;
+        const p = videoEl.play();
+        if (p && typeof p.then === 'function') await p.catch(() => {});
+      } catch (e) {}
+
+      await new Promise(r => setTimeout(r, 550));
+      if (this.checkVideoFeedHealth(videoEl).healthy) {
+        console.log('✅ [UVC Watchdog] Video pulih setelah re-bind elemen <video>!');
+        this.updateLiveCameraBadgeUI();
+        return;
+      }
+
+      // Langkah Pemulihan 2: Jika masih gelap di iPadOS / Action Cam, uji profil UVC alternatif secara berurutan
+      if (this._isRecoveringUvc) return;
+      this._isRecoveringUvc = true;
+      try {
+        const track = this.mediaStream?.getVideoTracks?.()[0];
+        const activeId = this.userExplicitPreferredDeviceId || track?.getSettings?.()?.deviceId || '';
+        console.warn('🔄 [UVC Watchdog] Mencoba negosiasi ulang profil UVC untuk perangkat:', track?.label || activeId);
+
+        const candidateConstraints = [];
+        if (activeId) {
+          // Profil A: 720p @ 30fps (format MJPEG paling stabil untuk DJI Osmo Action 4 di iPadOS USB-C)
+          candidateConstraints.push({
+            deviceId: { exact: activeId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30, max: 30 }
+          });
+          // Profil B: Unconstrained exact deviceId (native iPadOS AVCaptureDevice activeFormat)
+          candidateConstraints.push({
+            deviceId: { exact: activeId }
+          });
+          // Profil C: 1080p @ 30fps
+          candidateConstraints.push({
+            deviceId: { exact: activeId },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30, max: 30 }
+          });
+        }
+        // Profil D: Default sistem murni tanpa constraint (AVCaptureDevice.systemPreferredCamera di iPadOS 17+)
+        candidateConstraints.push(true);
+
+        for (const videoConstraint of candidateConstraints) {
+          if (this.mediaStream) {
+            try {
+              this.mediaStream.getTracks().forEach(t => t.stop());
+            } catch (e) {}
+            this.mediaStream = null;
+          }
+          // Beri jeda 480ms agar UVCDriverKit di iPadOS & DJI Osmo Action 4 mereset pipa USB UVC
+          await new Promise(r => setTimeout(r, 480));
+
+          try {
+            const nextStream = await navigator.mediaDevices.getUserMedia({
+              video: videoConstraint,
+              audio: false
+            });
+            this.mediaStream = nextStream;
+            this.isVirtualFallbackStream = false;
+
+            const video = document.getElementById('videoFeed');
+            const qrVideo = document.getElementById('qrVideoFeed');
+            [video, qrVideo].forEach(v => {
+              if (!v) return;
+              v.muted = true;
+              v.playsInline = true;
+              v.srcObject = nextStream;
+              const pr = v.play();
+              if (pr && typeof pr.then === 'function') pr.catch(() => {});
+            });
+            this.applyCameraTransform();
+            this.updateLiveCameraBadgeUI();
+
+            // Tunggu hingga 950ms apakah profil ini menghasilkan frame gambar nyata
+            for (let w = 0; w < 6; w++) {
+              await new Promise(r => setTimeout(r, 160));
+              if (this.checkVideoFeedHealth(videoEl).healthy) {
+                console.log('✅ [UVC Watchdog] Gambar kamera UVC berhasil tampil dengan constraint:', videoConstraint);
+                this._isRecoveringUvc = false;
+                return;
+              }
+            }
+          } catch (tryErr) {
+            console.warn('Profil UVC kandidat dilewati:', tryErr);
+          }
+        }
+      } finally {
+        this._isRecoveringUvc = false;
+      }
+    }, 300);
   }
 
   // Deteksi otomatis layar peringatan hitam "HDMI resolution is smaller than UVC capture" pada UVC03 (1de1:f113)
@@ -1807,10 +2102,26 @@ class KioskEngine {
     }, 900);
   }
 
-  async startCamera(overrideResMode = null) {
+  async startCamera(overrideResMode = null, forceRestart = false) {
+    // Jika stream kamera fisik sudah aktif dan sehat, jangan dimatikan-nyalakan ulang kecuali diminta eksplisit
+    if (!overrideResMode && !forceRestart && this.isMediaStreamLive() && !this.isVirtualFallbackStream) {
+      const video = document.getElementById('videoFeed');
+      const qrVideo = document.getElementById('qrVideoFeed');
+      [video, qrVideo].forEach(v => {
+        if (!v) return;
+        if (v.srcObject !== this.mediaStream) v.srcObject = this.mediaStream;
+        const p = v.play();
+        if (p && typeof p.then === 'function') p.catch(() => {});
+      });
+      this.applyCameraTransform();
+      this.updateLiveCameraBadgeUI();
+      return;
+    }
+
     const video = document.getElementById('videoFeed');
     const qrVideo = document.getElementById('qrVideoFeed');
     this.canonUsbStreamActive = false;
+    this.isVirtualFallbackStream = false;
     if (this.canonUsbLoopTimer) {
       clearTimeout(this.canonUsbLoopTimer);
       this.canonUsbLoopTimer = null;
@@ -1823,11 +2134,8 @@ class KioskEngine {
       const isMobileDevice = /Android|iPhone|iPod/i.test(navigator.userAgent || '') || isIpadOs;
 
       const localPrefId = localStorage.getItem('pb_preferred_video_device_id') || '';
-      // Jangan pernah gunakan canon_usb_direct jika perangkat ini adalah Tablet (iPad / Android) atau HP
-      const globalPrefId = (isMobileDevice && this.cameraConfig?.preferredVideoDeviceId === 'canon_usb_direct')
-        ? ''
-        : (this.cameraConfig?.preferredVideoDeviceId || '');
-      const savedPrefId = isMobileDevice ? (localPrefId === 'canon_usb_direct' ? '' : localPrefId) : (localPrefId || globalPrefId);
+      const globalPrefId = isMobileDevice ? '' : (this.cameraConfig?.preferredVideoDeviceId || '');
+      const savedPrefId = this.userExplicitPreferredDeviceId || (localPrefId === 'canon_usb_direct' && isMobileDevice ? '' : localPrefId) || globalPrefId;
 
       const canonBridge = isMobileDevice ? null : await this.checkCanonUsbBridgeStatus();
 
@@ -1842,6 +2150,7 @@ class KioskEngine {
         } catch (e) {}
         this.populateQuickCameraSelect(videoInputs, 'canon_usb_direct');
         await this.startCanonUsbDirectStream(canonBridge);
+        this.updateLiveCameraBadgeUI();
         return;
       }
 
@@ -1871,34 +2180,52 @@ class KioskEngine {
         if (this.mediaStream) {
           this.mediaStream.getTracks().forEach(t => t.stop());
           this.mediaStream = null;
-          await new Promise(r => setTimeout(r, 120));
+          // Beri jeda 300ms agar driver UVC di iPadOS / macOS benar-benar melepas handle lama
+          await new Promise(r => setTimeout(r, 300));
         }
 
         const resMode = overrideResMode || this.cameraConfig?.uvcResolution || localStorage.getItem('pb_uvc_resolution') || 'auto_canon';
         let chosenDevice = null;
+        const actionCamRegex = /osmo|action|dji|gopro|insta360/i;
         const cameraFilterRegex = /osmo|action|dji|gopro|insta360|canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|uvc|hdmi|external|fhd|usb2|video stream|webcam/i;
 
-        // Check if admin/user selected a preferred video input or if Osmo / Sony / Canon is connected
         try {
           const devices = await navigator.mediaDevices.enumerateDevices();
           const videoInputs = devices.filter(d => d.kind === 'videoinput');
-          const preferredId = savedPrefId || this.cameraConfig?.preferredVideoDeviceId;
-          chosenDevice = preferredId ? videoInputs.find(d => d.deviceId === preferredId) : null;
 
+          // 1. Jika user memilih manual lewat dropdown selama sesi ini, prioritaskan pilihan user
+          if (this.userExplicitPreferredDeviceId) {
+            chosenDevice = videoInputs.find(d => d.deviceId === this.userExplicitPreferredDeviceId) || null;
+          }
+          // 2. Prioritaskan kamera eksternal UVC (seperti DJI Osmo Action 4) dibanding kamera depan bawaan iPad
           if (!chosenDevice) {
-            chosenDevice = videoInputs.find(d => cameraFilterRegex.test(d.label || ''));
+            chosenDevice = videoInputs.find(d => actionCamRegex.test(d.label || '')) ||
+                           videoInputs.find(d => cameraFilterRegex.test(d.label || '')) ||
+                           null;
+          }
+          // 3. Fallback ke savedPrefId jika ada
+          if (!chosenDevice && savedPrefId) {
+            chosenDevice = videoInputs.find(d => d.deviceId === savedPrefId) || null;
           }
         } catch (enumErr) {}
 
+        const isChosenActionCam = actionCamRegex.test(chosenDevice?.label || '');
         const dims = this.getUvcResolutionDims(resMode, chosenDevice?.label || '');
         this.updateUvcResolutionButtonsUI(dims.label);
 
-        // Helper untuk membangun constraint video yang ramah iPadOS / WebKit
-        const buildVideoConstraints = (targetId, resolutionDims) => {
+        const buildVideoConstraints = (targetId, resolutionDims, isNativeUvcPreferred = false) => {
+          // Pada iPadOS atau DJI Osmo Action 4 (ketika user tidak menekan tombol resolusi manual),
+          // jangan paksakan width/height yang memicu negosiasi ulang UVC yang menyebabkan layar hitam di WebKit iPadOS!
+          if (isNativeUvcPreferred && !overrideResMode) {
+            if (targetId) {
+              return { deviceId: { exact: targetId } };
+            }
+            return true;
+          }
+
           const c = {};
           if (targetId) {
-            // Pada WebKit iPadOS, ideal deviceId jauh lebih toleran dibanding exact deviceId
-            c.deviceId = { ideal: targetId };
+            c.deviceId = { exact: targetId };
           } else {
             c.facingMode = 'user';
           }
@@ -1908,7 +2235,6 @@ class KioskEngine {
           if (resolutionDims && resolutionDims.height) {
             c.height = { ideal: resolutionDims.height };
           }
-          // 'max' HANYA digunakan jika secara eksplisit pengguna memilih resolusi 480p (misal capture card UVC03)
           if (resolutionDims && resolutionDims.label === '480p') {
             c.width.max = 640;
             c.height.max = 480;
@@ -1916,7 +2242,6 @@ class KioskEngine {
           return c;
         };
 
-        // Helper untuk memutar video feed dengan aman pada Safari / iPadOS
         const playMediaToVideoElements = (stream) => {
           [video, qrVideo].forEach(vidEl => {
             if (!vidEl) return;
@@ -1942,6 +2267,7 @@ class KioskEngine {
               tryPlay();
               this.applyCameraTransform();
               this.applyCameraImageAdjustToLiveVideo();
+              this.updateLiveCameraBadgeUI();
             };
             vidEl.oncanplay = () => {
               tryPlay();
@@ -1949,87 +2275,114 @@ class KioskEngine {
           });
         };
 
-        // Dapatkan media stream dengan beberapa tahap fallback toleran
         let stream = null;
         const targetDevId = chosenDevice?.deviceId || null;
+        const preferNativeUvc = isIpadOs || isMobileDevice || isChosenActionCam;
 
         try {
+          // Pada iPadOS tanpa pilihan manual, coba { video: targetDevId ? { deviceId: { exact: targetDevId } } : true }
           stream = await navigator.mediaDevices.getUserMedia({
-            video: buildVideoConstraints(targetDevId, dims),
+            video: buildVideoConstraints(targetDevId, dims, preferNativeUvc),
             audio: false
           });
         } catch (primErr) {
-          console.warn('Percobaan awal getUserMedia gagal, mencoba dengan deviceId exact/ideal:', primErr);
+          console.warn('Percobaan awal getUserMedia gagal, mencoba fallback:', primErr);
           if (targetDevId) {
             try {
               stream = await navigator.mediaDevices.getUserMedia({
-                video: { deviceId: { exact: targetDevId }, width: { ideal: dims.width }, height: { ideal: dims.height } },
+                video: { deviceId: { ideal: targetDevId } },
                 audio: false
               });
             } catch (secErr) {
-              console.warn('Percobaan exact deviceId gagal, mencoba deviceId polos:', secErr);
               stream = await navigator.mediaDevices.getUserMedia({
-                video: { deviceId: targetDevId },
+                video: true,
                 audio: false
               });
             }
           } else {
-            throw primErr;
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false
+            });
           }
         }
 
         this.mediaStream = stream;
+        this.isVirtualFallbackStream = false;
 
-        // Pada iPadOS 17+ / Android / izin pertama Chrome, label perangkat baru terbuka SETELAH getUserMedia pertama
+        // Periksa hasil enumerateDevices SETELAH izin terbuka:
+        // HANYA lakukan switch jika stream saat ini BUKAN kamera eksternal yang diinginkan!
         try {
           const postDevices = await navigator.mediaDevices.enumerateDevices();
           const postVideoInputs = postDevices.filter(d => d.kind === 'videoinput');
-          const preferredId = savedPrefId || this.cameraConfig?.preferredVideoDeviceId;
-          let extDevice = preferredId ? postVideoInputs.find(d => d.deviceId === preferredId) : null;
-          if (!extDevice) {
-            extDevice = postVideoInputs.find(d => cameraFilterRegex.test(d.label || ''));
+
+          let extDevice = null;
+          if (this.userExplicitPreferredDeviceId) {
+            extDevice = postVideoInputs.find(d => d.deviceId === this.userExplicitPreferredDeviceId) || null;
           }
+          if (!extDevice) {
+            extDevice = postVideoInputs.find(d => actionCamRegex.test(d.label || '')) ||
+                        postVideoInputs.find(d => cameraFilterRegex.test(d.label || '')) ||
+                        null;
+          }
+          if (!extDevice && savedPrefId) {
+            extDevice = postVideoInputs.find(d => d.deviceId === savedPrefId) || null;
+          }
+
           const currentTrack = this.mediaStream.getVideoTracks()[0];
-          const currentDeviceId = currentTrack?.getSettings?.()?.deviceId;
-          const currentHeight = currentTrack?.getSettings?.()?.height || 0;
-          const postDims = this.getUvcResolutionDims(resMode, extDevice?.label || currentTrack?.label || '');
+          const currentDeviceId = currentTrack?.getSettings?.()?.deviceId || '';
+          const currentLabel = currentTrack?.label || '';
+          const postDims = this.getUvcResolutionDims(resMode, extDevice?.label || currentLabel);
           this.updateUvcResolutionButtonsUI(postDims.label);
 
-          const needsSwitchDevice = extDevice && extDevice.deviceId && extDevice.deviceId !== currentDeviceId;
-          const needsSwitchRes = extDevice && postDims.height !== currentHeight && Math.abs(postDims.height - currentHeight) > 100;
+          // Cek apakah kamera yang sedang terbuka SUDAH merupakan extDevice (atau sudah Osmo Action 4)
+          const isAlreadyOnExtDevice = Boolean(
+            !extDevice ||
+            (targetDevId && targetDevId === extDevice.deviceId) ||
+            (currentDeviceId && currentDeviceId === extDevice.deviceId) ||
+            (currentLabel && extDevice.label && currentLabel.toLowerCase() === extDevice.label.toLowerCase()) ||
+            (!this.userExplicitPreferredDeviceId && actionCamRegex.test(currentLabel))
+          );
 
-          if (needsSwitchDevice || needsSwitchRes) {
-            const nextTargetId = (extDevice && extDevice.deviceId) || currentDeviceId;
+          // PENTING: Jangan pernah mematikan & menyalakan ulang stream di iPadOS / Action Cam jika perangkatnya sudah benar!
+          if (!isAlreadyOnExtDevice && extDevice && extDevice.deviceId) {
+            console.log('🔄 Beralih dari kamera bawaan ke kamera eksternal:', extDevice.label);
             if (this.mediaStream) {
               this.mediaStream.getTracks().forEach(t => t.stop());
               this.mediaStream = null;
             }
-            // Beri jeda 150ms agar AVFoundation/DriverKit di iPadOS melepas stream lama
-            await new Promise(r => setTimeout(r, 150));
+            // Beri jeda 450ms agar AVFoundation/UVCDriverKit di iPadOS siap membuka stream UVC baru
+            await new Promise(r => setTimeout(r, 450));
 
+            const isExtAction = actionCamRegex.test(extDevice.label || '');
             let extStream = null;
             try {
               extStream = await navigator.mediaDevices.getUserMedia({
-                video: buildVideoConstraints(nextTargetId, postDims),
+                video: buildVideoConstraints(extDevice.deviceId, postDims, isIpadOs || isMobileDevice || isExtAction),
                 audio: false
               });
             } catch (switchErr) {
-              console.warn('Switch stream dengan resolusi ideal gagal, mencoba deviceId polos:', switchErr);
+              console.warn('Switch ke exact deviceId gagal, mencoba ideal deviceId:', switchErr);
               extStream = await navigator.mediaDevices.getUserMedia({
-                video: nextTargetId ? { deviceId: { ideal: nextTargetId } } : { width: { ideal: postDims.width } },
+                video: { deviceId: { ideal: extDevice.deviceId } },
                 audio: false
               });
             }
             this.mediaStream = extStream;
           }
+
           const finalTrack = this.mediaStream.getVideoTracks()[0];
-          const finalDevId = finalTrack?.getSettings?.()?.deviceId || '';
+          const finalDevId = finalTrack?.getSettings?.()?.deviceId || extDevice?.deviceId || '';
           this.populateQuickCameraSelect(postVideoInputs, finalDevId);
         } catch (reEnumErr) {}
 
         playMediaToVideoElements(this.mediaStream);
         this.applyCameraTransform();
+        this.updateLiveCameraBadgeUI();
         this.scheduleUvcWarningScreenCheck();
+        if (video && (this.currentScreen === 'screenCapture' || this.currentScreen === 'screenQR')) {
+          this.scheduleUvcStreamHealthVerification(video);
+        }
         return;
       }
     } catch (err) {
@@ -2040,11 +2393,12 @@ class KioskEngine {
             this.mediaStream.getTracks().forEach(t => t.stop());
             this.mediaStream = null;
           }
-          await new Promise(r => setTimeout(r, 150));
+          await new Promise(r => setTimeout(r, 350));
           this.mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: true,
             audio: false
           });
+          this.isVirtualFallbackStream = false;
           this.updateUvcResolutionButtonsUI('720p');
           const video = document.getElementById('videoFeed');
           const qrVideo = document.getElementById('qrVideoFeed');
@@ -2057,6 +2411,7 @@ class KioskEngine {
             }
           });
           this.applyCameraTransform();
+          this.updateLiveCameraBadgeUI();
           return;
         }
       } catch (fallbackErr) {
@@ -2068,6 +2423,7 @@ class KioskEngine {
   }
 
   setupVirtualCameraFallback() {
+    this.isVirtualFallbackStream = true;
     const canvas = document.createElement('canvas');
     canvas.width = 1280;
     canvas.height = 720;
@@ -2075,6 +2431,7 @@ class KioskEngine {
 
     let angle = 0;
     const drawSimulatedFrame = () => {
+      if (!this.isVirtualFallbackStream) return;
       angle += 0.04;
       // Warm dark wood & amber booth lighting
       const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
@@ -2157,6 +2514,7 @@ class KioskEngine {
     if (video) video.srcObject = stream;
     if (qrVideo) qrVideo.srcObject = stream;
     this.mediaStream = stream;
+    this.updateLiveCameraBadgeUI();
   }
 
   clearAllTimers() {
@@ -2523,7 +2881,12 @@ class KioskEngine {
       const fitMode = this.cameraFitMode || 'contain';
       video.style.objectFit = fitMode;
       video.style.transform = `scaleX(-1) scale(${zoom}) translate(${tx}%, ${ty}%)`;
-      video.style.filter = this.getCameraCssFilterString();
+      const cssFilter = this.getCameraCssFilterString();
+      if (cssFilter) {
+        video.style.filter = cssFilter;
+      } else {
+        video.style.removeProperty('filter');
+      }
     }
     const label = document.getElementById('cameraZoomLabel');
     if (label) {
@@ -2618,7 +2981,7 @@ class KioskEngine {
 
     // Jangan di-mirror pada hasil tangkapan agar tulisan/teks terbaca normal (tidak terbalik) saat dicetak
     if (video) {
-      ctx.filter = this.getCameraCssFilterString();
+      ctx.filter = this.getCameraCssFilterString() || 'none';
       const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
       const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
       const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));

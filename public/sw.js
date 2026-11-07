@@ -6,7 +6,7 @@
  * dan tetap bisa dibuka kembali saat di-refresh (F5 / reload).
  */
 
-const CACHE_NAME = 'mafaza-offline-v3.49';
+const CACHE_NAME = 'mafaza-offline-v3.51';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -169,8 +169,26 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // C. ASSET STATIK (JS, CSS, Gambar, Ikon, Suara)
-  // Stale-While-Revalidate: Berikan dari cache instan, perbarui cache di latar belakang jika online
+  // C. ASSET STATIK (JS & CSS gunakan Network-First saat online agar update langsung aktif; asset lain Stale-While-Revalidate)
+  if (url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
+    event.respondWith(
+      (async () => {
+        try {
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Network timeout')), 2500));
+          const netRes = await Promise.race([fetch(req), timeoutPromise]);
+          if (netRes && netRes.ok && req.url.startsWith('http')) {
+            const cache = await caches.open(CACHE_NAME);
+            cache.put(req, netRes.clone());
+            return netRes;
+          }
+        } catch (err) {}
+        const cached = await caches.match(req) || await caches.match(url.pathname);
+        return cached || fetch(req);
+      })()
+    );
+    return;
+  }
+
   event.respondWith(
     (async () => {
       const cached = await caches.match(req);
