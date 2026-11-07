@@ -63,6 +63,8 @@ function initMobileMenu() {
 function initFrameTabs() {
   const tabBtns = document.querySelectorAll('.frame-tab-btn');
   const tabPanels = document.querySelectorAll('.frame-tab-content');
+  const navContainer = document.querySelector('.frame-tabs-nav');
+  if (navContainer) navContainer.scrollLeft = 0;
 
   tabBtns.forEach(btn => {
     btn.addEventListener('click', () => {
@@ -72,6 +74,9 @@ function initFrameTabs() {
       tabPanels.forEach(p => p.classList.remove('active'));
 
       btn.classList.add('active');
+      if (typeof btn.scrollIntoView === 'function') {
+        btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      }
       const targetPanel = document.getElementById(targetId);
       if (targetPanel) {
         targetPanel.classList.add('active');

@@ -6,7 +6,7 @@
  * dan tetap bisa dibuka kembali saat di-refresh (F5 / reload).
  */
 
-const CACHE_NAME = 'mafaza-offline-v3.48';
+const CACHE_NAME = 'mafaza-offline-v3.49';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -86,8 +86,8 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Hanya proses method GET
-  if (req.method !== 'GET') return;
+  // Hanya proses method GET dan skema protokol HTTP/HTTPS (abaikan chrome-extension dll.)
+  if (req.method !== 'GET' || !url.protocol.startsWith('http')) return;
 
   // A. NAVIGASI HALAMAN HTML (Kiosk, Admin, Gallery)
   // Ketika user me-refresh halaman di Mode Pesawat, Service Worker mengembalikan HTML dari cache
@@ -176,7 +176,7 @@ self.addEventListener('fetch', (event) => {
       const cached = await caches.match(req);
       const fetchPromise = fetch(req)
         .then(async (netRes) => {
-          if (netRes && netRes.ok) {
+          if (netRes && netRes.ok && req.url.startsWith('http')) {
             const cache = await caches.open(CACHE_NAME);
             cache.put(req, netRes.clone());
           }

@@ -2154,23 +2154,27 @@ async function saveTemplateVersion() {
     alert('Pilih template terlebih dahulu');
     return;
   }
+  const canvas = document.getElementById('templateEditorCanvas');
+  const width = (canvas && canvas.width) || activeTemplate.width || 1200;
+  const height = (canvas && canvas.height) || activeTemplate.height || 1800;
   const qrPosition = document.getElementById('editorTemplateQrPos')?.value || activeTemplate.qr_position || 'bottom-right';
   const shotsMode = document.getElementById('editorTemplateShotsMode')?.value || activeTemplate.shots_mode || 'event';
   try {
     const res = await fetch(`/api/templates/${activeTemplate.id}/slots`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slots: editorSlots, qrPosition, shotsMode, width: canvas.width, height: canvas.height })
+      body: JSON.stringify({ slots: editorSlots, qrPosition, shotsMode, width, height })
     });
     if (res.ok) {
       alert('✅ Konfigurasi slot pose template berhasil disimpan & dipublikasikan untuk Kiosk Event!');
       await loadTemplates();
     } else {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       alert('Gagal menyimpan slot: ' + (err.error || 'Terjadi kesalahan'));
     }
   } catch (e) {
-    alert('Gagal menyimpan template.');
+    console.error('saveTemplateVersion error:', e);
+    alert('Gagal menyimpan template: ' + (e.message || 'Terjadi kesalahan'));
   }
 }
 
@@ -2307,7 +2311,7 @@ if (editorCanvas) {
       const activeSlot = editorSlots[selectedSlotIndex];
       const hitHandle = findHandleAtCoords(activeSlot, coords.x, coords.y, coords.scaleX);
       if (hitHandle) {
-        canvas.style.cursor = hitHandle.cursor;
+        editorCanvas.style.cursor = hitHandle.cursor;
         return;
       }
     }
@@ -2320,7 +2324,7 @@ if (editorCanvas) {
         break;
       }
     }
-    canvas.style.cursor = overSlot ? 'move' : 'default';
+    editorCanvas.style.cursor = overSlot ? 'move' : 'default';
   });
 
   window.addEventListener('mouseup', () => {

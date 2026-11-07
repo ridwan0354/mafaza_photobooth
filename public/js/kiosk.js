@@ -47,12 +47,20 @@ class KioskEngine {
     this.slotAssignments = [];
     this.slotTransforms = [];
     this.selectedPreviewSlotIndex = 0;
+    this.activePhotoFilter = 'normal';
     this.cachedPhotoImages = {};
     this.cachedKeyedFrame = null;
     this.isDraggingPhoto = false;
     this.dragStart = null;
     this.canvasListenersAttached = false;
     this.syncDebounceTimer = null;
+
+    // Flash Trigger via Audio Headphone Jack (Godox CT-16 / Studio Strobe)
+    this.audioFlashEnabled = localStorage.getItem('pb_audio_flash_enabled') !== 'false';
+    this.audioFlashLeadMs = parseInt(localStorage.getItem('pb_audio_flash_lead_ms') || '25', 10);
+    this.audioFlashSinkId = localStorage.getItem('pb_audio_flash_sink_id') || '';
+    this.flashWavDataUrl = null;
+    this.flashAudioElement = null;
 
     this.init();
   }
@@ -63,6 +71,11 @@ class KioskEngine {
     this.autoPrintEnabled = localStorage.getItem('pb_kiosk_auto_print') === 'true';
     const autoToggle = document.getElementById('autoPrintToggle');
     if (autoToggle) autoToggle.checked = this.autoPrintEnabled;
+
+    const chkFlash = document.getElementById('chkAudioFlashEnabled');
+    if (chkFlash) chkFlash.checked = this.audioFlashEnabled;
+    const selLead = document.getElementById('selAudioFlashLead');
+    if (selLead) selLead.value = (this.audioFlashLeadMs || 25).toString();
 
     this.setupOfflineEngine();
     await this.fetchEventConfig();
@@ -539,6 +552,170 @@ class KioskEngine {
     } catch (e) {}
   }
 
+  // Flash Trigger via Audio Headphone Jack (Godox CT-16 / Strobe) - Universal (MacBook, Windows, iPad, Android)
+  buildFlashTriggerWavDataUrl() {
+    if (this.flashWavDataUrl) return this.flashWavDataUrl;
+    try {
+      const sampleRate = 44100;
+      const numChannels = 2;
+      const durationSec = 0.10; // 100ms pulse
+      const numSamples = Math.floor(sampleRate * durationSec);
+      const dataByteLen = numSamples * numChannels * 2;
+      const buffer = new ArrayBuffer(44 + dataByteLen);
+      const view = new DataView(buffer);
+
+      const writeStr = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      };
+      writeStr(0, 'RIFF');
+      view.setUint32(4, 36 + dataByteLen, true);
+      writeStr(8, 'WAVE');
+      writeStr(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true); // PCM
+      view.setUint16(22, numChannels, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * numChannels * 2, true);
+      view.setUint16(32, numChannels * 2, true);
+      view.setUint16(34, 16, true);
+      writeStr(36, 'data');
+      view.setUint32(40, dataByteLen, true);
+
+      // Phase-inverted Differential Square Wave (Left = +Max, Right = -Max)
+      // Melipatgandakan beda potensial tegangan (2x Voltage) antara Tip & Ring serta Tip/Ring ke Ground
+      const freq = 1000;
+      const halfPeriod = Math.max(1, Math.floor(sampleRate / (freq * 2)));
+      let offset = 44;
+      for (let i = 0; i < numSamples; i++) {
+        const sign = (Math.floor(i / halfPeriod) % 2 === 0) ? 1 : -1;
+        view.setInt16(offset, sign * 32767, true);     // Left channel
+        view.setInt16(offset + 2, -sign * 32767, true); // Right channel (inverted phase)
+        offset += 4;
+      }
+
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      this.flashWavDataUrl = 'data:audio/wav;base64,' + btoa(binary);
+      return this.flashWavDataUrl;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async refreshAudioFlashOutputDevices() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const outputs = devices.filter(d => d.kind === 'audiooutput');
+      const sel = document.getElementById('selAudioFlashDevice');
+      if (!sel) return;
+
+      // Auto-select Headphone / External / USB audio port if user hasn't manually picked one
+      if (!this.audioFlashSinkId && outputs.length > 0) {
+        const hp = outputs.find(d => /headphone|headset|external|usb|earphone|aux|line/i.test(d.label || ''));
+        if (hp && hp.deviceId && hp.deviceId !== 'default') {
+          this.audioFlashSinkId = hp.deviceId;
+        }
+      }
+
+      sel.innerHTML = '<option value="">🔊 Otomatis (Port Headset / Default Sistem)</option>';
+      outputs.forEach((d, idx) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        const lbl = d.label || `Output Audio #${idx + 1}`;
+        opt.textContent = /headphone|headset|external/i.test(lbl) ? `🎧 ${lbl}` : `🔊 ${lbl}`;
+        if (d.deviceId === this.audioFlashSinkId) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    } catch (e) {}
+  }
+
+  async setAudioFlashOutputDevice(sinkId) {
+    this.audioFlashSinkId = sinkId || '';
+    localStorage.setItem('pb_audio_flash_sink_id', this.audioFlashSinkId);
+    if (this.audioCtx && typeof this.audioCtx.setSinkId === 'function') {
+      try { await this.audioCtx.setSinkId(this.audioFlashSinkId); } catch (e) {}
+    }
+    this.showToast('🎧 Port Output Flash Trigger diperbarui!', '⚡', 1800);
+  }
+
+  triggerAudioJackFlash() {
+    if (!this.audioFlashEnabled) return;
+    try {
+      // 1. Web Audio API Differential Pulse (L = +1.0, R = -1.0)
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!this.audioCtx && AudioCtx) {
+        this.audioCtx = new AudioCtx();
+      }
+      if (this.audioCtx) {
+        if (this.audioCtx.state === 'suspended') {
+          this.audioCtx.resume().catch(() => {});
+        }
+        if (this.audioFlashSinkId && typeof this.audioCtx.setSinkId === 'function' && this.audioCtx.sinkId !== this.audioFlashSinkId) {
+          this.audioCtx.setSinkId(this.audioFlashSinkId).catch(() => {});
+        }
+
+        const ctx = this.audioCtx;
+        const sampleRate = ctx.sampleRate || 44100;
+        const duration = 0.10; // 100ms high-energy pulse
+        const buffer = ctx.createBuffer(2, Math.floor(sampleRate * duration), sampleRate);
+        const chL = buffer.getChannelData(0);
+        const chR = buffer.getChannelData(1);
+
+        const freq = 1000;
+        const halfPeriod = Math.max(1, Math.floor(sampleRate / (freq * 2)));
+        for (let i = 0; i < buffer.length; i++) {
+          const val = (Math.floor(i / halfPeriod) % 2 === 0) ? 1.0 : -1.0;
+          chL[i] = val;
+          chR[i] = -val; // Phase-inverted for 2x differential voltage across Tip-Ring
+        }
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        source.start();
+      }
+
+      // 2. HTML5 <audio> Element WAV Playback (Guarantees output on iPadOS/iOS Safari, Android & Dedicated Sink)
+      const wavUrl = this.buildFlashTriggerWavDataUrl();
+      if (wavUrl) {
+        if (!this.flashAudioElement) {
+          this.flashAudioElement = new Audio(wavUrl);
+          this.flashAudioElement.volume = 1.0;
+        }
+        if (this.audioFlashSinkId && typeof this.flashAudioElement.setSinkId === 'function') {
+          this.flashAudioElement.setSinkId(this.audioFlashSinkId).catch(() => {});
+        }
+        this.flashAudioElement.currentTime = 0;
+        this.flashAudioElement.play().catch(() => {});
+      }
+
+      console.log('⚡ [Godox CT-16] Differential Audio Jack Flash Trigger ditembakkan!');
+    } catch (e) {
+      console.warn('Audio jack flash error:', e);
+    }
+  }
+
+  testAudioJackFlash() {
+    this.refreshAudioFlashOutputDevices();
+    this.triggerAudioJackFlash();
+    this.showToast('⚡ Sinyal Flash Trigger ditembakkan ke port headset!', '⚡', 2200);
+  }
+
+  toggleAudioFlashSetting(enabled) {
+    this.audioFlashEnabled = Boolean(enabled);
+    localStorage.setItem('pb_audio_flash_enabled', this.audioFlashEnabled ? 'true' : 'false');
+    this.showToast(this.audioFlashEnabled ? '⚡ Flash Trigger Headset: AKTIF' : 'Flash Trigger Headset: NONAKTIF', '⚡', 2000);
+  }
+
+  setAudioFlashLead(val) {
+    this.audioFlashLeadMs = parseInt(val, 10) || 0;
+    localStorage.setItem('pb_audio_flash_lead_ms', this.audioFlashLeadMs.toString());
+  }
+
   async fetchTemplates() {
     try {
       const res = await fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}`);
@@ -657,9 +834,15 @@ class KioskEngine {
     this.sessionId = null;
     if (this.autoReturnTimerId) clearInterval(this.autoReturnTimerId);
 
-    // Refresh event config & event frames so changes in Admin take effect immediately
-    await this.fetchEventConfig();
-    await this.fetchTemplates();
+    // Refresh event config & event frames (non-blocking jika offline / lambat)
+    try {
+      await Promise.allSettled([
+        this.fetchEventConfig(),
+        this.fetchTemplates()
+      ]);
+    } catch (e) {
+      console.warn('Config refresh skipped on startSession:', e);
+    }
 
     // Jika event diatur Tidak Pakai Pindai QR, langsung masuk ke Pilih Frame (No. 1)
     if (this.isQrScanDisabled()) {
@@ -1213,6 +1396,8 @@ class KioskEngine {
   getUvcResolutionDims(resMode, deviceLabel = '') {
     const mode = resMode || this.cameraConfig?.uvcResolution || localStorage.getItem('pb_uvc_resolution') || 'auto_canon';
     const isUvc03OrCaptureCard = /uvc03|1de1:f113|display capture|usb video|hdmi|capture/i.test(deviceLabel || '');
+    const isOsmoOrActionCam = /osmo|action|dji|gopro|insta360/i.test(deviceLabel || '');
+
     if (mode === '480p') {
       return { width: 640, height: 480, label: '480p' };
     }
@@ -1222,7 +1407,12 @@ class KioskEngine {
     if (mode === '1080p') {
       return { width: 1920, height: 1080, label: '1080p' };
     }
-    // Mode 'auto_canon': Jika menggunakan Display capture-UVC03 (1de1:f113) / Capture Card HDMI + Canon 1300D,
+    // Mode 'auto_canon':
+    // 1. Jika DJI Osmo Action 4 / Action cam UVC (native-nya adalah 1080p Full HD pada iPad & Mac):
+    if (isOsmoOrActionCam) {
+      return { width: 1920, height: 1080, label: '1080p' };
+    }
+    // 2. Jika menggunakan Display capture-UVC03 (1de1:f113) / Capture Card HDMI + Canon 1300D,
     // gunakan 640x480 sebagai default agar TIDAK muncul layar hitam "HDMI resolution is smaller than UVC capture"
     if (isUvc03OrCaptureCard) {
       return { width: 640, height: 480, label: '480p' };
@@ -1342,6 +1532,7 @@ class KioskEngine {
     drawer.style.display = nextShow ? 'flex' : 'none';
     if (nextShow) {
       this.loadSavedCameraImageAdjust();
+      this.refreshAudioFlashOutputDevices();
       this.checkCanonUsbBridgeStatus().then(info => {
         if (info) this.syncCanonHardwareControlsUI(info);
       });
@@ -1564,7 +1755,10 @@ class KioskEngine {
       try {
         const video = document.getElementById('videoFeed');
         if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
-        // Jika resolusi saat ini > 480p, periksa apakah frame adalah layar peringatan hitam-putih UVC03
+        // Kamera action seperti DJI Osmo Action 4 bukan capture card HDMI bermasalah, lewati pengecekan
+        const trackLabel = this.mediaStream?.getVideoTracks?.()[0]?.label || '';
+        if (/osmo|action|dji|gopro|insta360/i.test(trackLabel)) return;
+        // Jika resolusi saat ini <= 480p, periksa apakah frame adalah layar peringatan hitam-putih UVC03
         if (video.videoHeight <= 480) return;
 
         const c = document.createElement('canvas');
@@ -1677,55 +1871,123 @@ class KioskEngine {
         if (this.mediaStream) {
           this.mediaStream.getTracks().forEach(t => t.stop());
           this.mediaStream = null;
+          await new Promise(r => setTimeout(r, 120));
         }
 
         const resMode = overrideResMode || this.cameraConfig?.uvcResolution || localStorage.getItem('pb_uvc_resolution') || 'auto_canon';
         let chosenDevice = null;
+        const cameraFilterRegex = /osmo|action|dji|gopro|insta360|canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|uvc|hdmi|external|fhd|usb2|video stream|webcam/i;
 
-        // Check if admin selected a preferred video input or if Sony / Canon / Capture Card is connected
+        // Check if admin/user selected a preferred video input or if Osmo / Sony / Canon is connected
         try {
           const devices = await navigator.mediaDevices.enumerateDevices();
           const videoInputs = devices.filter(d => d.kind === 'videoinput');
-          const preferredId = this.cameraConfig?.preferredVideoDeviceId;
+          const preferredId = savedPrefId || this.cameraConfig?.preferredVideoDeviceId;
           chosenDevice = preferredId ? videoInputs.find(d => d.deviceId === preferredId) : null;
 
           if (!chosenDevice) {
-            chosenDevice = videoInputs.find(d =>
-              /canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|uvc|hdmi|external|fhd|usb2|video stream/i.test(d.label || '')
-            );
+            chosenDevice = videoInputs.find(d => cameraFilterRegex.test(d.label || ''));
           }
         } catch (enumErr) {}
 
         const dims = this.getUvcResolutionDims(resMode, chosenDevice?.label || '');
         this.updateUvcResolutionButtonsUI(dims.label);
 
-        let videoConstraints = chosenDevice && chosenDevice.deviceId
-          ? {
-              deviceId: { exact: chosenDevice.deviceId },
-              width: { ideal: dims.width, max: dims.width },
-              height: { ideal: dims.height, max: dims.height }
-            }
-          : {
-              width: { ideal: dims.width, max: dims.width },
-              height: { ideal: dims.height, max: dims.height },
-              facingMode: 'user'
+        // Helper untuk membangun constraint video yang ramah iPadOS / WebKit
+        const buildVideoConstraints = (targetId, resolutionDims) => {
+          const c = {};
+          if (targetId) {
+            // Pada WebKit iPadOS, ideal deviceId jauh lebih toleran dibanding exact deviceId
+            c.deviceId = { ideal: targetId };
+          } else {
+            c.facingMode = 'user';
+          }
+          if (resolutionDims && resolutionDims.width) {
+            c.width = { ideal: resolutionDims.width };
+          }
+          if (resolutionDims && resolutionDims.height) {
+            c.height = { ideal: resolutionDims.height };
+          }
+          // 'max' HANYA digunakan jika secara eksplisit pengguna memilih resolusi 480p (misal capture card UVC03)
+          if (resolutionDims && resolutionDims.label === '480p') {
+            c.width.max = 640;
+            c.height.max = 480;
+          }
+          return c;
+        };
+
+        // Helper untuk memutar video feed dengan aman pada Safari / iPadOS
+        const playMediaToVideoElements = (stream) => {
+          [video, qrVideo].forEach(vidEl => {
+            if (!vidEl) return;
+            vidEl.muted = true;
+            vidEl.defaultMuted = true;
+            vidEl.playsInline = true;
+            vidEl.setAttribute('playsinline', '');
+            vidEl.setAttribute('webkit-playsinline', '');
+            vidEl.setAttribute('autoplay', '');
+            vidEl.srcObject = stream;
+
+            const tryPlay = () => {
+              const p = vidEl.play();
+              if (p && typeof p.then === 'function') {
+                p.catch(err => {
+                  console.warn('Video play attempt on iPadOS / Safari:', err);
+                });
+              }
             };
 
-        this.mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: videoConstraints,
-          audio: false
-        });
+            tryPlay();
+            vidEl.onloadedmetadata = () => {
+              tryPlay();
+              this.applyCameraTransform();
+              this.applyCameraImageAdjustToLiveVideo();
+            };
+            vidEl.oncanplay = () => {
+              tryPlay();
+            };
+          });
+        };
 
-        // On iPadOS 17+ / Android / first Chrome permission grant, device labels are only exposed AFTER getUserMedia permission is granted.
+        // Dapatkan media stream dengan beberapa tahap fallback toleran
+        let stream = null;
+        const targetDevId = chosenDevice?.deviceId || null;
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: buildVideoConstraints(targetDevId, dims),
+            audio: false
+          });
+        } catch (primErr) {
+          console.warn('Percobaan awal getUserMedia gagal, mencoba dengan deviceId exact/ideal:', primErr);
+          if (targetDevId) {
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: { deviceId: { exact: targetDevId }, width: { ideal: dims.width }, height: { ideal: dims.height } },
+                audio: false
+              });
+            } catch (secErr) {
+              console.warn('Percobaan exact deviceId gagal, mencoba deviceId polos:', secErr);
+              stream = await navigator.mediaDevices.getUserMedia({
+                video: { deviceId: targetDevId },
+                audio: false
+              });
+            }
+          } else {
+            throw primErr;
+          }
+        }
+
+        this.mediaStream = stream;
+
+        // Pada iPadOS 17+ / Android / izin pertama Chrome, label perangkat baru terbuka SETELAH getUserMedia pertama
         try {
           const postDevices = await navigator.mediaDevices.enumerateDevices();
           const postVideoInputs = postDevices.filter(d => d.kind === 'videoinput');
-          const preferredId = this.cameraConfig?.preferredVideoDeviceId;
+          const preferredId = savedPrefId || this.cameraConfig?.preferredVideoDeviceId;
           let extDevice = preferredId ? postVideoInputs.find(d => d.deviceId === preferredId) : null;
           if (!extDevice) {
-            extDevice = postVideoInputs.find(d =>
-              /canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|uvc|hdmi|external|fhd|usb2|video stream/i.test(d.label || '')
-            );
+            extDevice = postVideoInputs.find(d => cameraFilterRegex.test(d.label || ''));
           }
           const currentTrack = this.mediaStream.getVideoTracks()[0];
           const currentDeviceId = currentTrack?.getSettings?.()?.deviceId;
@@ -1734,19 +1996,30 @@ class KioskEngine {
           this.updateUvcResolutionButtonsUI(postDims.label);
 
           const needsSwitchDevice = extDevice && extDevice.deviceId && extDevice.deviceId !== currentDeviceId;
-          const needsSwitchRes = extDevice && postDims.height !== currentHeight;
+          const needsSwitchRes = extDevice && postDims.height !== currentHeight && Math.abs(postDims.height - currentHeight) > 100;
 
           if (needsSwitchDevice || needsSwitchRes) {
-            const targetDevId = (extDevice && extDevice.deviceId) || currentDeviceId;
-            this.mediaStream.getTracks().forEach(t => t.stop());
-            const extStream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                ...(targetDevId ? { deviceId: { exact: targetDevId } } : {}),
-                width: { ideal: postDims.width, max: postDims.width },
-                height: { ideal: postDims.height, max: postDims.height }
-              },
-              audio: false
-            });
+            const nextTargetId = (extDevice && extDevice.deviceId) || currentDeviceId;
+            if (this.mediaStream) {
+              this.mediaStream.getTracks().forEach(t => t.stop());
+              this.mediaStream = null;
+            }
+            // Beri jeda 150ms agar AVFoundation/DriverKit di iPadOS melepas stream lama
+            await new Promise(r => setTimeout(r, 150));
+
+            let extStream = null;
+            try {
+              extStream = await navigator.mediaDevices.getUserMedia({
+                video: buildVideoConstraints(nextTargetId, postDims),
+                audio: false
+              });
+            } catch (switchErr) {
+              console.warn('Switch stream dengan resolusi ideal gagal, mencoba deviceId polos:', switchErr);
+              extStream = await navigator.mediaDevices.getUserMedia({
+                video: nextTargetId ? { deviceId: { ideal: nextTargetId } } : { width: { ideal: postDims.width } },
+                audio: false
+              });
+            }
             this.mediaStream = extStream;
           }
           const finalTrack = this.mediaStream.getVideoTracks()[0];
@@ -1754,23 +2027,35 @@ class KioskEngine {
           this.populateQuickCameraSelect(postVideoInputs, finalDevId);
         } catch (reEnumErr) {}
 
-        if (video) video.srcObject = this.mediaStream;
-        if (qrVideo) qrVideo.srcObject = this.mediaStream;
+        playMediaToVideoElements(this.mediaStream);
         this.applyCameraTransform();
         this.scheduleUvcWarningScreenCheck();
         return;
       }
     } catch (err) {
-      console.warn('Preferred camera constraint failed, retrying default 480p camera:', err);
+      console.warn('Preferred camera constraint failed, retrying default camera with video.play support:', err);
       try {
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          if (this.mediaStream) {
+            this.mediaStream.getTracks().forEach(t => t.stop());
+            this.mediaStream = null;
+          }
+          await new Promise(r => setTimeout(r, 150));
           this.mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 640 }, height: { ideal: 480 } },
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
             audio: false
           });
-          this.updateUvcResolutionButtonsUI('480p');
-          if (video) video.srcObject = this.mediaStream;
-          if (qrVideo) qrVideo.srcObject = this.mediaStream;
+          this.updateUvcResolutionButtonsUI('720p');
+          const video = document.getElementById('videoFeed');
+          const qrVideo = document.getElementById('qrVideoFeed');
+          [video, qrVideo].forEach(v => {
+            if (v) {
+              v.muted = true;
+              v.playsInline = true;
+              v.srcObject = this.mediaStream;
+              v.play().catch(() => {});
+            }
+          });
           this.applyCameraTransform();
           return;
         }
@@ -2008,10 +2293,20 @@ class KioskEngine {
         clearInterval(this.countdownTimerId);
         this.countdownTimerId = null;
         updateDisplay(0);
+        this.triggerAudioJackFlash();
         this.playShutterSound();
         this.triggerShutterFlash();
-        this.captureFrame(poseIndex);
-        this.triggerHardwareCameraAndFlash(poseIndex);
+
+        const lead = Math.max(0, Math.min(200, this.audioFlashLeadMs || 0));
+        if (lead > 0) {
+          setTimeout(() => {
+            this.captureFrame(poseIndex);
+            this.triggerHardwareCameraAndFlash(poseIndex);
+          }, lead);
+        } else {
+          this.captureFrame(poseIndex);
+          this.triggerHardwareCameraAndFlash(poseIndex);
+        }
 
         // Stop live recording ~350ms after the snap so the flash moment is included
         setTimeout(() => {
@@ -2022,7 +2317,7 @@ class KioskEngine {
           if (countdownBox) countdownBox.style.display = 'none';
           this.isCountingDown = false;
           this.handlePostCapture(poseIndex);
-        }, 400);
+        }, 400 + lead);
       }
     }, 1000);
   }
@@ -2035,10 +2330,20 @@ class KioskEngine {
     }
 
     this.clearAllTimers();
+    this.triggerAudioJackFlash();
     this.playShutterSound();
     this.triggerShutterFlash();
-    this.captureFrame(targetIndex);
-    this.triggerHardwareCameraAndFlash(targetIndex);
+
+    const lead = Math.max(0, Math.min(200, this.audioFlashLeadMs || 0));
+    if (lead > 0) {
+      setTimeout(() => {
+        this.captureFrame(targetIndex);
+        this.triggerHardwareCameraAndFlash(targetIndex);
+      }, lead);
+    } else {
+      this.captureFrame(targetIndex);
+      this.triggerHardwareCameraAndFlash(targetIndex);
+    }
     setTimeout(() => {
       this.stopPoseLiveRecording(targetIndex);
     }, 350);
@@ -2930,6 +3235,57 @@ class KioskEngine {
     this.syncFinalPhotoToBackend({ forceRegenerateBoomerang: true });
   }
 
+  getPhotoFilterString(filterKey) {
+    const filters = {
+      normal: 'none',
+      glowing: 'brightness(107%) contrast(104%) saturate(108%)',
+      korean: 'brightness(112%) contrast(96%) saturate(106%)',
+      warm_retro: 'sepia(24%) contrast(108%) brightness(102%) saturate(112%)',
+      vivid: 'contrast(114%) saturate(135%) brightness(102%)',
+      bw: 'grayscale(100%) contrast(120%) brightness(104%)',
+      cinematic: 'contrast(118%) saturate(90%) brightness(98%) sepia(12%)'
+    };
+    return filters[filterKey] || 'none';
+  }
+
+  getPhotoFilterLabel(filterKey) {
+    const labels = {
+      normal: '🌿 Normal',
+      glowing: '✨ Glowing',
+      korean: '🌸 Korean Soft',
+      warm_retro: '🧡 Warm Retro',
+      vivid: '🎨 Vivid Pop',
+      bw: '🖤 B&W Estetik',
+      cinematic: '🎬 Cinematic'
+    };
+    return labels[filterKey] || 'Normal';
+  }
+
+  async setPhotoFilter(filterKey) {
+    this.activePhotoFilter = filterKey || 'normal';
+
+    const pills = document.querySelectorAll('.preview-filter-pill');
+    pills.forEach(p => {
+      if (p.getAttribute('data-filter') === this.activePhotoFilter) {
+        p.classList.add('active');
+      } else {
+        p.classList.remove('active');
+      }
+    });
+
+    const badge = document.getElementById('activeFilterNameBadge');
+    if (badge) {
+      badge.innerText = this.getPhotoFilterLabel(this.activePhotoFilter);
+    }
+
+    await this.renderFinalCanvas();
+
+    if (this.syncDebounceTimer) clearTimeout(this.syncDebounceTimer);
+    this.syncDebounceTimer = setTimeout(() => {
+      this.syncFinalPhotoToBackend();
+    }, 450);
+  }
+
   async renderFinalCanvas() {
     const finalCanvas = document.getElementById('finalCanvas');
     if (!finalCanvas || !this.selectedTemplate) return;
@@ -2975,6 +3331,12 @@ class KioskEngine {
         ctx.beginPath();
         ctx.rect(clipX, clipY, clipW, clipH);
         ctx.clip();
+
+        // Terapkan filter foto estetik pilihan pelanggan (Glowing, Korean Soft, Warm Retro, dll.)
+        const filterStr = this.getPhotoFilterString(this.activePhotoFilter);
+        if (filterStr && filterStr !== 'none') {
+          ctx.filter = filterStr;
+        }
 
         const transform = (this.slotTransforms && this.slotTransforms[i]) || { panX: 0, panY: 0, zoom: 1.0 };
         const zoom = Math.max(1.0, Math.min(3.5, transform.zoom || 1.0));
@@ -3966,6 +4328,18 @@ class KioskEngine {
     this.activePoseIndex = 0;
     this.guestPass = null;
     this.sessionId = null;
+    this.activePhotoFilter = 'normal';
+    const activeBadge = document.getElementById('activeFilterNameBadge');
+    if (activeBadge) activeBadge.innerText = '🌿 Normal';
+    const filterPills = document.querySelectorAll('.preview-filter-pill');
+    filterPills.forEach(p => {
+      if (p.getAttribute('data-filter') === 'normal') {
+        p.classList.add('active');
+      } else {
+        p.classList.remove('active');
+      }
+    });
+
     const thumbs = document.getElementById('poseThumbnails');
     if (thumbs) thumbs.innerHTML = '';
     const grid = document.getElementById('capturedPhotosGrid');

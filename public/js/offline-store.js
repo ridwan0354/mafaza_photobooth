@@ -18,20 +18,28 @@
   function openDB() {
     if (dbPromise) return dbPromise;
     dbPromise = new Promise((resolve, reject) => {
-      const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = (e) => {
-        const db = e.target.result;
-        if (!db.objectStoreNames.contains(STORE_SESSIONS)) {
-          const sStore = db.createObjectStore(STORE_SESSIONS, { keyPath: 'id' });
-          sStore.createIndex('synced', 'synced', { unique: false });
-          sStore.createIndex('createdAt', 'createdAt', { unique: false });
-        }
-        if (!db.objectStoreNames.contains(STORE_CACHE)) {
-          db.createObjectStore(STORE_CACHE, { keyPath: 'key' });
-        }
-      };
-      req.onsuccess = () => resolve(req.target.result);
-      req.onerror = () => reject(req.error);
+      try {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_SESSIONS)) {
+            const sStore = db.createObjectStore(STORE_SESSIONS, { keyPath: 'id' });
+            sStore.createIndex('synced', 'synced', { unique: false });
+            sStore.createIndex('createdAt', 'createdAt', { unique: false });
+          }
+          if (!db.objectStoreNames.contains(STORE_CACHE)) {
+            db.createObjectStore(STORE_CACHE, { keyPath: 'key' });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => {
+          dbPromise = null;
+          reject(req.error);
+        };
+      } catch (err) {
+        dbPromise = null;
+        reject(err);
+      }
     });
     return dbPromise;
   }
