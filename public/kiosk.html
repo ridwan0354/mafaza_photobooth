@@ -611,17 +611,17 @@
 
         <!-- Live Viewfinder Indicator Top Left + 1-Tap Reconnect UVC Button -->
         <div style="position: absolute; top: 12px; left: 14px; z-index: 26; display: flex; align-items: center; gap: 6px;">
-          <div style="display: flex; align-items: center; gap: 6px; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(4px); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); pointer-events: none;">
+          <div style="display: flex; align-items: center; gap: 6px; background: rgba(0, 0, 0, 0.72); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); pointer-events: none;">
             <span style="width: 7px; height: 7px; border-radius: 50%; background: #ff4757; box-shadow: 0 0 8px #ff4757; animation: dotBlink 1.2s infinite ease-in-out;"></span>
             <span id="liveCameraNameBadge" style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 0.4px;">LIVE</span>
           </div>
-          <button type="button" onclick="event.stopPropagation(); kiosk.forceReconnectCamera();" title="Segarkan / Hubungkan Ulang Kamera USB / DJI Action" style="display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(4px); padding: 4px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.28); color: #ffffff; font-size: 10.5px; font-weight: 800; cursor: pointer;">
+          <button type="button" onclick="event.stopPropagation(); kiosk.forceReconnectCamera();" title="Segarkan / Hubungkan Ulang Kamera USB / DJI Action" style="display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(0, 0, 0, 0.72); padding: 4px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.28); color: #ffffff; font-size: 10.5px; font-weight: 800; cursor: pointer;">
             <span>🔄</span>
           </button>
         </div>
 
         <!-- Quick Aspect Ratio Toggle Top Right -->
-        <button type="button" onclick="event.stopPropagation(); kiosk.cycleCameraAspectRatio();" title="Ganti Rasio Bingkai Kamera (16:9 / 3:2 / 4:3)" style="position: absolute; top: 12px; right: 14px; z-index: 26; display: flex; align-items: center; gap: 5px; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(4px); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); color: #ffffff; font-size: 11px; font-weight: 800; cursor: pointer; transition: all 0.2s;">
+        <button type="button" onclick="event.stopPropagation(); kiosk.cycleCameraAspectRatio();" title="Ganti Rasio Bingkai Kamera (16:9 / 3:2 / 4:3)" style="position: absolute; top: 12px; right: 14px; z-index: 26; display: flex; align-items: center; gap: 5px; background: rgba(0, 0, 0, 0.72); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); color: #ffffff; font-size: 11px; font-weight: 800; cursor: pointer; transition: all 0.2s;">
           <span>📐</span>
           <span id="retroFrameRatioBadge">16:9</span>
         </button>
@@ -1324,6 +1324,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v9.0"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v9.1"></script>
 </body>
 </html>
