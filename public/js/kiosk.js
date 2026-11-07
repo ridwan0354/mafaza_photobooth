@@ -1989,8 +1989,14 @@ class KioskEngine {
             height: { ideal: 1080 },
             frameRate: { ideal: 30, max: 30 }
           });
+          // Profil D: 480p (khusus jika kamera adalah HDMI Capture Card UVC03 + Canon EOS 1300D di iPad)
+          candidateConstraints.push({
+            deviceId: { exact: activeId },
+            width: { ideal: 640, max: 640 },
+            height: { ideal: 480, max: 480 }
+          });
         }
-        // Profil D: Default sistem murni tanpa constraint (AVCaptureDevice.systemPreferredCamera di iPadOS 17+)
+        // Profil E: Default sistem murni tanpa constraint (AVCaptureDevice.systemPreferredCamera di iPadOS 17+)
         candidateConstraints.push(true);
 
         for (const videoConstraint of candidateConstraints) {
@@ -2209,7 +2215,9 @@ class KioskEngine {
           }
         } catch (enumErr) {}
 
+        const captureCardRegex = /uvc03|1de1:f113|display capture|usb video|hdmi|capture/i;
         const isChosenActionCam = actionCamRegex.test(chosenDevice?.label || '');
+        const isChosenCaptureCard = captureCardRegex.test(chosenDevice?.label || '');
         const dims = this.getUvcResolutionDims(resMode, chosenDevice?.label || '');
         this.updateUvcResolutionButtonsUI(dims.label);
 
@@ -2277,7 +2285,8 @@ class KioskEngine {
 
         let stream = null;
         const targetDevId = chosenDevice?.deviceId || null;
-        const preferNativeUvc = isIpadOs || isMobileDevice || isChosenActionCam;
+        // Gunakan native UVC untuk iPadOS / Action Cam, KECUALI jika perangkat adalah HDMI Capture Card (UVC03 butuh 480p eksplisit agar Canon 1300D tampil)
+        const preferNativeUvc = (isIpadOs || isMobileDevice || isChosenActionCam) && !isChosenCaptureCard;
 
         try {
           // Pada iPadOS tanpa pilihan manual, coba { video: targetDevId ? { deviceId: { exact: targetDevId } } : true }
@@ -2355,10 +2364,11 @@ class KioskEngine {
             await new Promise(r => setTimeout(r, 450));
 
             const isExtAction = actionCamRegex.test(extDevice.label || '');
+            const isExtCaptureCard = captureCardRegex.test(extDevice.label || '');
             let extStream = null;
             try {
               extStream = await navigator.mediaDevices.getUserMedia({
-                video: buildVideoConstraints(extDevice.deviceId, postDims, isIpadOs || isMobileDevice || isExtAction),
+                video: buildVideoConstraints(extDevice.deviceId, postDims, (isIpadOs || isMobileDevice || isExtAction) && !isExtCaptureCard),
                 audio: false
               });
             } catch (switchErr) {
