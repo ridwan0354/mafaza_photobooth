@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Canon Inc. USB Vendor ID: 0x04A9 = 1193 (Includes Canon EOS 1300D, 1100D, 1200D, 1500D, 3000D, 4000D, 600D, 700D, 800D, M50, R50, R100, etc.) -->
+    <usb-device vendor-id="1193" />
+    <!-- Generic PTP / Still Image Class 6 -->
+    <usb-device class="6" subclass="1" protocol="1" />
+</resources>
