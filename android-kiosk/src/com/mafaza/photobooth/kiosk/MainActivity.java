@@ -224,6 +224,13 @@ public class MainActivity extends Activity {
                 + "      window.MafazaAndroidBridge.printPage();\n"
                 + "    }\n"
                 + "  };\n"
+                + "  // Auto-play fix for canvas captureStream video on mobile WebView\n"
+                + "  setInterval(function() {\n"
+                + "    const v = document.getElementById('videoFeed');\n"
+                + "    if (v && v.srcObject && v.paused) {\n"
+                + "      v.play().catch(function(){});\n"
+                + "    }\n"
+                + "  }, 800);\n"
                 + "})();";
         view.evaluateJavascript(js, null);
     }
