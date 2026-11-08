@@ -907,20 +907,28 @@ class KioskEngine {
       return;
     }
 
-    // Jika stream sudah hidup, pastikan elemen <video> yang baru tampil dari display:none benar-benar memutar frame
-    [video, qrVideo].forEach(v => {
-      if (!v) return;
-      v.muted = true;
-      v.defaultMuted = true;
-      v.playsInline = true;
-      v.setAttribute('playsinline', '');
-      v.setAttribute('webkit-playsinline', '');
-      if (v.srcObject !== this.mediaStream) {
-        v.srcObject = this.mediaStream;
+    // Jika stream sudah hidup, pastikan HANYA elemen <video> di layar yang sedang aktif yang memegang srcObject
+    // (Pada WebKit iPadOS, menempelkan MediaStream UVC yang sama ke #qrVideoFeed yang sedang display:none membekukan decoder #videoFeed!)
+    const inactiveVid = screenId === 'screenQR' ? video : qrVideo;
+    if (inactiveVid && inactiveVid.srcObject) {
+      try {
+        inactiveVid.pause();
+        inactiveVid.srcObject = null;
+      } catch (e) {}
+    }
+
+    if (activeVid) {
+      activeVid.muted = true;
+      activeVid.defaultMuted = true;
+      activeVid.playsInline = true;
+      activeVid.setAttribute('playsinline', '');
+      activeVid.setAttribute('webkit-playsinline', '');
+      if (activeVid.srcObject !== this.mediaStream) {
+        activeVid.srcObject = this.mediaStream;
       }
-      const p = v.play();
+      const p = activeVid.play();
       if (p && typeof p.then === 'function') p.catch(() => {});
-    });
+    }
 
     this.applyCameraTransform();
     this.updateLiveCameraBadgeUI();
@@ -1497,7 +1505,10 @@ class KioskEngine {
   }
 
   getUvcResolutionDims(resMode, deviceLabel = '') {
-    const mode = resMode || this.cameraConfig?.uvcResolution || localStorage.getItem('pb_uvc_resolution') || 'auto_canon';
+    const isIpadOs = (navigator.userAgent.includes('Macintosh') && (navigator.maxTouchPoints > 1)) || /iPad|CriOS/i.test(navigator.userAgent || '');
+    const isMobileDevice = /Android|iPhone|iPod/i.test(navigator.userAgent || '') || isIpadOs;
+    // Jangan biarkan setelan global 1080p dari laptop memaksa iPad membuka 1080p kecuali user menekan tombol resolusi di iPad
+    const mode = resMode || (isMobileDevice ? (localStorage.getItem('pb_ipad_uvc_resolution') || 'auto_canon') : (this.cameraConfig?.uvcResolution || localStorage.getItem('pb_uvc_resolution') || 'auto_canon'));
     const isUvc03OrCaptureCard = /uvc03|1de1:f113|display capture|usb video|hdmi|capture/i.test(deviceLabel || '');
     const isOsmoOrActionCam = /osmo|action|dji|gopro|insta360/i.test(deviceLabel || '');
 
@@ -1918,6 +1929,7 @@ class KioskEngine {
   async setUvcResolution(resMode) {
     try {
       localStorage.setItem('pb_uvc_resolution', resMode);
+      localStorage.setItem('pb_ipad_uvc_resolution', resMode);
     } catch (e) {}
     if (this.cameraConfig) {
       this.cameraConfig.uvcResolution = resMode;
@@ -1968,10 +1980,36 @@ class KioskEngine {
 
   startCameraDebugOverlay() {
     if (this._debugOverlayTimer) return;
-    const box = document.createElement('div');
-    box.id = 'cameraDebugOverlay';
-    box.style.cssText = 'position:fixed;top:8px;left:8px;z-index:99999;max-width:46vw;background:rgba(0,0,0,0.82);color:#7CFC9A;font:11px/1.45 monospace;padding:8px 10px;border-radius:10px;white-space:pre-wrap;pointer-events:none;';
-    document.body.appendChild(box);
+    const wrap = document.createElement('div');
+    wrap.id = 'cameraDebugOverlay';
+    wrap.style.cssText = 'position:fixed;top:8px;left:8px;z-index:99999;max-width:52vw;background:rgba(0,0,0,0.88);color:#7CFC9A;font:11px/1.4 monospace;padding:8px 10px;border-radius:10px;pointer-events:auto;border:1px solid rgba(124,252,154,0.4);';
+    const textEl = document.createElement('div');
+    textEl.style.cssText = 'white-space:pre-wrap;margin-bottom:6px;';
+    const btnRow = document.createElement('div');
+    btnRow.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap;';
+
+    const testModes = [
+      { label: '1. Bare', fn: () => this.debugTestUvcConstraint('bare') },
+      { label: '2. 720p Max', fn: () => this.debugTestUvcConstraint('720p_max') },
+      { label: '3. 720p Exact', fn: () => this.debugTestUvcConstraint('720p_exact') },
+      { label: '4. 480p Max', fn: () => this.debugTestUvcConstraint('480p_max') }
+    ];
+    testModes.forEach(m => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = m.label;
+      b.style.cssText = 'padding:4px 7px;font:bold 10.5px monospace;background:#1e293b;color:#fff;border:1px solid #7CFC9A;border-radius:6px;cursor:pointer;';
+      b.onclick = (e) => {
+        e.stopPropagation();
+        m.fn();
+      };
+      btnRow.appendChild(b);
+    });
+
+    wrap.appendChild(textEl);
+    wrap.appendChild(btnRow);
+    document.body.appendChild(wrap);
+
     this._debugOverlayTimer = setInterval(() => {
       try {
         const v = document.getElementById('videoFeed');
@@ -1979,21 +2017,83 @@ class KioskEngine {
         const s = track?.getSettings?.() || {};
         const health = v ? this.checkVideoFeedHealth(v) : { reason: 'no_video_el' };
         const lines = [
-          'DEBUG KAMERA',
-          'UA: ' + (navigator.userAgent || '').slice(0, 90),
+          'DEBUG KAMERA (' + (this._lastDebugConstraintLabel || 'auto') + ')',
           'Layar: ' + this.currentScreen + ' | countdown: ' + !!this.isCountingDown,
           'Track: ' + (track ? (track.label || '(tanpa nama)') : 'TIDAK ADA'),
           'Track state: ' + (track ? track.readyState : '-') + ' | muted: ' + (track ? track.muted : '-') + ' | enabled: ' + (track ? track.enabled : '-'),
           'Setting: ' + (s.width || '?') + 'x' + (s.height || '?') + ' @' + (s.frameRate ? Math.round(s.frameRate) : '?') + 'fps',
           'Video el: ' + (v ? (v.videoWidth + 'x' + v.videoHeight + ' | readyState ' + v.readyState + ' | paused ' + v.paused) : 'TIDAK ADA'),
-          'Health: ' + health.reason,
-          'Recovery dicoba: ' + JSON.stringify(Object.keys(this._uvcRecoveryDone || {}))
+          'Health: ' + health.reason + ' | Recovery: ' + JSON.stringify(Object.keys(this._uvcRecoveryDone || {}))
         ];
-        box.textContent = lines.join('\n');
+        textEl.textContent = lines.join('\n');
       } catch (e) {
-        box.textContent = 'DEBUG error: ' + e.message;
+        textEl.textContent = 'DEBUG error: ' + e.message;
       }
-    }, 1000);
+    }, 800);
+  }
+
+  async debugTestUvcConstraint(modeName) {
+    try {
+      this._lastDebugConstraintLabel = modeName;
+      if (this._uvcHealthTimer) clearTimeout(this._uvcHealthTimer);
+      const oldTrack = this.mediaStream?.getVideoTracks?.()[0];
+      let targetId = this.userExplicitPreferredDeviceId || oldTrack?.getSettings?.()?.deviceId || '';
+      if (!targetId && navigator.mediaDevices?.enumerateDevices) {
+        const devs = await navigator.mediaDevices.enumerateDevices();
+        const vIn = devs.filter(d => d.kind === 'videoinput');
+        const ext = vIn.find(d => /osmo|action|dji|gopro|insta360|uvc|usb|capture|hdmi/i.test(d.label || ''));
+        if (ext) targetId = ext.deviceId;
+      }
+      if (this.mediaStream) {
+        try { this.mediaStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+        this.mediaStream = null;
+      }
+      const qrVideo = document.getElementById('qrVideoFeed');
+      if (qrVideo) {
+        try { qrVideo.pause(); qrVideo.srcObject = null; } catch (e) {}
+      }
+      await new Promise(r => setTimeout(r, 600));
+
+      let videoConstraint = targetId ? { deviceId: { exact: targetId } } : true;
+      if (modeName === '720p_max') {
+        videoConstraint = {
+          ...(targetId ? { deviceId: { exact: targetId } } : {}),
+          width: { ideal: 1280, max: 1280 },
+          height: { ideal: 720, max: 720 }
+        };
+      } else if (modeName === '720p_exact') {
+        videoConstraint = {
+          ...(targetId ? { deviceId: { exact: targetId } } : {}),
+          width: { exact: 1280 },
+          height: { exact: 720 }
+        };
+      } else if (modeName === '480p_max') {
+        videoConstraint = {
+          ...(targetId ? { deviceId: { exact: targetId } } : {}),
+          width: { ideal: 640, max: 640 },
+          height: { ideal: 480, max: 480 }
+        };
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
+      this.mediaStream = stream;
+      const freshVid = this.recreateFreshVideoFeedElement() || document.getElementById('videoFeed');
+      if (freshVid) {
+        freshVid.muted = true;
+        freshVid.playsInline = true;
+        freshVid.srcObject = stream;
+        freshVid.onloadedmetadata = () => {
+          freshVid.play().catch(() => {});
+          this.applyCameraTransform();
+          this.updateLiveCameraBadgeUI();
+        };
+        freshVid.play().catch(() => {});
+      }
+      this.applyCameraTransform();
+      this.updateLiveCameraBadgeUI();
+    } catch (err) {
+      this._lastDebugConstraintLabel = modeName + ' ERR: ' + (err.name || err.message);
+    }
   }
 
   scheduleUvcStreamHealthVerification() {
@@ -2084,19 +2184,15 @@ class KioskEngine {
 
         const candidateConstraints = [];
         if (activeId) {
-          // Kandidat 1: 1080p @ 30fps eksplisit
+          // Kandidat 1: Paksa 720p (dengan max: 1280x720 agar WebKit iPadOS benar-benar berpindah dari 1080p ke 720p!)
           candidateConstraints.push({
             deviceId: { exact: activeId },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            frameRate: { ideal: 30 }
+            width: { ideal: 1280, max: 1280 },
+            height: { ideal: 720, max: 720 }
           });
-          // Kandidat 2: 720p @ 30fps eksplisit
+          // Kandidat 2: Bare deviceId (tanpa constraint resolusi/fps sama sekali)
           candidateConstraints.push({
-            deviceId: { exact: activeId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            frameRate: { ideal: 30 }
+            deviceId: { exact: activeId }
           });
           if (!isActionCam) {
             // Kandidat khusus Capture Card HDMI (bukan Action Cam): 480p
@@ -2129,21 +2225,25 @@ class KioskEngine {
 
             const freshVid = this.recreateFreshVideoFeedElement() || document.getElementById('videoFeed');
             const qrVideo = document.getElementById('qrVideoFeed');
-            [freshVid, qrVideo].forEach(v => {
-              if (!v) return;
-              v.muted = true;
-              v.playsInline = true;
-              v.srcObject = nextStream;
-              v.onloadedmetadata = () => {
+            const targetVid = (this.currentScreen === 'screenQR') ? qrVideo : freshVid;
+            const unusedVid = (this.currentScreen === 'screenQR') ? freshVid : qrVideo;
+            if (unusedVid && unusedVid.srcObject) {
+              try { unusedVid.pause(); unusedVid.srcObject = null; } catch (e) {}
+            }
+            if (targetVid) {
+              targetVid.muted = true;
+              targetVid.playsInline = true;
+              targetVid.srcObject = nextStream;
+              targetVid.onloadedmetadata = () => {
                 setTimeout(() => {
-                  v.play().catch(() => {});
+                  targetVid.play().catch(() => {});
                   this.applyCameraTransform();
                   this.updateLiveCameraBadgeUI();
                 }, 80);
               };
-              const pr = v.play();
+              const pr = targetVid.play();
               if (pr && typeof pr.then === 'function') pr.catch(() => {});
-            });
+            }
             this.applyCameraTransform();
             this.updateLiveCameraBadgeUI();
 
@@ -2308,7 +2408,7 @@ class KioskEngine {
           await new Promise(r => setTimeout(r, 300));
         }
 
-        const resMode = overrideResMode || this.cameraConfig?.uvcResolution || localStorage.getItem('pb_uvc_resolution') || 'auto_canon';
+        const resMode = overrideResMode || (isMobileDevice ? (localStorage.getItem('pb_ipad_uvc_resolution') || 'auto_canon') : (this.cameraConfig?.uvcResolution || localStorage.getItem('pb_uvc_resolution') || 'auto_canon'));
         let chosenDevice = null;
         const actionCamRegex = /osmo|action|dji|gopro|insta360/i;
         const cameraFilterRegex = /osmo|action|dji|gopro|insta360|canon|eos|obs|virtual|uvc03|1de1:f113|display capture|sony|ilce|a7|imaging edge|cam link|elgato|capture|usb video|uvc|hdmi|external|fhd|usb2|video stream|webcam/i;
@@ -2352,11 +2452,11 @@ class KioskEngine {
           if (resolutionDims && resolutionDims.height) {
             c.height = { ideal: resolutionDims.height };
           }
-          // Pada iPadOS & DJI Osmo Action 4, kunci frameRate ideal ke 30fps agar Safari tidak meminta 60fps yang membuat layar UVC gelap
-          if (isActionCam || isIpadOs) {
-            c.frameRate = { ideal: 30 };
-          }
-          if (resolutionDims && resolutionDims.label === '480p') {
+          // PENTING: Pada iPadOS WebKit, ideal: 1280 diabaikan kecuali diberi max: 1280!
+          if (resolutionDims && resolutionDims.label === '720p') {
+            c.width.max = 1280;
+            c.height.max = 720;
+          } else if (resolutionDims && resolutionDims.label === '480p') {
             c.width.max = 640;
             c.height.max = 480;
           }
@@ -2369,7 +2469,17 @@ class KioskEngine {
             ? (this.recreateFreshVideoFeedElement() || document.getElementById('videoFeed'))
             : document.getElementById('videoFeed');
 
-          [freshMainVideo, qrVideo].forEach(vidEl => {
+          // PENTING: Jangan pernah menempelkan stream UVC ke #qrVideoFeed yang sedang display:none saat berada di #screenCapture!
+          const targetVid = (this.currentScreen === 'screenQR') ? qrVideo : freshMainVideo;
+          const inactiveVid = (this.currentScreen === 'screenQR') ? freshMainVideo : qrVideo;
+          if (inactiveVid && inactiveVid.srcObject) {
+            try {
+              inactiveVid.pause();
+              inactiveVid.srcObject = null;
+            } catch (e) {}
+          }
+
+          [targetVid].forEach(vidEl => {
             if (!vidEl) return;
             vidEl.muted = true;
             vidEl.defaultMuted = true;
