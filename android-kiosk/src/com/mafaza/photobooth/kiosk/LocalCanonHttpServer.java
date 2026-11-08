@@ -189,6 +189,8 @@ public class LocalCanonHttpServer {
 
     private String buildStatusJson() {
         boolean active = canonEngine.isActive();
+        boolean hasFrame = canonEngine.hasLiveFrame();
+        long frames = canonEngine.getTotalFramesReceived();
         String camName = escapeJson(canonEngine.getCameraModelName());
         int iso = canonEngine.getCurrentIso();
         int tv = canonEngine.getCurrentTv();
@@ -200,6 +202,8 @@ public class LocalCanonHttpServer {
         return "{"
                 + "\"ok\":true,"
                 + "\"active\":" + active + ","
+                + "\"hasFrame\":" + hasFrame + ","
+                + "\"frames\":" + frames + ","
                 + "\"camera\":\"" + camName + "\","
                 + "\"width\":1056,"
                 + "\"height\":704,"

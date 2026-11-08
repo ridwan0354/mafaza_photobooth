@@ -1603,10 +1603,31 @@ class KioskEngine {
     const h = (bridgeInfo && bridgeInfo.height) || 704;
     if (!this.canonUsbCanvas) {
       this.canonUsbCanvas = document.createElement('canvas');
+      this.canonUsbCanvas.id = 'canonUsbDirectCanvas';
     }
     this.canonUsbCanvas.width = w;
     this.canonUsbCanvas.height = h;
     const ctx = this.canonUsbCanvas.getContext('2d');
+
+    // Fill warm dark background initially before first JPEG frame arrives
+    ctx.fillStyle = '#1A120E';
+    ctx.fillRect(0, 0, w, h);
+
+    // Mount canvas directly inside #cameraRetroFrame so Android WebView & Desktop render Live View directly
+    // without relying on <video> captureStream() or showing any default Play triangle icon
+    const retroFrame = document.getElementById('cameraRetroFrame');
+    if (retroFrame) {
+      if (this.canonUsbCanvas.parentElement !== retroFrame) {
+        this.canonUsbCanvas.style.position = 'absolute';
+        this.canonUsbCanvas.style.inset = '0';
+        this.canonUsbCanvas.style.width = '100%';
+        this.canonUsbCanvas.style.height = '100%';
+        this.canonUsbCanvas.style.pointerEvents = 'none';
+        this.canonUsbCanvas.style.zIndex = '2';
+        retroFrame.insertBefore(this.canonUsbCanvas, retroFrame.firstChild);
+      }
+      this.canonUsbCanvas.style.display = 'block';
+    }
 
     this.canonUsbStreamActive = true;
     const drawNextFrame = async () => {
@@ -1625,16 +1646,26 @@ class KioskEngine {
         this.canonUsbLoopTimer = setTimeout(drawNextFrame, 42);
       } catch (err) {
         if (!this.canonUsbStreamActive) return;
-        this.canonUsbLoopTimer = setTimeout(drawNextFrame, 250);
+        this.canonUsbLoopTimer = setTimeout(drawNextFrame, 220);
       }
     };
 
     drawNextFrame();
-    this.mediaStream = this.canonUsbCanvas.captureStream(24);
+    try {
+      this.mediaStream = this.canonUsbCanvas.captureStream(24);
+    } catch (e) {}
+    const transparentGif = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     const video = document.getElementById('videoFeed');
     const qrVideo = document.getElementById('qrVideoFeed');
-    if (video) video.srcObject = this.mediaStream;
-    if (qrVideo) qrVideo.srcObject = this.mediaStream;
+    if (video) {
+      video.setAttribute('poster', transparentGif);
+      if (this.mediaStream) video.srcObject = this.mediaStream;
+    }
+    if (qrVideo) {
+      qrVideo.setAttribute('poster', transparentGif);
+      if (this.mediaStream) qrVideo.srcObject = this.mediaStream;
+    }
+    this.applyCameraTransform();
     this.applyCameraImageAdjustToLiveVideo();
   }
 
@@ -1803,14 +1834,15 @@ class KioskEngine {
 
   applyCameraImageAdjustToLiveVideo() {
     const video = document.getElementById('videoFeed');
-    if (video) {
-      const f = this.getCameraCssFilterString();
+    const f = this.getCameraCssFilterString();
+    [video, this.canonUsbCanvas].forEach(el => {
+      if (!el) return;
       if (f) {
-        video.style.filter = f;
+        el.style.filter = f;
       } else {
-        video.style.removeProperty('filter');
+        el.style.removeProperty('filter');
       }
-    }
+    });
   }
 
   async onQuickCameraSelectChange(deviceId) {
@@ -2345,6 +2377,9 @@ class KioskEngine {
     const video = document.getElementById('videoFeed');
     const qrVideo = document.getElementById('qrVideoFeed');
     this.canonUsbStreamActive = false;
+    if (this.canonUsbCanvas) {
+      this.canonUsbCanvas.style.display = 'none';
+    }
     this.isVirtualFallbackStream = false;
     if (this.canonUsbLoopTimer) {
       clearTimeout(this.canonUsbLoopTimer);
@@ -3119,17 +3154,19 @@ class KioskEngine {
     }
 
     const video = document.getElementById('videoFeed');
-    if (video) {
-      const fitMode = this.cameraFitMode || 'contain';
-      video.style.objectFit = fitMode;
-      video.style.transform = `scaleX(-1) scale(${zoom}) translate(${tx}%, ${ty}%)`;
-      const cssFilter = this.getCameraCssFilterString();
+    const fitMode = this.cameraFitMode || 'contain';
+    const transformStr = `scaleX(-1) scale(${zoom}) translate(${tx}%, ${ty}%)`;
+    const cssFilter = this.getCameraCssFilterString();
+    [video, this.canonUsbCanvas].forEach(el => {
+      if (!el) return;
+      el.style.objectFit = fitMode;
+      el.style.transform = transformStr;
       if (cssFilter) {
-        video.style.filter = cssFilter;
+        el.style.filter = cssFilter;
       } else {
-        video.style.removeProperty('filter');
+        el.style.removeProperty('filter');
       }
-    }
+    });
     const label = document.getElementById('cameraZoomLabel');
     if (label) {
       label.innerText = `🔍 ${zoom.toFixed(1)}x`;
@@ -3222,13 +3259,15 @@ class KioskEngine {
     const ctx = canvas.getContext('2d');
 
     // Jangan di-mirror pada hasil tangkapan agar tulisan/teks terbaca normal (tidak terbalik) saat dicetak
-    if (video) {
+    const useCanonCanvas = Boolean(this.canonUsbStreamActive && this.canonUsbCanvas && this.canonUsbCanvas.width > 0);
+    const sourceEl = useCanonCanvas ? this.canonUsbCanvas : video;
+    if (sourceEl) {
       ctx.filter = this.getCameraCssFilterString() || 'none';
       const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
       const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
       const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
-      const vw = video.videoWidth || canvas.width;
-      const vh = video.videoHeight || canvas.height;
+      const vw = (useCanonCanvas ? this.canonUsbCanvas.width : video.videoWidth) || canvas.width;
+      const vh = (useCanonCanvas ? this.canonUsbCanvas.height : video.videoHeight) || canvas.height;
 
       if (zoom < 1.0) {
         ctx.fillStyle = '#000000';
@@ -3237,7 +3276,7 @@ class KioskEngine {
         const dh = canvas.height * zoom;
         const dx = (canvas.width - dw) / 2 + (panX * (canvas.width - dw) / 2);
         const dy = (canvas.height - dh) / 2 - (panY * (canvas.height - dh) / 2);
-        ctx.drawImage(video, 0, 0, vw, vh, dx, dy, dw, dh);
+        ctx.drawImage(sourceEl, 0, 0, vw, vh, dx, dy, dw, dh);
       } else {
         const cropW = vw / zoom;
         const cropH = vh / zoom;
@@ -3245,7 +3284,7 @@ class KioskEngine {
         const maxOffY = (vh - cropH) / 2;
         const cropX = Math.max(0, Math.min(vw - cropW, maxOffX - (panX * maxOffX)));
         const cropY = Math.max(0, Math.min(vh - cropH, maxOffY + (panY * maxOffY)));
-        ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(sourceEl, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
       }
       ctx.filter = 'none';
     }

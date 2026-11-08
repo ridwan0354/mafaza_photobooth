@@ -8,6 +8,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
@@ -167,6 +168,16 @@ public class MainActivity extends Activity {
         wv.addJavascriptInterface(new MafazaAndroidBridge(), "MafazaAndroidBridge");
 
         wv.setWebChromeClient(new WebChromeClient() {
+            private Bitmap transparentPoster = null;
+
+            @Override
+            public Bitmap getDefaultVideoPoster() {
+                if (transparentPoster == null) {
+                    transparentPoster = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+                }
+                return transparentPoster;
+            }
+
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 mainHandler.post(() -> {
@@ -208,12 +219,14 @@ public class MainActivity extends Activity {
         String js = "(function() {\n"
                 + "  if (window.__mafazaApkBridgeInjected) return;\n"
                 + "  window.__mafazaApkBridgeInjected = true;\n"
-                + "  console.log('[MafazaKioskAPK] Native USB PTP & Print Bridge Active');\n"
+                + "  console.log('[MafazaKioskAPK v2.1] Native USB PTP & Direct Canvas LiveView Bridge Active');\n"
+                + "  const TRANSPARENT_GIF = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';\n"
                 + "  const origFetch = window.fetch.bind(window);\n"
                 + "  window.fetch = async function(input, init) {\n"
                 + "    try {\n"
                 + "      const urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');\n"
-                + "      if (urlStr.indexOf('/api/camera/trigger-capture') !== -1 && typeof canonUsbActive !== 'undefined' && canonUsbActive) {\n"
+                + "      const isCanonActive = Boolean((typeof canonUsbActive !== 'undefined' && canonUsbActive) || (window.kiosk && window.kiosk.canonUsbStreamActive));\n"
+                + "      if (urlStr.indexOf('/api/camera/trigger-capture') !== -1 && isCanonActive) {\n"
                 + "        return await origFetch('http://127.0.0.1:19898/capture', { method: 'POST', cache: 'no-store' });\n"
                 + "      }\n"
                 + "    } catch (e) {}\n"
@@ -224,13 +237,41 @@ public class MainActivity extends Activity {
                 + "      window.MafazaAndroidBridge.printPage();\n"
                 + "    }\n"
                 + "  };\n"
-                + "  // Auto-play fix for canvas captureStream video on mobile WebView\n"
+                + "  // Direct Canvas LiveView Overlay & Poster Suppressor for Android WebView\n"
                 + "  setInterval(function() {\n"
                 + "    const v = document.getElementById('videoFeed');\n"
+                + "    const qv = document.getElementById('qrVideoFeed');\n"
+                + "    if (v && v.getAttribute('poster') !== TRANSPARENT_GIF) v.setAttribute('poster', TRANSPARENT_GIF);\n"
+                + "    if (qv && qv.getAttribute('poster') !== TRANSPARENT_GIF) qv.setAttribute('poster', TRANSPARENT_GIF);\n"
                 + "    if (v && v.srcObject && v.paused) {\n"
                 + "      v.play().catch(function(){});\n"
                 + "    }\n"
-                + "  }, 800);\n"
+                + "    const k = window.kiosk;\n"
+                + "    const frame = document.getElementById('cameraRetroFrame');\n"
+                + "    if (k && k.canonUsbCanvas && frame) {\n"
+                + "      const c = k.canonUsbCanvas;\n"
+                + "      if (k.canonUsbStreamActive) {\n"
+                + "        if (c.parentElement !== frame) {\n"
+                + "          c.id = 'canonUsbDirectCanvas';\n"
+                + "          c.style.position = 'absolute';\n"
+                + "          c.style.inset = '0';\n"
+                + "          c.style.width = '100%';\n"
+                + "          c.style.height = '100%';\n"
+                + "          c.style.pointerEvents = 'none';\n"
+                + "          c.style.zIndex = '2';\n"
+                + "          frame.insertBefore(c, frame.firstChild);\n"
+                + "        }\n"
+                + "        c.style.display = 'block';\n"
+                + "        if (v) {\n"
+                + "          c.style.objectFit = v.style.objectFit || 'contain';\n"
+                + "          c.style.transform = v.style.transform || 'scaleX(-1)';\n"
+                + "          c.style.filter = v.style.filter || 'none';\n"
+                + "        }\n"
+                + "      } else if (c.parentElement) {\n"
+                + "        c.style.display = 'none';\n"
+                + "      }\n"
+                + "    }\n"
+                + "  }, 250);\n"
                 + "})();";
         view.evaluateJavascript(js, null);
     }
