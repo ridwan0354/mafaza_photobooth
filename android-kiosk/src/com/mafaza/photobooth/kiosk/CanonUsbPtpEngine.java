@@ -106,6 +106,7 @@ public class CanonUsbPtpEngine {
     }
 
     private final Context context;
+    private final Context activityContext;
     private final Listener listener;
     private final UsbManager usbManager;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -177,6 +178,7 @@ public class CanonUsbPtpEngine {
     }
 
     public CanonUsbPtpEngine(Context context, Listener listener) {
+        this.activityContext = context;
         this.context = context.getApplicationContext();
         this.listener = listener;
         this.usbManager = (UsbManager) this.context.getSystemService(Context.USB_SERVICE);
@@ -290,39 +292,62 @@ public class CanonUsbPtpEngine {
         return false;
     }
 
-    private void checkAndConnectDevice(UsbDevice dev) {
+    private void checkAndConnectDevice(final UsbDevice dev) {
         if (dev == null || usbManager == null) return;
         if (usbManager.hasPermission(dev)) {
             connectToDeviceAsync(dev);
             return;
         }
         long now = System.currentTimeMillis();
-        if (now - lastPermissionRequestMs > 5500) {
+        if (now - lastPermissionRequestMs > 4500) {
             lastPermissionRequestMs = now;
-            notifyStatus("USB Kamera Terdeteksi (Meminta Izin...)");
-            try {
-                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-                if (Build.VERSION.SDK_INT >= 31) {
-                    flags |= 0x02000000; // PendingIntent.FLAG_MUTABLE
-                }
-                Intent permIntent = new Intent(ACTION_USB_PERMISSION);
-                permIntent.setPackage(context.getPackageName());
-                PendingIntent pi = PendingIntent.getBroadcast(context, 0, permIntent, flags);
-                usbManager.requestPermission(dev, pi);
-            } catch (Exception e) {
-                Log.w(TAG, "requestPermission fallback immutable: " + e.getMessage());
+            notifyStatus("🟡 USB Kamera Terdeteksi: Ketuk 'Izinkan/OK' di layar");
+            // Execute requestPermission on the Main UI Thread using Activity context so Xiaomi HyperOS / Android 14
+            // displays the system USB permission pop-up reliably on Redmi Pad 2!
+            mainHandler.post(() -> {
                 try {
                     int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-                    if (Build.VERSION.SDK_INT >= 23) {
-                        flags |= PendingIntent.FLAG_IMMUTABLE;
+                    if (Build.VERSION.SDK_INT >= 31) {
+                        flags |= 0x02000000; // PendingIntent.FLAG_MUTABLE
                     }
                     Intent permIntent = new Intent(ACTION_USB_PERMISSION);
                     permIntent.setPackage(context.getPackageName());
-                    PendingIntent pi = PendingIntent.getBroadcast(context, 0, permIntent, flags);
+                    PendingIntent pi = PendingIntent.getBroadcast(activityContext, 0, permIntent, flags);
                     usbManager.requestPermission(dev, pi);
-                } catch (Exception ignored) {}
-            }
+                } catch (Exception e) {
+                    Log.w(TAG, "requestPermission fallback: " + e.getMessage());
+                    try {
+                        Intent permIntent = new Intent(ACTION_USB_PERMISSION);
+                        PendingIntent pi = PendingIntent.getBroadcast(activityContext, 0, permIntent, 0);
+                        usbManager.requestPermission(dev, pi);
+                    } catch (Exception ignored) {}
+                }
+            });
         }
+    }
+
+    public String getUsbDiagnosticsReport() {
+        if (usbManager == null) return "UsbManager tidak tersedia di perangkat ini.";
+        HashMap<String, UsbDevice> map = usbManager.getDeviceList();
+        if (map == null || map.isEmpty()) {
+            return "🔌 Status Port USB OTG: TIDAK ADA perangkat USB yang terbaca (0 perangkat).\n\n"
+                    + "Tips untuk Redmi Pad 2:\n"
+                    + "1. Pastikan adaptor/kabel OTG Type-C mendukung transfer data (bukan hanya kabel cas).\n"
+                    + "2. Pastikan kamera Canon EOS 1300D dalam keadaan ON dan tekan setengah tombol shutter kamera agar tidak Sleep.\n"
+                    + "3. Pastikan menu Wi-Fi/NFC di kamera Canon posisi Disable.";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("🔌 Terdeteksi ").append(map.size()).append(" perangkat di port USB OTG:\n");
+        for (UsbDevice d : map.values()) {
+            String pName = (Build.VERSION.SDK_INT >= 21 && d.getProductName() != null) ? d.getProductName() : d.getDeviceName();
+            boolean hasPerm = usbManager.hasPermission(d);
+            sb.append("• ").append(pName)
+              .append(" (VID: 0x").append(Integer.toHexString(d.getVendorId()).toUpperCase())
+              .append(", Izin: ").append(hasPerm ? "SUDAH" : "BELUM").append(")\n");
+        }
+        sb.append("\nStatus Sesi PTP: ").append(isConnected ? "TERHUBUNG (" + cameraModelName + ")" : "BELUM TERHUBUNG");
+        sb.append("\nFrame Live View diterima: ").append(totalFramesReceived);
+        return sb.toString();
     }
 
     private void connectToDeviceAsync(final UsbDevice dev) {

@@ -121,8 +121,8 @@ public class MainActivity extends Activity {
         badgeParams.setMargins(20, 20, 20, 16);
 
         usbBadgeView.setOnClickListener(v -> {
-            Toast.makeText(this, "Memindai ulang USB Canon EOS...", Toast.LENGTH_SHORT).show();
             canonEngine.scanAndConnectIfAvailable();
+            Toast.makeText(this, canonEngine.getUsbDiagnosticsReport(), Toast.LENGTH_LONG).show();
             if (webView != null) {
                 webView.evaluateJavascript(
                         "if (typeof pollCanonUsbBridge === 'function') { pollCanonUsbBridge(); }",
@@ -317,8 +317,8 @@ public class MainActivity extends Activity {
         input.setText(getSavedKioskUrl());
 
         new AlertDialog.Builder(this)
-                .setTitle("Pengaturan APK Kiosk (Redmi Pad 2)")
-                .setMessage("URL Server Kiosk Photobooth:")
+                .setTitle("Pengaturan & Diagnostik USB (Redmi Pad 2 / Android)")
+                .setMessage(canonEngine.getUsbDiagnosticsReport() + "\n\nURL Server Kiosk Photobooth:")
                 .setView(input)
                 .setPositiveButton("Simpan & Muat Ulang", (dialog, which) -> {
                     String newUrl = input.getText().toString().trim();
