@@ -99,6 +99,13 @@ class KioskEngine {
       this.startCamera().catch(err => console.warn('Initial camera warmup:', err));
     }
 
+    // Panel diagnosa kamera (hanya aktif jika URL berisi ?debug=1) untuk melacak masalah layar hitam UVC di iPad
+    try {
+      if (new URLSearchParams(window.location.search).get('debug') === '1') {
+        this.startCameraDebugOverlay();
+      }
+    } catch (e) {}
+
     // Support direct testing of screens via hash (e.g. #template, #camera)
     const hash = window.location.hash.toLowerCase();
     if (hash === '#template') {
@@ -1959,6 +1966,36 @@ class KioskEngine {
     return { healthy: true, reason: 'ok' };
   }
 
+  startCameraDebugOverlay() {
+    if (this._debugOverlayTimer) return;
+    const box = document.createElement('div');
+    box.id = 'cameraDebugOverlay';
+    box.style.cssText = 'position:fixed;top:8px;left:8px;z-index:99999;max-width:46vw;background:rgba(0,0,0,0.82);color:#7CFC9A;font:11px/1.45 monospace;padding:8px 10px;border-radius:10px;white-space:pre-wrap;pointer-events:none;';
+    document.body.appendChild(box);
+    this._debugOverlayTimer = setInterval(() => {
+      try {
+        const v = document.getElementById('videoFeed');
+        const track = this.mediaStream?.getVideoTracks?.()[0];
+        const s = track?.getSettings?.() || {};
+        const health = v ? this.checkVideoFeedHealth(v) : { reason: 'no_video_el' };
+        const lines = [
+          'DEBUG KAMERA',
+          'UA: ' + (navigator.userAgent || '').slice(0, 90),
+          'Layar: ' + this.currentScreen + ' | countdown: ' + !!this.isCountingDown,
+          'Track: ' + (track ? (track.label || '(tanpa nama)') : 'TIDAK ADA'),
+          'Track state: ' + (track ? track.readyState : '-') + ' | muted: ' + (track ? track.muted : '-') + ' | enabled: ' + (track ? track.enabled : '-'),
+          'Setting: ' + (s.width || '?') + 'x' + (s.height || '?') + ' @' + (s.frameRate ? Math.round(s.frameRate) : '?') + 'fps',
+          'Video el: ' + (v ? (v.videoWidth + 'x' + v.videoHeight + ' | readyState ' + v.readyState + ' | paused ' + v.paused) : 'TIDAK ADA'),
+          'Health: ' + health.reason,
+          'Recovery dicoba: ' + JSON.stringify(Object.keys(this._uvcRecoveryDone || {}))
+        ];
+        box.textContent = lines.join('\n');
+      } catch (e) {
+        box.textContent = 'DEBUG error: ' + e.message;
+      }
+    }, 1000);
+  }
+
   scheduleUvcStreamHealthVerification() {
     if (this._uvcHealthTimer) clearTimeout(this._uvcHealthTimer);
 
@@ -1966,9 +2003,17 @@ class KioskEngine {
       if (this.canonUsbStreamActive || this.isVirtualFallbackStream) return;
       if (this.currentScreen !== 'screenCapture' && this.currentScreen !== 'screenQR') return;
 
+      // Hentikan watchdog jika tamu sudah mulai hitung mundur / foto, agar kamera tidak dimatikan-nyalakan saat memotret (penyebab terasa berat)
+      const shouldAbortWatchdog = () => (
+        this.isCountingDown ||
+        this.canonUsbStreamActive ||
+        (this.currentScreen !== 'screenCapture' && this.currentScreen !== 'screenQR')
+      );
+
       // PENTING: Beri waktu penuh hingga 3.5 detik (14 x 250ms) tanpa mematikan stream!
       // Kamera DJI Osmo Action 4 membutuhkan ~2 detik untuk inisialisasi perangkat keras UVC setelah getUserMedia dipanggil.
       for (let i = 0; i < 14; i++) {
+        if (shouldAbortWatchdog()) return;
         const videoEl = document.getElementById('videoFeed');
         const status = this.checkVideoFeedHealth(videoEl);
         if (status.healthy) {
@@ -1989,6 +2034,17 @@ class KioskEngine {
         this.updateLiveCameraBadgeUI();
         return;
       }
+      if (shouldAbortWatchdog()) return;
+
+      // Batasi pemulihan berat (restart kamera) maksimal 1x per kamera per halaman, agar tidak berulang-ulang membuat iPad berat
+      const watchdogTrack = this.mediaStream?.getVideoTracks?.()[0];
+      const watchdogKey = watchdogTrack?.label || 'default';
+      this._uvcRecoveryDone = this._uvcRecoveryDone || {};
+      if (this._uvcRecoveryDone[watchdogKey]) {
+        console.warn('⚠️ [UVC Watchdog] Pemulihan sudah pernah dicoba untuk kamera ini, dilewati agar tidak berat:', watchdogKey);
+        return;
+      }
+      this._uvcRecoveryDone[watchdogKey] = true;
 
       // Langkah Pemulihan 1: Buat elemen <video id="videoFeed"> baru saat #screenCapture sudah visible (mengatasi bug layer WebKit iPadOS)
       console.warn('⚠️ [UVC Watchdog] Stream masih gelap setelah 3.5 detik, membuat elemen <video> segar di viewport...');
@@ -2009,6 +2065,7 @@ class KioskEngine {
       } catch (e) {}
 
       await new Promise(r => setTimeout(r, 1200));
+      if (shouldAbortWatchdog()) return;
       if (this.checkVideoFeedHealth(document.getElementById('videoFeed')).healthy) {
         console.log('✅ [UVC Watchdog] Video pulih setelah pembuatan ulang elemen <video>!');
         this.updateLiveCameraBadgeUI();
@@ -2052,6 +2109,7 @@ class KioskEngine {
         }
 
         for (const videoConstraint of candidateConstraints) {
+          if (shouldAbortWatchdog()) return;
           if (this.mediaStream) {
             try {
               this.mediaStream.getTracks().forEach(t => t.stop());
