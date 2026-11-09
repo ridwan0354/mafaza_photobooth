@@ -36,6 +36,8 @@ namespace MafazaCanonBridge
         private static Thread _workerThread;
 
         private static volatile bool _isCapturing = false;
+        private static volatile bool _captureRequested = false;
+        private static readonly AutoResetEvent _captureDone = new AutoResetEvent(false);
         private static readonly object _edsdkLock = new object();
 
         private static byte[] _capturedPhoto = null;
@@ -81,10 +83,7 @@ namespace MafazaCanonBridge
                 Console.WriteLine("==============================================================");
                 Console.ResetColor();
 
-                // Try initializing EDSDK if available
-                TryInitEdsdk();
-
-                // Start background worker for Live View (EDSDK or digiCamControl)
+                // Start background worker for EDSDK and Live View
                 _workerThread = new Thread(WorkerLoop) { IsBackground = true };
                 _workerThread.Start();
 
@@ -307,72 +306,18 @@ namespace MafazaCanonBridge
         {
             try
             {
-                long captureStart = GetCurrentUnixTimeMs();
-                _isCapturing = true;
-
                 if (_edsdkLoaded && _cameraHandle != IntPtr.Zero)
                 {
-                    lock (_edsdkLock)
-                    {
-                        Console.WriteLine("[CAPTURE] Memulai jepret fisik dengan flash hotshoe...");
-
-                        // Pastikan SaveTo diset ke Both (SD Card + PC) dan kapasitas besar
-                        uint saveTo = 3; // kEdsSaveTo_Both
-                        EdsSetPropertyData(_cameraHandle, 0x0b /* kEdsPropID_SaveTo */, 0, 4, ref saveTo);
-                        EdsCapacity cap = new EdsCapacity { numberOfFreeClusters = 0x7FFFFFFF, bytesPerSector = 0x1000, reset = 1 };
-                        EdsSetCapacity(_cameraHandle, cap);
-
-                        // 1. Drop reflex mirror / exit Live View EVF so hotshoe sync contact fires
-                        uint dev0 = 0;
-                        EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref dev0);
-                        uint mode0 = 0;
-                        EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref mode0);
-                        Thread.Sleep(280);
-
-                        // 2. Fire physical shutter with Completely_NonAF (0x00010003) -> instant zero lag, clicks exactly once!
-                        uint err = EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00010003);
-                        Console.WriteLine(string.Format("[CAPTURE] PressShutterButton NonAF: 0x{0:X}", err));
-                        if (err != 0)
-                        {
-                            err = EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00000003);
-                            Console.WriteLine(string.Format("[CAPTURE] Fallback PressShutterButton Completely: 0x{0:X}", err));
-                        }
-
-                        Thread.Sleep(120);
-                        EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00000000);
-
-                        // 3. Pump EdsGetEvent while waiting for the camera to transfer the captured high-res flash photo
-                        Console.WriteLine("[CAPTURE] Menunggu foto flash ditransfer dari kamera...");
-                        for (int i = 0; i < 60; i++)
-                        {
-                            EdsGetEvent();
-                            Thread.Sleep(50);
-                            lock (_captureLock)
-                            {
-                                if (_capturedPhotoTime >= captureStart && _capturedPhoto != null && _capturedPhoto.Length > 1000)
-                                {
-                                    Console.WriteLine(string.Format("[CAPTURE] Foto flash didapatkan dalam {0} ms ({1:N0} bytes)!", GetCurrentUnixTimeMs() - captureStart, _capturedPhoto.Length));
-                                    break;
-                                }
-                            }
-                        }
-
-                        // 4. Restore EVF Live View for PC
-                        uint evfMode = 1;
-                        EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref evfMode);
-                        Thread.Sleep(80);
-                        uint outDev = 2; // PC
-                        EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
-                        Thread.Sleep(150);
-                    }
+                    _captureDone.Reset();
+                    _captureRequested = true;
+                    // Tunggu thread EDSDK mengeksekusi jepret fisik & transfer foto (maks 4500 ms)
+                    _captureDone.WaitOne(4500);
                 }
                 else if (_activeMode == "digicamcontrol")
                 {
                     SendDccCommand("http://127.0.0.1:5513/?CMD=Capture");
                     Thread.Sleep(600);
                 }
-
-                _isCapturing = false;
 
                 long ts = GetCurrentUnixTimeMs();
                 string json = string.Format("{{\"ok\":true,\"source\":\"canon-usb-windows\",\"captured\":true,\"imageUrl\":\"http://127.0.0.1:19898/captured_pose.jpg?t={0}\"}}", ts);
@@ -385,11 +330,76 @@ namespace MafazaCanonBridge
             }
             catch (Exception ex)
             {
-                _isCapturing = false;
                 res.StatusCode = 500;
                 byte[] err = Encoding.UTF8.GetBytes("Capture Error: " + ex.Message);
                 res.OutputStream.Write(err, 0, err.Length);
                 res.Close();
+            }
+        }
+
+        private static void ExecutePhysicalCapture()
+        {
+            try
+            {
+                long captureStart = GetCurrentUnixTimeMs();
+                _isCapturing = true;
+                Console.WriteLine("[CAPTURE] Memulai jepret fisik dengan flash hotshoe...");
+
+                if (_edsdkLoaded && _cameraHandle != IntPtr.Zero)
+                {
+                    // 1. Drop reflex mirror / exit Live View EVF so hotshoe sync contact fires
+                    uint dev0 = 0;
+                    EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref dev0);
+                    uint mode0 = 0;
+                    EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref mode0);
+                    Thread.Sleep(300);
+
+                    // 2. Fire physical shutter with Completely_NonAF (0x00010003) -> instant zero lag, clicks exactly once!
+                    uint err = EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00010003);
+                    Console.WriteLine(string.Format("[CAPTURE] PressShutterButton NonAF: 0x{0:X}", err));
+                    if (err != 0)
+                    {
+                        err = EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00000003);
+                        Console.WriteLine(string.Format("[CAPTURE] Fallback PressShutterButton Completely: 0x{0:X}", err));
+                    }
+
+                    Thread.Sleep(120);
+                    EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00000000);
+
+                    // 3. Pump EdsGetEvent on THIS SAME THREAD while waiting for the camera to transfer the captured high-res flash photo
+                    Console.WriteLine("[CAPTURE] Menunggu foto flash ditransfer dari kamera...");
+                    for (int i = 0; i < 70; i++)
+                    {
+                        EdsGetEvent();
+                        Thread.Sleep(50);
+                        lock (_captureLock)
+                        {
+                            if (_capturedPhotoTime >= captureStart && _capturedPhoto != null && _capturedPhoto.Length > 1000)
+                            {
+                                Console.WriteLine(string.Format("[CAPTURE] Foto flash didapatkan dalam {0} ms ({1:N0} bytes)!", GetCurrentUnixTimeMs() - captureStart, _capturedPhoto.Length));
+                                break;
+                            }
+                        }
+                    }
+
+                    // 4. Restore EVF Live View for PC
+                    uint evfMode = 1;
+                    EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref evfMode);
+                    Thread.Sleep(80);
+                    uint outDev = 2; // PC
+                    EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
+                    Thread.Sleep(150);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[CAPTURE] Exception: " + ex.Message);
+            }
+            finally
+            {
+                _isCapturing = false;
+                _captureRequested = false;
+                _captureDone.Set();
             }
         }
 
@@ -438,13 +448,17 @@ namespace MafazaCanonBridge
         // ==========================================
         private static void WorkerLoop()
         {
+            // Initialize EDSDK on this dedicated thread so all callbacks & events belong to it
+            TryInitEdsdk();
+
             while (_running)
             {
                 try
                 {
-                    if (_isCapturing)
+                    // Cek apakah ada permintaan jepret foto dari HTTP
+                    if (_captureRequested)
                     {
-                        Thread.Sleep(50);
+                        ExecutePhysicalCapture();
                         continue;
                     }
 
@@ -472,8 +486,9 @@ namespace MafazaCanonBridge
                     }
                     Thread.Sleep(1500);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    Console.WriteLine("[WORKER] Error: " + ex.Message);
                     Thread.Sleep(1000);
                 }
             }
@@ -816,12 +831,15 @@ namespace MafazaCanonBridge
                     EdsDirectoryItemInfo info;
                     uint err = EdsGetDirectoryItemInfo(inRef, out info);
                     Console.WriteLine(string.Format("[EDSDK-EVENT] DirItemInfo: err=0x{0:X}, size={1}, file={2}, isFolder={3}", err, info.size, info.szFileName, info.isFolder));
-                    if (err == 0 && info.isFolder == 0 && info.size > 2000)
+                    if (err == 0 && info.isFolder == 0)
                     {
                         IntPtr stream;
-                        if (EdsCreateMemoryStream(info.size, out stream) == 0)
+                        ulong streamSize = (info.size > 2000) ? info.size : 0;
+                        if (EdsCreateMemoryStream(streamSize, out stream) == 0)
                         {
-                            if (EdsDownload(inRef, info.size, stream) == 0)
+                            uint downErr = EdsDownload(inRef, info.size, stream);
+                            Console.WriteLine(string.Format("[PHOTO] EdsDownload result: 0x{0:X}", downErr));
+                            if (downErr == 0)
                             {
                                 if (inEvent == 0x00000208)
                                 {
@@ -853,10 +871,18 @@ namespace MafazaCanonBridge
                             EdsRelease(stream);
                         }
                     }
+                    else if (inEvent == 0x00000208)
+                    {
+                        EdsDownloadCancel(inRef);
+                    }
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine("[PHOTO] Error download: " + ex.Message);
+                    if (inEvent == 0x00000208)
+                    {
+                        try { EdsDownloadCancel(inRef); } catch { }
+                    }
                 }
             }
             if (inRef != IntPtr.Zero)
