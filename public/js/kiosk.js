@@ -1911,7 +1911,8 @@ class KioskEngine {
       return;
     }
     if (this.canonUsbStreamActive) {
-      badge.innerText = 'LIVE • Canon USB';
+      const camName = this.canonUsbBridgeInfo?.camera || 'USB DSLR';
+      badge.innerText = `LIVE • ${camName}`;
       return;
     }
     if (this.isVirtualFallbackStream) {

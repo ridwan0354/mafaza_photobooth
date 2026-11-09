@@ -126,6 +126,7 @@ public class CanonUsbPtpEngine {
     private volatile long latestFrameTimeMs = 0;
     private volatile long totalFramesReceived = 0;
     private volatile byte[] lastCapturedFullJpeg = null;
+    private volatile String lastSonyDiag = "Belum dimulai";
     private int transactionId = 1;
     private int canonEvfParamIndex = 0;
 
@@ -347,6 +348,9 @@ public class CanonUsbPtpEngine {
         }
         sb.append("\nStatus Sesi PTP: ").append(isConnected ? "TERHUBUNG (" + cameraModelName + ")" : "BELUM TERHUBUNG");
         sb.append("\nFrame Live View diterima: ").append(totalFramesReceived);
+        if (isSonyCamera) {
+            sb.append("\nSony LiveView Diag: ").append(lastSonyDiag);
+        }
         return sb.toString();
     }
 
@@ -523,11 +527,16 @@ public class CanonUsbPtpEngine {
 
             if (isSonyCamera) {
                 // Sony Alpha (A7 III / ILCE-7M3) PC Remote Handshake Sequence
+                drainBulkInEndpoint();
                 sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{1, 0, 0}, null);
                 sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{2, 0, 0}, null);
                 executePtpTransactionLocked(PTP_OC_SONY_SDIO_GET_EXT_DEVICE_INFO, new int[]{0x00C8}, null, 800);
                 sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{3, 0, 0}, null);
                 executePtpTransactionLocked(PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 800);
+
+                // Arm Sony Alpha LiveView virtual stream handle (0xFFFFC002)
+                setSonyExtPropUInt16Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
+                executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 600);
             } else {
                 // Canon EOS (1300D / Rebel T6, etc.) Remote Mode + LiveView Handshake Sequence
                 sendPtpCommandLocked(PTP_OC_CANON_SET_REMOTE_MODE, new int[]{1}, null);
@@ -779,10 +788,15 @@ public class CanonUsbPtpEngine {
         lastCapturedFullJpeg = null;
 
         try {
+            // Half-press to trigger AF/AE lock and prepare mechanical shutter
             sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 2);
-            Thread.sleep(80);
+            Thread.sleep(250);
+
+            // Full-press to release shutter and fire Godox flash via Hotshoe X-sync
             sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 2);
-            Thread.sleep(150);
+            Thread.sleep(200);
+
+            // Release buttons
             sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 1);
             sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 1);
 
@@ -1005,24 +1019,65 @@ public class CanonUsbPtpEngine {
         return null;
     }
 
+    private void drainBulkInEndpoint() {
+        if (connection == null || epIn == null) return;
+        byte[] drainBuf = new byte[8192];
+        int drained;
+        while ((drained = connection.bulkTransfer(epIn, drainBuf, drainBuf.length, 25)) > 0) {
+            // clear out leftover unread bytes
+        }
+    }
+
     private byte[] fetchSonyLiveViewFrameLocked() {
+        // Send GetObjectInfo first on initial connection or periodically every 45 frames to keep virtual object armed
+        if (totalFramesReceived == 0 || (totalFramesReceived % 45 == 0)) {
+            executePtpTransactionLocked(
+                    PTP_OC_GET_OBJECT_INFO,
+                    new int[]{SONY_HANDLE_LIVEVIEW_FRAME},
+                    null,
+                    450
+            );
+        }
+
         PtpTransactionResult res = executePtpTransactionLocked(
                 PTP_OC_GET_OBJECT,
                 new int[]{SONY_HANDLE_LIVEVIEW_FRAME},
                 null,
-                800
+                1200
         );
-        if (res == null || res.dataPayload == null || res.dataPayload.length < 256) {
+        if (res == null) {
+            lastSonyDiag = "res=null (timeout)";
+            drainBulkInEndpoint();
             return null;
         }
-        return extractJpegFromBuffer(res.dataPayload);
+        if (res.dataPayload == null || res.dataPayload.length < 256) {
+            lastSonyDiag = "resp=0x" + Integer.toHexString(res.responseCode) + ",len=" + (res.dataPayload != null ? res.dataPayload.length : 0);
+            if (res.responseCode != PTP_RC_OK) {
+                // Re-arm virtual handle if camera rejected command
+                executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 400);
+            }
+            return null;
+        }
+
+        byte[] extracted = extractJpegFromBuffer(res.dataPayload);
+        if (extracted == null && res.dataPayload.length > 1024) {
+            if ((res.dataPayload[0] & 0xFF) == 0xFF && (res.dataPayload[1] & 0xFF) == 0xD8) {
+                extracted = res.dataPayload;
+            }
+        }
+        if (extracted != null) {
+            lastSonyDiag = "OK (" + extracted.length + "B)";
+        } else {
+            lastSonyDiag = "parseErr (raw " + res.dataPayload.length + "B)";
+        }
+        return extracted;
     }
 
     private byte[] extractJpegFromBuffer(byte[] data) {
         if (data == null || data.length < 128) return null;
         int startIdx = -1;
-        for (int i = 0; i < data.length - 3; i++) {
-            if ((data[i] & 0xFF) == 0xFF && (data[i + 1] & 0xFF) == 0xD8 && (data[i + 2] & 0xFF) == 0xFF) {
+        for (int i = 0; i < data.length - 1; i++) {
+            if ((data[i] & 0xFF) == 0xFF && (data[i + 1] & 0xFF) == 0xD8) {
                 startIdx = i;
                 break;
             }
@@ -1030,18 +1085,36 @@ public class CanonUsbPtpEngine {
         if (startIdx == -1) return null;
 
         int endIdx = -1;
-        for (int i = data.length - 2; i > startIdx + 64; i--) {
+        for (int i = data.length - 2; i > startIdx + 32; i--) {
             if ((data[i] & 0xFF) == 0xFF && (data[i + 1] & 0xFF) == 0xD9) {
                 endIdx = i + 2;
                 break;
             }
         }
-        if (endIdx == -1 || endIdx <= startIdx) return null;
+        // Fallback: if SOI was found and buffer has sufficient size, return from startIdx to end
+        if (endIdx == -1 || endIdx <= startIdx) {
+            if (data.length - startIdx >= 1024) {
+                endIdx = data.length;
+            } else {
+                return null;
+            }
+        }
 
         int len = endIdx - startIdx;
         byte[] jpeg = new byte[len];
         System.arraycopy(data, startIdx, jpeg, 0, len);
         return jpeg;
+    }
+
+    private static boolean hasJpegEoi(byte[] b, int len) {
+        if (b == null || len < 2) return false;
+        int checkStart = Math.max(0, len - 256);
+        for (int i = len - 1; i > checkStart; i--) {
+            if ((b[i - 1] & 0xFF) == 0xFF && (b[i] & 0xFF) == 0xD9) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private int sendPtpCommandLocked(int opCode, int[] params, byte[] dataOut) {
@@ -1101,8 +1174,7 @@ public class CanonUsbPtpEngine {
         }
 
         PtpTransactionResult result = new PtpTransactionResult();
-        // Use 16384-byte (16 KB) USB bulk read buffer for universal compatibility across all Android kernels
-        byte[] readChunk = new byte[16384];
+        byte[] readChunk = new byte[32768];
 
         int r1 = connection.bulkTransfer(epIn, readChunk, readChunk.length, timeoutMs);
         if (r1 < 12) return null;
@@ -1117,15 +1189,18 @@ public class CanonUsbPtpEngine {
         }
 
         if (containerType == PTP_CNT_DATA) {
-            int expectedDataBytes = Math.max(0, totalContainerLen - 12);
-            ByteArrayOutputStream bos = new ByteArrayOutputStream(Math.min(Math.max(expectedDataBytes, 64), 1048576));
+            long unsignedLen = totalContainerLen & 0xFFFFFFFFL;
+            boolean isUnbounded = (unsignedLen == 0xFFFFFFFFL || totalContainerLen <= 12);
+            int expectedDataBytes = isUnbounded ? -1 : (int) (unsignedLen - 12);
 
-            int firstPayloadBytes = Math.min(Math.max(0, r1 - 12), expectedDataBytes);
+            ByteArrayOutputStream bos = new ByteArrayOutputStream(isUnbounded ? 131072 : Math.min(expectedDataBytes, 1048576));
+
+            int firstPayloadBytes = isUnbounded ? (r1 - 12) : Math.min(r1 - 12, expectedDataBytes);
             if (firstPayloadBytes > 0) {
                 bos.write(readChunk, 12, firstPayloadBytes);
             }
 
-            // Check if the trailing 12-byte PTP_CNT_RESPONSE was already coalesced into r1
+            // Check if trailing PTP_CNT_RESPONSE was already coalesced into r1
             int remInFirst = r1 - (12 + firstPayloadBytes);
             if (remInFirst >= 12) {
                 int respOffset = 12 + firstPayloadBytes;
@@ -1136,29 +1211,64 @@ public class CanonUsbPtpEngine {
                 }
             }
 
-            while (bos.size() < expectedDataBytes) {
-                int nr = connection.bulkTransfer(epIn, readChunk, readChunk.length, timeoutMs);
-                if (nr <= 0) break;
+            if (!isUnbounded) {
+                // Known length
+                while (bos.size() < expectedDataBytes) {
+                    int nr = connection.bulkTransfer(epIn, readChunk, readChunk.length, timeoutMs);
+                    if (nr <= 0) break;
 
-                int needed = expectedDataBytes - bos.size();
-                int toCopy = Math.min(nr, needed);
-                if (toCopy > 0) {
-                    bos.write(readChunk, 0, toCopy);
+                    int needed = expectedDataBytes - bos.size();
+                    int toCopy = Math.min(nr, needed);
+                    if (toCopy > 0) {
+                        bos.write(readChunk, 0, toCopy);
+                    }
+
+                    int rem = nr - toCopy;
+                    if (rem >= 12) {
+                        if (readShortLE(readChunk, toCopy + 4) == PTP_CNT_RESPONSE) {
+                            result.responseCode = readShortLE(readChunk, toCopy + 6) & 0xFFFF;
+                            result.dataPayload = bos.toByteArray();
+                            return result;
+                        }
+                    }
                 }
+            } else {
+                // Unbounded / Streaming length (Sony LiveView 0xFFFFC002)
+                int epMaxPacket = epIn.getMaxPacketSize();
+                if (epMaxPacket <= 0) epMaxPacket = 512;
 
-                int rem = nr - toCopy;
-                if (rem >= 12) {
-                    if (readShortLE(readChunk, toCopy + 4) == PTP_CNT_RESPONSE) {
-                        result.responseCode = readShortLE(readChunk, toCopy + 6) & 0xFFFF;
+                while (bos.size() < 1048576) {
+                    int nr = connection.bulkTransfer(epIn, readChunk, readChunk.length, 500);
+                    if (nr <= 0) break;
+
+                    // Check if this packet is a standalone PTP_CNT_RESPONSE (12 bytes)
+                    if (nr == 12 && readShortLE(readChunk, 4) == PTP_CNT_RESPONSE) {
+                        result.responseCode = readShortLE(readChunk, 6) & 0xFFFF;
                         result.dataPayload = bos.toByteArray();
                         return result;
                     }
+
+                    // Check if PTP_CNT_RESPONSE is at the end of this packet
+                    if (nr > 12 && readShortLE(readChunk, nr - 8) == PTP_CNT_RESPONSE) {
+                        result.responseCode = readShortLE(readChunk, nr - 6) & 0xFFFF;
+                        bos.write(readChunk, 0, nr - 12);
+                        result.dataPayload = bos.toByteArray();
+                        return result;
+                    }
+
+                    bos.write(readChunk, 0, nr);
+
+                    // If short packet and JPEG end marker seen, break
+                    if (nr < readChunk.length && hasJpegEoi(readChunk, nr)) {
+                        break;
+                    }
                 }
             }
+
             result.dataPayload = bos.toByteArray();
 
-            // Read the trailing 12-byte PTP_CNT_RESPONSE packet
-            int r2 = connection.bulkTransfer(epIn, readChunk, readChunk.length, timeoutMs);
+            // Read the trailing 12-byte PTP_CNT_RESPONSE packet if not yet captured
+            int r2 = connection.bulkTransfer(epIn, readChunk, readChunk.length, 450);
             if (r2 >= 12 && readShortLE(readChunk, 4) == PTP_CNT_RESPONSE) {
                 result.responseCode = readShortLE(readChunk, 6) & 0xFFFF;
             } else {
