@@ -164,6 +164,14 @@ namespace MafazaCanonBridge
                 {
                     HandleControl(req, res);
                 }
+                else if (path == "/capture" || path == "/api/camera/trigger-capture")
+                {
+                    HandleCapture(req, res);
+                }
+                else if (path == "/captured_pose.jpg")
+                {
+                    HandleCapturedPose(res);
+                }
                 else
                 {
                     res.StatusCode = 404;
@@ -274,6 +282,86 @@ namespace MafazaCanonBridge
             _lastCmdError = handled ? 0 : 1;
 
             HandleStatus(res);
+        }
+
+        private static void HandleCapture(HttpListenerRequest req, HttpListenerResponse res)
+        {
+            try
+            {
+                if (_edsdkLoaded && _cameraHandle != IntPtr.Zero)
+                {
+                    // 1. Drop reflex mirror / exit Live View EVF so hotshoe sync contact fires
+                    uint dev0 = 0;
+                    EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref dev0);
+                    uint mode0 = 0;
+                    EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref mode0);
+                    Thread.Sleep(250);
+
+                    // 2. Fire physical shutter with Completely_NonAF (0x00010003)
+                    EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00010003);
+                    Thread.Sleep(120);
+                    EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00000000);
+
+                    // 3. Wait for mechanical shutter and sensor cycle
+                    Thread.Sleep(350);
+
+                    // 4. Restore EVF Live View for PC
+                    uint evfMode = 1;
+                    EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref evfMode);
+                    Thread.Sleep(80);
+                    uint outDev = 2; // PC
+                    EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
+                    Thread.Sleep(150);
+                }
+                else if (_activeMode == "digicamcontrol")
+                {
+                    SendDccCommand("http://127.0.0.1:5513/?CMD=Capture");
+                    Thread.Sleep(500);
+                }
+
+                long ts = GetCurrentUnixTimeMs();
+                string json = string.Format("{{\"ok\":true,\"source\":\"canon-usb-windows\",\"captured\":true,\"imageUrl\":\"http://127.0.0.1:19898/captured_pose.jpg?t={0}\"}}", ts);
+                byte[] body = Encoding.UTF8.GetBytes(json);
+                res.ContentType = "application/json";
+                res.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate");
+                res.ContentLength64 = body.Length;
+                res.OutputStream.Write(body, 0, body.Length);
+                res.Close();
+            }
+            catch (Exception ex)
+            {
+                res.StatusCode = 500;
+                byte[] err = Encoding.UTF8.GetBytes("Capture Error: " + ex.Message);
+                res.OutputStream.Write(err, 0, err.Length);
+                res.Close();
+            }
+        }
+
+        private static void HandleCapturedPose(HttpListenerResponse res)
+        {
+            byte[] photoCopy = null;
+            lock (_frameLock)
+            {
+                if (_latestJpeg != null && _latestJpeg.Length > 0)
+                {
+                    photoCopy = (byte[])_latestJpeg.Clone();
+                }
+            }
+            if (photoCopy != null && photoCopy.Length > 0)
+            {
+                res.ContentType = "image/jpeg";
+                res.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate");
+                res.ContentLength64 = photoCopy.Length;
+                res.OutputStream.Write(photoCopy, 0, photoCopy.Length);
+                res.Close();
+            }
+            else
+            {
+                res.StatusCode = 404;
+                byte[] msg = Encoding.UTF8.GetBytes("No captured photo available.");
+                res.OutputStream.Write(msg, 0, msg.Length);
+                res.Close();
+            }
         }
 
         // ==========================================
