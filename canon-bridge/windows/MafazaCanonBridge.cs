@@ -35,11 +35,13 @@ namespace MafazaCanonBridge
         private static bool _edsdkLoaded = false;
         private static Thread _workerThread;
 
+        // Thread sync for Capture (Single-thread model for 100% EDSDK & hotshoe flash stability)
         private static volatile bool _isCapturing = false;
-        private static volatile bool _captureRequested = false;
-        private static readonly AutoResetEvent _captureDone = new AutoResetEvent(false);
+        private static volatile bool _pendingCapture = false;
+        private static readonly AutoResetEvent _captureDoneEvent = new AutoResetEvent(false);
         private static readonly object _edsdkLock = new object();
 
+        // High-res photo storage
         private static byte[] _capturedPhoto = null;
         private static long _capturedPhotoTime = 0;
         private static readonly object _captureLock = new object();
@@ -56,6 +58,41 @@ namespace MafazaCanonBridge
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MSG
+        {
+            public IntPtr hwnd;
+            public uint message;
+            public IntPtr wParam;
+            public IntPtr lParam;
+            public uint time;
+            public int pt_x;
+            public int pt_y;
+        }
+
+        [DllImport("user32.dll")]
+        private static extern bool PeekMessage(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+        [DllImport("user32.dll")]
+        private static extern bool TranslateMessage(ref MSG lpMsg);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr DispatchMessage(ref MSG lpMsg);
+
+        private static void PumpWindowsMessages()
+        {
+            try
+            {
+                MSG msg;
+                while (PeekMessage(out msg, IntPtr.Zero, 0, 0, 1 /* PM_REMOVE */))
+                {
+                    TranslateMessage(ref msg);
+                    DispatchMessage(ref msg);
+                }
+            }
+            catch { }
+        }
 
         private const int SW_HIDE = 0;
 
@@ -83,12 +120,15 @@ namespace MafazaCanonBridge
                 Console.WriteLine("==============================================================");
                 Console.ResetColor();
 
-                // Start background worker for EDSDK and Live View
-                _workerThread = new Thread(WorkerLoop) { IsBackground = true };
-                _workerThread.Start();
-
                 // Start HTTP Server
                 StartHttpServer();
+
+                // Start background worker for Live View & Physical Shutter (EDSDK or digiCamControl)
+                // WorkerThread runs on STA to ensure 100% full compatibility with COM / Win32 EDSDK message pump
+                _workerThread = new Thread(WorkerLoop);
+                _workerThread.SetApartmentState(ApartmentState.STA);
+                _workerThread.IsBackground = true;
+                _workerThread.Start();
 
                 Console.WriteLine("\n[INFO] Tekan [Ctrl+C] atau tutup jendela ini untuk mematikan bridge.");
                 while (_running)
@@ -116,7 +156,7 @@ namespace MafazaCanonBridge
 
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine("[HTTP] Server berhasil berjalan di http://127.0.0.1:19898/");
-                Console.WriteLine("[HTTP] Endpoint aktif: /status, /frame.jpg, /control");
+                Console.WriteLine("[HTTP] Endpoint aktif: /status, /frame.jpg, /capture, /captured_pose.jpg, /control");
                 Console.ResetColor();
 
                 _listener.BeginGetContext(OnHttpRequest, null);
@@ -215,7 +255,8 @@ namespace MafazaCanonBridge
         {
             long now = GetCurrentUnixTimeMs();
             long age = (_lastFrameTime > 0) ? (now - _lastFrameTime) : 999999;
-            bool active = _isConnected && (age < 3500);
+            // Selama kamera terkoneksi, anggap aktif agar Kiosk tidak memutus bridge saat mirror drop
+            bool active = _isConnected || (age < 5000);
 
             string json = string.Format(
                 "{{\"active\":{0},\"camera\":\"{1}\",\"mode\":\"{2}\",\"width\":1056,\"height\":704,\"ageMs\":{3},\"iso\":{4},\"tv\":{5},\"av\":{6},\"wb\":{7},\"ev\":{8},\"aeMode\":{9},\"cmdStatus\":\"{10}\",\"cmdError\":{11}}}",
@@ -306,17 +347,15 @@ namespace MafazaCanonBridge
         {
             try
             {
-                if (_edsdkLoaded && _cameraHandle != IntPtr.Zero)
+                Console.WriteLine("[HTTP] Menerima request /capture dari Kiosk...");
+                _captureDoneEvent.Reset();
+                _pendingCapture = true;
+
+                // Tunggu proses capture fisik & transfer foto resolusi penuh pada worker thread
+                bool completed = _captureDoneEvent.WaitOne(4800);
+                if (!completed)
                 {
-                    _captureDone.Reset();
-                    _captureRequested = true;
-                    // Tunggu thread EDSDK mengeksekusi jepret fisik & transfer foto (maks 4500 ms)
-                    _captureDone.WaitOne(4500);
-                }
-                else if (_activeMode == "digicamcontrol")
-                {
-                    SendDccCommand("http://127.0.0.1:5513/?CMD=Capture");
-                    Thread.Sleep(600);
+                    Console.WriteLine("[CAPTURE] Peringatan: Proses capture melebihi batas waktu 4.8 detik.");
                 }
 
                 long ts = GetCurrentUnixTimeMs();
@@ -330,76 +369,12 @@ namespace MafazaCanonBridge
             }
             catch (Exception ex)
             {
+                _pendingCapture = false;
+                _isCapturing = false;
                 res.StatusCode = 500;
                 byte[] err = Encoding.UTF8.GetBytes("Capture Error: " + ex.Message);
                 res.OutputStream.Write(err, 0, err.Length);
                 res.Close();
-            }
-        }
-
-        private static void ExecutePhysicalCapture()
-        {
-            try
-            {
-                long captureStart = GetCurrentUnixTimeMs();
-                _isCapturing = true;
-                Console.WriteLine("[CAPTURE] Memulai jepret fisik dengan flash hotshoe...");
-
-                if (_edsdkLoaded && _cameraHandle != IntPtr.Zero)
-                {
-                    // 1. Drop reflex mirror / exit Live View EVF so hotshoe sync contact fires
-                    uint dev0 = 0;
-                    EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref dev0);
-                    uint mode0 = 0;
-                    EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref mode0);
-                    Thread.Sleep(300);
-
-                    // 2. Fire physical shutter with Completely_NonAF (0x00010003) -> instant zero lag, clicks exactly once!
-                    uint err = EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00010003);
-                    Console.WriteLine(string.Format("[CAPTURE] PressShutterButton NonAF: 0x{0:X}", err));
-                    if (err != 0)
-                    {
-                        err = EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00000003);
-                        Console.WriteLine(string.Format("[CAPTURE] Fallback PressShutterButton Completely: 0x{0:X}", err));
-                    }
-
-                    Thread.Sleep(120);
-                    EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00000000);
-
-                    // 3. Pump EdsGetEvent on THIS SAME THREAD while waiting for the camera to transfer the captured high-res flash photo
-                    Console.WriteLine("[CAPTURE] Menunggu foto flash ditransfer dari kamera...");
-                    for (int i = 0; i < 70; i++)
-                    {
-                        EdsGetEvent();
-                        Thread.Sleep(50);
-                        lock (_captureLock)
-                        {
-                            if (_capturedPhotoTime >= captureStart && _capturedPhoto != null && _capturedPhoto.Length > 1000)
-                            {
-                                Console.WriteLine(string.Format("[CAPTURE] Foto flash didapatkan dalam {0} ms ({1:N0} bytes)!", GetCurrentUnixTimeMs() - captureStart, _capturedPhoto.Length));
-                                break;
-                            }
-                        }
-                    }
-
-                    // 4. Restore EVF Live View for PC
-                    uint evfMode = 1;
-                    EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref evfMode);
-                    Thread.Sleep(80);
-                    uint outDev = 2; // PC
-                    EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
-                    Thread.Sleep(150);
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("[CAPTURE] Exception: " + ex.Message);
-            }
-            finally
-            {
-                _isCapturing = false;
-                _captureRequested = false;
-                _captureDone.Set();
             }
         }
 
@@ -408,8 +383,8 @@ namespace MafazaCanonBridge
             byte[] photoCopy = null;
             lock (_captureLock)
             {
-                // Prefer newly captured high-res photo if less than 60s old
-                if (_capturedPhoto != null && _capturedPhoto.Length > 1000 && (GetCurrentUnixTimeMs() - _capturedPhotoTime) < 60000)
+                // Prioritaskan foto asli hasil jepretan kamera Canon dengan flash
+                if (_capturedPhoto != null && _capturedPhoto.Length > 1000 && (GetCurrentUnixTimeMs() - _capturedPhotoTime) < 90000)
                 {
                     photoCopy = (byte[])_capturedPhoto.Clone();
                 }
@@ -444,40 +419,46 @@ namespace MafazaCanonBridge
         }
 
         // ==========================================
-        // WORKER LOOP (Live View acquisition)
+        // WORKER LOOP (Single-thread EDSDK & Live View)
         // ==========================================
         private static void WorkerLoop()
         {
-            // Initialize EDSDK on this dedicated thread so all callbacks & events belong to it
-            TryInitEdsdk();
+            // Inisialisasi EDSDK pada thread ini agar STA COM & Win32 message queue sinkron 100%
+            if (!_edsdkLoaded)
+            {
+                TryInitEdsdk();
+            }
 
             while (_running)
             {
                 try
                 {
-                    // Cek apakah ada permintaan jepret foto dari HTTP
-                    if (_captureRequested)
+                    // Jika ada perintah jepret fisik dari Kiosk (/capture), proses langsung pada thread ini!
+                    if (_pendingCapture)
                     {
                         ExecutePhysicalCapture();
+                        _captureDoneEvent.Set();
                         continue;
                     }
 
-                    // 1. Try EDSDK Live View if EDSDK loaded & camera connected
+                    // 1. Ambil Live View frame jika EDSDK aktif
                     if (_edsdkLoaded && _cameraHandle != IntPtr.Zero)
                     {
+                        EdsGetEvent();
+                        PumpWindowsMessages();
                         DownloadEdsdkLiveViewFrame();
                         Thread.Sleep(33); // ~30 FPS
                         continue;
                     }
 
-                    // 2. Try digiCamControl WebServer (http://127.0.0.1:5513/)
+                    // 2. Ambil dari digiCamControl WebServer jika aktif
                     if (CheckAndPullDigiCamControl())
                     {
                         Thread.Sleep(33);
                         continue;
                     }
 
-                    // 3. If neither is connected, try discovering camera every 2 seconds
+                    // 3. Jika belum terhubung, coba deteksi kamera Canon setiap 2 detik
                     _isConnected = false;
                     _activeMode = "searching";
                     if (_edsdkLoaded)
@@ -488,9 +469,136 @@ namespace MafazaCanonBridge
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine("[WORKER] Error: " + ex.Message);
+                    Console.WriteLine("[WORKER] Exception: " + ex.Message);
                     Thread.Sleep(1000);
                 }
+            }
+        }
+
+        private static void ExecutePhysicalCapture()
+        {
+            long captureStart = GetCurrentUnixTimeMs();
+            _isCapturing = true;
+
+            try
+            {
+                if (_edsdkLoaded && _cameraHandle != IntPtr.Zero)
+                {
+                    lock (_edsdkLock)
+                    {
+                        Console.WriteLine("[CAPTURE] >>> Memulai jepret fisik sinkron dengan flash hotshoe (Godox CT-16)...");
+
+                        // Pastikan SaveTo diset ke Both (SD Card + PC) dan kapasitas virtual besar
+                        uint saveTo = 3; // kEdsSaveTo_Both
+                        EdsSetPropertyData(_cameraHandle, 0x0b /* kEdsPropID_SaveTo */, 0, 4, ref saveTo);
+                        EdsCapacity cap = new EdsCapacity { numberOfFreeClusters = 0x7FFFFFFF, bytesPerSector = 0x1000, reset = 1 };
+                        EdsSetCapacity(_cameraHandle, cap);
+
+                        // 1. Turunkan cermin refleks (drop mirror) & keluar dari EVF Live View
+                        // Pada Canon EOS 1300D / Rebel T6, pin tengah hotshoe terkunci selama Live View aktif.
+                        // Dengan mematikan Output Device dan EVF Mode, cermin turun penuh dan kontak flash terhubung ke rana mekanik!
+                        uint dev0 = 0;
+                        EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref dev0);
+                        uint mode0 = 0;
+                        EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref mode0);
+
+                        // Beri waktu 320ms agar cermin mekanik benar-benar stabil turun ke bawah
+                        for (int i = 0; i < 7; i++)
+                        {
+                            EdsGetEvent();
+                            PumpWindowsMessages();
+                            Thread.Sleep(50);
+                        }
+
+                        // 2. Tembakkan rana mekanik fisik seketika tanpa jeda AF (Completely_NonAF = 0x00010003)
+                        uint err = EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00010003);
+                        Console.WriteLine(string.Format("[CAPTURE] PressShutterButton NonAF: 0x{0:X}", err));
+                        if (err != 0)
+                        {
+                            err = EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00000003);
+                            Console.WriteLine(string.Format("[CAPTURE] Fallback PressShutterButton Completely: 0x{0:X}", err));
+                        }
+
+                        // Tahan rana selama 120ms saat tirai membuka dan lampu flash menyala, lalu lepas tombol ke OFF
+                        EdsGetEvent();
+                        PumpWindowsMessages();
+                        Thread.Sleep(120);
+                        EdsSendCommand(_cameraHandle, 0x04 /* kEdsCameraCommand_PressShutterButton */, 0x00000000);
+
+                        // 3. Putar event loop pada thread yang sama untuk mengunduh foto asli JPEG resolusi penuh
+                        Console.WriteLine("[CAPTURE] Menunggu foto asli JPEG disinari flash ditransfer dari kamera Canon...");
+                        for (int i = 0; i < 70; i++)
+                        {
+                            EdsGetEvent();
+                            PumpWindowsMessages();
+                            Thread.Sleep(50);
+                            lock (_captureLock)
+                            {
+                                if (_capturedPhotoTime >= captureStart && _capturedPhoto != null && _capturedPhoto.Length > 1000)
+                                {
+                                    Console.ForegroundColor = ConsoleColor.Green;
+                                    Console.WriteLine(string.Format("[CAPTURE] *** BERHASIL: Foto asli flash didapatkan dalam {0} ms ({1:N0} bytes)! ***", GetCurrentUnixTimeMs() - captureStart, _capturedPhoto.Length));
+                                    Console.ResetColor();
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 4. Hidupkan kembali Live View EVF untuk preview di layar Kiosk
+                        uint evfMode = 1;
+                        EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref evfMode);
+                        Thread.Sleep(80);
+                        uint outDev = 2; // PC
+                        EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
+                        Thread.Sleep(150);
+                    }
+                }
+                else if (_activeMode == "digicamcontrol")
+                {
+                    SendDccCommand("http://127.0.0.1:5513/?CMD=Capture");
+                    for (int i = 0; i < 20; i++)
+                    {
+                        Thread.Sleep(150);
+                        try
+                        {
+                            HttpWebRequest req = (HttpWebRequest)WebRequest.Create("http://127.0.0.1:5513/image/last");
+                            req.Timeout = 500;
+                            using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
+                            {
+                                if (resp.StatusCode == HttpStatusCode.OK && resp.ContentLength > 2000)
+                                {
+                                    using (MemoryStream ms = new MemoryStream())
+                                    {
+                                        resp.GetResponseStream().CopyTo(ms);
+                                        byte[] bytes = ms.ToArray();
+                                        lock (_captureLock)
+                                        {
+                                            _capturedPhoto = bytes;
+                                            _capturedPhotoTime = GetCurrentUnixTimeMs();
+                                        }
+                                        Console.WriteLine("[CAPTURE-DCC] Foto berhasil diambil dari digiCamControl: " + bytes.Length + " bytes");
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        catch { }
+                    }
+                }
+                else
+                {
+                    Console.WriteLine("[CAPTURE] Peringatan: Tidak ada kamera Canon / digiCamControl yang aktif.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[CAPTURE] Exception: " + ex.Message);
+            }
+            finally
+            {
+                _isCapturing = false;
+                _pendingCapture = false;
+                _captureDoneEvent.Set();
             }
         }
 
@@ -565,7 +673,7 @@ namespace MafazaCanonBridge
         }
 
         // ==========================================
-        // CANON EDSDK P/INVOKE WRAPPERS
+        // CANON EDSDK P/INVOKE WRAPPERS (Windows StdCall)
         // ==========================================
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern IntPtr LoadLibrary(string dllToLoad);
@@ -573,55 +681,55 @@ namespace MafazaCanonBridge
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
         private static extern bool SetDllDirectory(string lpPathName);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsInitializeSDK();
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsTerminateSDK();
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsGetCameraList(out IntPtr outCameraListRef);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsGetChildCount(IntPtr inRef, out int outCount);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsGetChildAtIndex(IntPtr inRef, int inIndex, out IntPtr outCameraRef);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsOpenSession(IntPtr inCameraRef);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsCloseSession(IntPtr inCameraRef);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsSetPropertyData(IntPtr inRef, uint inPropertyID, int inParam, int inSize, ref uint inData);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsGetPropertyData(IntPtr inRef, uint inPropertyID, int inParam, int inSize, out uint outData);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsSendCommand(IntPtr inCameraRef, uint inCommand, int inParam);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsCreateMemoryStream(ulong inBufferSize, out IntPtr outStreamRef);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsCreateEvfImageRef(IntPtr inStreamRef, out IntPtr outEvfImageRef);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsDownloadEvfImage(IntPtr inCameraRef, IntPtr inEvfImageRef);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsGetPointer(IntPtr inStreamRef, out IntPtr outPointer);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsGetLength(IntPtr inStreamRef, out ulong outLength);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsGetEvent();
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsRelease(IntPtr inRef);
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
@@ -645,31 +753,32 @@ namespace MafazaCanonBridge
             public int reset;
         }
 
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         public delegate uint EdsObjectEventHandler(uint inEvent, IntPtr inRef, IntPtr inContext);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsSetObjectEventHandler(IntPtr inCameraRef, uint inEvent, EdsObjectEventHandler inHandler, IntPtr inContext);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsGetDirectoryItemInfo(IntPtr inRef, out EdsDirectoryItemInfo outDirItemInfo);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsDownload(IntPtr inRef, ulong inSize, IntPtr outStream);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsDownloadComplete(IntPtr inRef);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsDownloadCancel(IntPtr inRef);
 
-        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsSetCapacity(IntPtr inCameraRef, EdsCapacity inCapacity);
 
         private static void TryInitEdsdk()
         {
             try
             {
-                // Check if EDSDK.dll exists in local folder or standard program files
+                // Cari file EDSDK.dll di direktori lokal atau program files Canon / digiCamControl
                 List<string> possiblePaths = new List<string> {
                     Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "EDSDK.dll"),
                     @"C:\Program Files (x86)\Canon\EOS Utility\EU3\EDSDK.dll",
@@ -696,7 +805,7 @@ namespace MafazaCanonBridge
                     }
                 }
 
-                // If not found in known paths, scan Canon program directories
+                // Jika belum ketemu di path standar, scan folder instalasi
                 if (foundDll == null)
                 {
                     string[] scanRoots = new string[] {
@@ -831,15 +940,22 @@ namespace MafazaCanonBridge
                     EdsDirectoryItemInfo info;
                     uint err = EdsGetDirectoryItemInfo(inRef, out info);
                     Console.WriteLine(string.Format("[EDSDK-EVENT] DirItemInfo: err=0x{0:X}, size={1}, file={2}, isFolder={3}", err, info.size, info.szFileName, info.isFolder));
-                    if (err == 0 && info.isFolder == 0)
+
+                    ulong itemSize = info.size;
+                    uint isFolder = info.isFolder;
+                    if (isFolder > 1)
+                    {
+                        // 32-bit EDSDK layout fallback
+                        itemSize = (uint)info.size;
+                        isFolder = (uint)(info.size >> 32);
+                    }
+
+                    if (err == 0 && isFolder == 0 && itemSize > 2000)
                     {
                         IntPtr stream;
-                        ulong streamSize = (info.size > 2000) ? info.size : 0;
-                        if (EdsCreateMemoryStream(streamSize, out stream) == 0)
+                        if (EdsCreateMemoryStream(itemSize, out stream) == 0)
                         {
-                            uint downErr = EdsDownload(inRef, info.size, stream);
-                            Console.WriteLine(string.Format("[PHOTO] EdsDownload result: 0x{0:X}", downErr));
-                            if (downErr == 0)
+                            if (EdsDownload(inRef, itemSize, stream) == 0)
                             {
                                 if (inEvent == 0x00000208)
                                 {
@@ -902,7 +1018,6 @@ namespace MafazaCanonBridge
                 lock (_edsdkLock)
                 {
                     if (_isCapturing) return;
-                    EdsGetEvent();
 
                     if (_evfStreamRef == IntPtr.Zero)
                     {

@@ -2961,11 +2961,14 @@ class KioskEngine {
         this.playShutterSound();
         this.triggerShutterFlash();
 
-        const isUsbActive = this.canonUsbStreamActive || (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active);
-        if (isUsbActive) {
-          // Hardware USB camera (Canon/Sony): trigger physical shutter release & flash,
+        const isWebcamOnly = Boolean(this.cameraConfig && this.cameraConfig.cameraMode === 'webcam_only');
+        if (!isWebcamOnly) {
+          // Hardware USB camera (Canon/Sony / Canon Bridge): trigger physical shutter release & flash,
           // then show post-capture preview once the bright high-res photo arrives
-          this.triggerHardwareCameraAndFlash(poseIndex).then(() => {
+          this.triggerHardwareCameraAndFlash(poseIndex).then((gotHardwarePhoto) => {
+            if (!gotHardwarePhoto && !this.posesCaptured[poseIndex]) {
+              this.captureFrame(poseIndex);
+            }
             setTimeout(() => {
               this.stopPoseLiveRecording(poseIndex);
             }, 350);
@@ -2978,11 +2981,9 @@ class KioskEngine {
           if (lead > 0) {
             setTimeout(() => {
               this.captureFrame(poseIndex);
-              this.triggerHardwareCameraAndFlash(poseIndex);
             }, lead);
           } else {
             this.captureFrame(poseIndex);
-            this.triggerHardwareCameraAndFlash(poseIndex);
           }
 
           // Stop live recording ~350ms after the snap so the flash moment is included
@@ -3012,9 +3013,12 @@ class KioskEngine {
     this.playShutterSound();
     this.triggerShutterFlash();
 
-    const isUsbActive = this.canonUsbStreamActive || (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active);
-    if (isUsbActive) {
-      this.triggerHardwareCameraAndFlash(targetIndex).then(() => {
+    const isWebcamOnly = Boolean(this.cameraConfig && this.cameraConfig.cameraMode === 'webcam_only');
+    if (!isWebcamOnly) {
+      this.triggerHardwareCameraAndFlash(targetIndex).then((gotHardwarePhoto) => {
+        if (!gotHardwarePhoto && !this.posesCaptured[targetIndex]) {
+          this.captureFrame(targetIndex);
+        }
         setTimeout(() => {
           this.stopPoseLiveRecording(targetIndex);
         }, 350);
@@ -3025,11 +3029,9 @@ class KioskEngine {
       if (lead > 0) {
         setTimeout(() => {
           this.captureFrame(targetIndex);
-          this.triggerHardwareCameraAndFlash(targetIndex);
         }, lead);
       } else {
         this.captureFrame(targetIndex);
-        this.triggerHardwareCameraAndFlash(targetIndex);
       }
       setTimeout(() => {
         this.stopPoseLiveRecording(targetIndex);
@@ -3045,20 +3047,18 @@ class KioskEngine {
 
     let data = null;
 
-    // 1. Tembak langsung ke Canon USB Bridge lokal di 127.0.0.1:19898 jika aktif
-    if (this.canonUsbStreamActive || (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active)) {
-      try {
-        const localRes = await fetch('http://127.0.0.1:19898/capture', {
-          method: 'POST',
-          mode: 'cors',
-          cache: 'no-store'
-        });
-        if (localRes.ok) {
-          data = await localRes.json();
-        }
-      } catch (localErr) {
-        console.warn('Canon local USB capture warning:', localErr);
+    // 1. Tembak langsung ke Canon USB Bridge lokal di 127.0.0.1:19898 jika aktif di Windows / macOS
+    try {
+      const localRes = await fetch('http://127.0.0.1:19898/capture', {
+        method: 'POST',
+        mode: 'cors',
+        cache: 'no-store'
+      });
+      if (localRes.ok) {
+        data = await localRes.json();
       }
+    } catch (localErr) {
+      // Local bridge offline atau di perangkat mobile
     }
 
     // 2. Jika bukan bridge lokal atau belum dapat data, fetch ke server
@@ -3067,7 +3067,7 @@ class KioskEngine {
         const res = await fetch('/api/camera/trigger-capture', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ poseIndex, timeoutMs: 3500 })
+          body: JSON.stringify({ poseIndex, timeoutMs: 3800 })
         });
         if (res.ok) {
           data = await res.json();
