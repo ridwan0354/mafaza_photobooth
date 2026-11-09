@@ -753,33 +753,35 @@ public class CanonUsbPtpEngine {
         lastCapturedFullJpeg = null;
 
         try {
-            // 1. Terminate Viewfinder and set EVF output to 0 to drop the reflex mirror completely
-            // On EOS 1300D (Rebel T6), the physical hotshoe center pin (Godox CT-16) is disabled during Live View.
-            // The mirror MUST drop down into optical viewfinder mode for the hotshoe sync contacts to fire!
+            // 1. Fully drop the reflex mirror into optical viewfinder mode:
+            // On EOS 1300D (Rebel T6), Canon firmware forcibly disables the center hotshoe pin
+            // (Godox CT-16) while Live View is active.
+            // Setting EVF Output Device to 0 AND EVF Mode to 0 drops the mirror completely so
+            // the hotshoe center sync contact connects directly to the mechanical shutter!
             setCanonPropExLocked(PROP_EVF_OUTPUT_DEVICE, 0);
+            setCanonPropExLocked(PROP_EVF_MODE, 0);
             sendPtpCommandLocked(PTP_OC_CANON_TERMINATE_VIEWFINDER, new int[0], null);
-            Thread.sleep(350); // 350ms ensures reflex mirror is fully seated down
+            Thread.sleep(400); // 400ms ensures mechanical mirror drops completely into resting position
             drainCanonEventsLocked();
 
-            // 2. Fire Full Shutter Release: try standard (1, 0) then (1, 1), and full press (2, 0) then (2, 1)
-            int rc1 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 0}, null);
-            if (rc1 != PTP_RC_OK) {
-                rc1 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 1}, null);
-            }
-            Thread.sleep(120);
-            int rc2 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 0}, null);
-            if (rc2 != PTP_RC_OK) {
-                rc2 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 1}, null);
-            }
-            Thread.sleep(180);
-            sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{2}, null);
-            Thread.sleep(60);
-            sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{1}, null);
-
-            if (rc1 != PTP_RC_OK && rc2 != PTP_RC_OK) {
-                int rcCap = sendPtpCommandLocked(PTP_OC_CANON_CAPTURE, new int[0], null);
-                if (rcCap != PTP_RC_OK) {
-                    sendPtpCommandLocked(PTP_OC_INITIATE_CAPTURE, new int[]{0, 0}, null);
+            // 2. Fire physical mechanical shutter with flash sync:
+            // PTP_OC_CANON_CAPTURE (0x910F) is Canon's native remote release command (TakePicture).
+            int rc = sendPtpCommandLocked(PTP_OC_CANON_CAPTURE, new int[0], null);
+            if (rc != PTP_RC_OK) {
+                // Fallback A: Immediate release with No-AF (3, 1)
+                rc = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{3, 1}, null);
+                if (rc == PTP_RC_OK) {
+                    Thread.sleep(150);
+                    sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{3}, null);
+                } else {
+                    // Fallback B: Half-press (1, 1) + Full-press (2, 1) without AF wait
+                    sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 1}, null);
+                    Thread.sleep(100);
+                    sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 1}, null);
+                    Thread.sleep(180);
+                    sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{2}, null);
+                    Thread.sleep(50);
+                    sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{1}, null);
                 }
             }
 
@@ -800,7 +802,7 @@ public class CanonUsbPtpEngine {
             Log.w(TAG, "Canon capture error: " + e.getMessage());
         } finally {
             // 4. Immediately resume Live View for the next pose
-            try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+            try { Thread.sleep(300); } catch (InterruptedException ignored) {}
             enableCanonLiveViewOutputLocked();
             lastKeepAliveMs = System.currentTimeMillis();
         }
@@ -839,27 +841,32 @@ public class CanonUsbPtpEngine {
             Thread.sleep(600);
             drainBulkInEndpoint();
 
-            // 6. Check for in-memory image (0xFFFFC001) if PC Remote transfer is enabled.
-            // If camera is set to "Camera Only" (recommended), infoRes will return != PTP_RC_OK,
-            // and we immediately proceed without waiting or tying up the buffer.
-            PtpTransactionResult infoRes = executePtpTransactionLocked(
-                    PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 600);
-            if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
-                int compressedSize = 0;
-                if (infoRes.dataPayload != null && infoRes.dataPayload.length >= 12) {
-                    compressedSize = readIntLE(infoRes.dataPayload, 8);
-                }
-                // Always download the in-memory object to flush/free the Sony camera's internal RAM buffer slot!
-                if (compressedSize <= 0 || compressedSize <= 35 * 1024 * 1024) {
-                    PtpTransactionResult imgRes = executePtpTransactionLocked(
-                            PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 4000);
-                    if (imgRes != null && imgRes.dataPayload != null && imgRes.dataPayload.length > 2048) {
-                        byte[] jpeg = extractJpegFromBuffer(imgRes.dataPayload);
-                        if (jpeg != null && jpeg.length > 2048) {
-                            lastCapturedFullJpeg = jpeg;
+            // 6. Actively drain in-memory object (0xFFFFC001) to keep the Sony PC Remote FIFO buffer empty.
+            // Because Sony A7 III only has "PC+Camera" or "PC Only" (no "Camera Only"), every single shot
+            // is queued in volatile RAM until fetched by the host via PTP.
+            // If not retrieved, after 5-7 shots the FIFO fills and the camera reboots.
+            long deadline = System.currentTimeMillis() + 3000;
+            while (System.currentTimeMillis() < deadline) {
+                PtpTransactionResult infoRes = executePtpTransactionLocked(
+                        PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 400);
+                if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
+                    int compressedSize = 0;
+                    if (infoRes.dataPayload != null && infoRes.dataPayload.length >= 12) {
+                        compressedSize = readIntLE(infoRes.dataPayload, 8);
+                    }
+                    if (compressedSize <= 0 || compressedSize <= 40 * 1024 * 1024) {
+                        PtpTransactionResult imgRes = executePtpTransactionLocked(
+                                PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 4500);
+                        if (imgRes != null && imgRes.dataPayload != null && imgRes.dataPayload.length > 2048) {
+                            byte[] jpeg = extractJpegFromBuffer(imgRes.dataPayload);
+                            if (jpeg != null && jpeg.length > 2048) {
+                                lastCapturedFullJpeg = jpeg;
+                            }
                         }
                     }
+                    break; // Successfully fetched and cleared Sony RAM slot!
                 }
+                Thread.sleep(100);
             }
             drainBulkInEndpoint();
 
