@@ -554,12 +554,11 @@ static void disableICCameraDeviceHijack(void) {
         // If Syphon from Camera Live is available and we haven't switched to direct EDSDK:
         NSArray *servers = [[SyphonServerDirectory sharedDirectory] servers];
         if (servers.count > 0) {
-            [self pollSyphonFrame];
-            return;
+            if ([self pollSyphonFrame]) return;
         }
 
-        // Otherwise try opening direct EDSDK session after 30 ticks (~1s) every ~1.5s
-        if (_tickCount > 30 && (_tickCount % 50 == 1)) {
+        // Otherwise try opening direct EDSDK session after 10 ticks (~0.3s) every ~1.5s
+        if (_tickCount > 10 && (_tickCount % 45 == 1)) {
             [self tryOpenDirectEdsSession];
         }
     }
@@ -760,13 +759,7 @@ int main(int argc, const char * argv[]) {
 
         while (1) {
             @autoreleasepool {
-                NSEvent *ev = [app nextEventMatchingMask:NSEventMaskAny
-                                               untilDate:[NSDate dateWithTimeIntervalSinceNow:0.025]
-                                                  inMode:NSDefaultRunLoopMode
-                                                 dequeue:YES];
-                if (ev) {
-                    [app sendEvent:ev];
-                }
+                [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.033]];
                 [engine tick];
             }
         }
