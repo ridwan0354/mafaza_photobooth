@@ -2146,7 +2146,7 @@ class KioskEngine {
       // Kamera DJI Osmo Action 4 membutuhkan ~2 detik untuk inisialisasi perangkat keras UVC setelah getUserMedia dipanggil.
       for (let i = 0; i < 14; i++) {
         if (shouldAbortWatchdog()) return;
-        const videoEl = document.getElementById('videoFeed');
+        const videoEl = document.getElementById(this.currentScreen === 'screenQR' ? 'qrVideoFeed' : 'videoFeed');
         const status = this.checkVideoFeedHealth(videoEl);
         if (status.healthy) {
           this.updateLiveCameraBadgeUI();
@@ -2161,7 +2161,7 @@ class KioskEngine {
         await new Promise(r => setTimeout(r, 250));
       }
 
-      const currentVideoEl = document.getElementById('videoFeed');
+      const currentVideoEl = document.getElementById(this.currentScreen === 'screenQR' ? 'qrVideoFeed' : 'videoFeed');
       if (this.checkVideoFeedHealth(currentVideoEl).healthy) {
         this.updateLiveCameraBadgeUI();
         return;
@@ -2181,7 +2181,8 @@ class KioskEngine {
       // Langkah Pemulihan 1: Buat elemen <video id="videoFeed"> baru saat #screenCapture sudah visible (mengatasi bug layer WebKit iPadOS)
       console.warn('⚠️ [UVC Watchdog] Stream masih gelap setelah 3.5 detik, membuat elemen <video> segar di viewport...');
       try {
-        const freshVideo = this.recreateFreshVideoFeedElement();
+        const freshVideo = this.currentScreen === 'screenQR'
+          ? document.getElementById('qrVideoFeed') : this.recreateFreshVideoFeedElement();
         if (freshVideo && this.mediaStream) {
           freshVideo.srcObject = this.mediaStream;
           freshVideo.onloadedmetadata = () => {
@@ -2198,7 +2199,7 @@ class KioskEngine {
 
       await new Promise(r => setTimeout(r, 1200));
       if (shouldAbortWatchdog()) return;
-      if (this.checkVideoFeedHealth(document.getElementById('videoFeed')).healthy) {
+      if (this.checkVideoFeedHealth(document.getElementById(this.currentScreen === 'screenQR' ? 'qrVideoFeed' : 'videoFeed')).healthy) {
         console.log('✅ [UVC Watchdog] Video pulih setelah pembuatan ulang elemen <video>!');
         this.updateLiveCameraBadgeUI();
         return;
@@ -2282,7 +2283,7 @@ class KioskEngine {
             // Tunggu hingga 3 detik penuh agar kamera UVC sempat mengirim frame pertama
             for (let w = 0; w < 12; w++) {
               await new Promise(r => setTimeout(r, 250));
-              if (this.checkVideoFeedHealth(freshVid).healthy) {
+              if (this.checkVideoFeedHealth(targetVid).healthy) {
                 console.log('✅ [UVC Watchdog] Gambar kamera UVC berhasil tampil dengan constraint:', videoConstraint);
                 this.updateLiveCameraBadgeUI();
                 this._isRecoveringUvc = false;
@@ -2363,12 +2364,17 @@ class KioskEngine {
     if (!overrideResMode && !forceRestart && this.isMediaStreamLive() && !this.isVirtualFallbackStream) {
       const video = document.getElementById('videoFeed');
       const qrVideo = document.getElementById('qrVideoFeed');
-      [video, qrVideo].forEach(v => {
-        if (!v) return;
-        if (v.srcObject !== this.mediaStream) v.srcObject = this.mediaStream;
-        const p = v.play();
+      const activeVideo = this.currentScreen === 'screenQR' ? qrVideo : video;
+      const inactiveVideo = this.currentScreen === 'screenQR' ? video : qrVideo;
+      if (inactiveVideo && inactiveVideo.srcObject) {
+        inactiveVideo.pause();
+        inactiveVideo.srcObject = null;
+      }
+      if (activeVideo) {
+        if (activeVideo.srcObject !== this.mediaStream) activeVideo.srcObject = this.mediaStream;
+        const p = activeVideo.play();
         if (p && typeof p.then === 'function') p.catch(() => {});
-      });
+      }
       this.applyCameraTransform();
       this.updateLiveCameraBadgeUI();
       return;
@@ -2679,14 +2685,18 @@ class KioskEngine {
           this.updateUvcResolutionButtonsUI('720p');
           const video = document.getElementById('videoFeed');
           const qrVideo = document.getElementById('qrVideoFeed');
-          [video, qrVideo].forEach(v => {
-            if (v) {
-              v.muted = true;
-              v.playsInline = true;
-              v.srcObject = this.mediaStream;
-              v.play().catch(() => {});
-            }
-          });
+          const activeVideo = this.currentScreen === 'screenQR' ? qrVideo : video;
+          const inactiveVideo = this.currentScreen === 'screenQR' ? video : qrVideo;
+          if (inactiveVideo && inactiveVideo.srcObject) {
+            inactiveVideo.pause();
+            inactiveVideo.srcObject = null;
+          }
+          if (activeVideo) {
+            activeVideo.muted = true;
+            activeVideo.playsInline = true;
+            activeVideo.srcObject = this.mediaStream;
+            activeVideo.play().catch(() => {});
+          }
           this.applyCameraTransform();
           this.updateLiveCameraBadgeUI();
           return;
