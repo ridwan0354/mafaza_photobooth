@@ -761,10 +761,16 @@ public class CanonUsbPtpEngine {
             Thread.sleep(350); // 350ms ensures reflex mirror is fully seated down
             drainCanonEventsLocked();
 
-            // 2. Fire Full Shutter Release with AF bypassed (parameter 2 = 1 -> NO AF hunting)
-            int rc1 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 1}, null);
+            // 2. Fire Full Shutter Release: try standard (1, 0) then (1, 1), and full press (2, 0) then (2, 1)
+            int rc1 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 0}, null);
+            if (rc1 != PTP_RC_OK) {
+                rc1 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 1}, null);
+            }
             Thread.sleep(120);
-            int rc2 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 1}, null);
+            int rc2 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 0}, null);
+            if (rc2 != PTP_RC_OK) {
+                rc2 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 1}, null);
+            }
             Thread.sleep(180);
             sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{2}, null);
             Thread.sleep(60);

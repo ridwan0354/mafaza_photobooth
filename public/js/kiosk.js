@@ -760,7 +760,17 @@ class KioskEngine {
   testAudioJackFlash() {
     this.refreshAudioFlashOutputDevices();
     this.triggerAudioJackFlash();
-    this.showToast('⚡ Sinyal Flash Trigger ditembakkan ke port headset!', '⚡', 2200);
+    // Jika kamera Canon / Sony USB aktif, tembakkan juga sinyal shutter & flash hotshoe
+    if (this.canonUsbStreamActive) {
+      try {
+        fetch('/api/camera/trigger-capture', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeoutMs: 2500 })
+        }).catch(() => {});
+      } catch (e) {}
+    }
+    this.showToast('⚡ Sinyal Flash Trigger ditembakkan!', '⚡', 2200);
   }
 
   toggleAudioFlashSetting(enabled) {
