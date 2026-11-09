@@ -769,14 +769,15 @@ class KioskEngine {
           cache: 'no-store'
         }).catch(err => console.warn('Canon local flash test error:', err));
       } catch (e) {}
+    } else {
+      try {
+        fetch('/api/camera/trigger-capture', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ timeoutMs: 2500 })
+        }).catch(() => {});
+      } catch (e) {}
     }
-    try {
-      fetch('/api/camera/trigger-capture', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timeoutMs: 2500 })
-      }).catch(() => {});
-    } catch (e) {}
     this.showToast('⚡ Sinyal Flash Trigger ditembakkan!', '⚡', 2200);
   }
 
@@ -2960,27 +2961,41 @@ class KioskEngine {
         this.playShutterSound();
         this.triggerShutterFlash();
 
-        const lead = Math.max(0, Math.min(200, this.audioFlashLeadMs || 0));
-        if (lead > 0) {
-          setTimeout(() => {
+        const isUsbActive = this.canonUsbStreamActive || (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active);
+        if (isUsbActive) {
+          // Hardware USB camera (Canon/Sony): trigger physical shutter release & flash,
+          // then show post-capture preview once the bright high-res photo arrives
+          this.triggerHardwareCameraAndFlash(poseIndex).then(() => {
+            setTimeout(() => {
+              this.stopPoseLiveRecording(poseIndex);
+            }, 350);
+            if (countdownBox) countdownBox.style.display = 'none';
+            this.isCountingDown = false;
+            this.handlePostCapture(poseIndex);
+          });
+        } else {
+          const lead = Math.max(0, Math.min(200, this.audioFlashLeadMs || 0));
+          if (lead > 0) {
+            setTimeout(() => {
+              this.captureFrame(poseIndex);
+              this.triggerHardwareCameraAndFlash(poseIndex);
+            }, lead);
+          } else {
             this.captureFrame(poseIndex);
             this.triggerHardwareCameraAndFlash(poseIndex);
-          }, lead);
-        } else {
-          this.captureFrame(poseIndex);
-          this.triggerHardwareCameraAndFlash(poseIndex);
+          }
+
+          // Stop live recording ~350ms after the snap so the flash moment is included
+          setTimeout(() => {
+            this.stopPoseLiveRecording(poseIndex);
+          }, 350);
+
+          setTimeout(() => {
+            if (countdownBox) countdownBox.style.display = 'none';
+            this.isCountingDown = false;
+            this.handlePostCapture(poseIndex);
+          }, 400 + lead);
         }
-
-        // Stop live recording ~350ms after the snap so the flash moment is included
-        setTimeout(() => {
-          this.stopPoseLiveRecording(poseIndex);
-        }, 350);
-
-        setTimeout(() => {
-          if (countdownBox) countdownBox.style.display = 'none';
-          this.isCountingDown = false;
-          this.handlePostCapture(poseIndex);
-        }, 400 + lead);
       }
     }, 1000);
   }
@@ -2997,33 +3012,36 @@ class KioskEngine {
     this.playShutterSound();
     this.triggerShutterFlash();
 
-    const lead = Math.max(0, Math.min(200, this.audioFlashLeadMs || 0));
-    if (lead > 0) {
-      setTimeout(() => {
+    const isUsbActive = this.canonUsbStreamActive || (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active);
+    if (isUsbActive) {
+      this.triggerHardwareCameraAndFlash(targetIndex).then(() => {
+        setTimeout(() => {
+          this.stopPoseLiveRecording(targetIndex);
+        }, 350);
+        this.handlePostCapture(targetIndex);
+      });
+    } else {
+      const lead = Math.max(0, Math.min(200, this.audioFlashLeadMs || 0));
+      if (lead > 0) {
+        setTimeout(() => {
+          this.captureFrame(targetIndex);
+          this.triggerHardwareCameraAndFlash(targetIndex);
+        }, lead);
+      } else {
         this.captureFrame(targetIndex);
         this.triggerHardwareCameraAndFlash(targetIndex);
-      }, lead);
-    } else {
-      this.captureFrame(targetIndex);
-      this.triggerHardwareCameraAndFlash(targetIndex);
+      }
+      setTimeout(() => {
+        this.stopPoseLiveRecording(targetIndex);
+      }, 350);
+      this.handlePostCapture(targetIndex);
     }
-    setTimeout(() => {
-      this.stopPoseLiveRecording(targetIndex);
-    }, 350);
-    this.handlePostCapture(targetIndex);
   }
 
   async triggerHardwareCameraAndFlash(poseIndex) {
     if (this.cameraConfig && this.cameraConfig.cameraMode === 'webcam_only') {
-      return;
+      return false;
     }
-
-    // Also capture a secondary HDMI frame at ~160ms in case external flash illuminates the HDMI live feed
-    setTimeout(() => {
-      if (this.posesCaptured[poseIndex] && !this.posesCaptured[poseIndex].startsWith('/uploads/')) {
-        // Only update from video if USB high-res file hasn't replaced it yet
-      }
-    }, 160);
 
     let data = null;
 
@@ -3049,7 +3067,7 @@ class KioskEngine {
         const res = await fetch('/api/camera/trigger-capture', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ poseIndex, timeoutMs: 2800 })
+          body: JSON.stringify({ poseIndex, timeoutMs: 3500 })
         });
         if (res.ok) {
           data = await res.json();
@@ -3057,55 +3075,79 @@ class KioskEngine {
       } catch (e) {}
     }
 
-    try {
-      if (data && data.imageUrl) {
-        // Convert downloaded Sony A7III / Canon Flash JPEG into DataURL so canvas compositor & preview use the real flash photo!
+    if (data && data.imageUrl) {
+      return new Promise((resolve) => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          const c = document.createElement('canvas');
-          c.width = img.naturalWidth || 1920;
-          c.height = img.naturalHeight || 1280;
-          const ctx = c.getContext('2d');
-          // Jangan di-mirror agar teks pada papan/baju/properti terbaca normal (tidak terbalik) saat dicetak
-          const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
-          const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
-          const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
-          const iw = img.naturalWidth || c.width;
-          const ih = img.naturalHeight || c.height;
-          if (zoom < 1.0) {
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(0, 0, c.width, c.height);
-            const dw = c.width * zoom;
-            const dh = c.height * zoom;
-            const dx = (c.width - dw) / 2 + (panX * (c.width - dw) / 2);
-            const dy = (c.height - dh) / 2 - (panY * (c.height - dh) / 2);
-            ctx.drawImage(img, 0, 0, iw, ih, dx, dy, dw, dh);
-          } else {
-            const cropW = iw / zoom;
-            const cropH = ih / zoom;
-            const maxOffX = (iw - cropW) / 2;
-            const maxOffY = (ih - cropH) / 2;
-            const cropX = Math.max(0, Math.min(iw - cropW, maxOffX - (panX * maxOffX)));
-            const cropY = Math.max(0, Math.min(ih - cropH, maxOffY + (panY * maxOffY)));
-            ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height);
+        const timeout = setTimeout(() => {
+          if (!this.posesCaptured[poseIndex]) {
+            this.captureFrame(poseIndex);
           }
-          const flashDataUrl = c.toDataURL('image/jpeg', 0.88);
-          this.posesCaptured[poseIndex] = flashDataUrl;
-          this.renderFilmstripDock();
+          resolve(false);
+        }, 4000);
 
-          // If the post-capture hold overlay is currently showing this pose, update it live with the flash photo!
-          const holdOverlay = document.getElementById('postCapturePreviewOverlay');
-          const holdImg = document.getElementById('postCapturePreviewImg');
-          if (holdOverlay && holdOverlay.style.display !== 'none' && holdImg && this.lastCapturedPoseIndex === poseIndex) {
-            holdImg.src = flashDataUrl;
+        img.onload = () => {
+          clearTimeout(timeout);
+          try {
+            const c = document.createElement('canvas');
+            c.width = img.naturalWidth || 1920;
+            c.height = img.naturalHeight || 1280;
+            const ctx = c.getContext('2d');
+            const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
+            const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
+            const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
+            const iw = img.naturalWidth || c.width;
+            const ih = img.naturalHeight || c.height;
+            if (zoom < 1.0) {
+              ctx.fillStyle = '#000000';
+              ctx.fillRect(0, 0, c.width, c.height);
+              const dw = c.width * zoom;
+              const dh = c.height * zoom;
+              const dx = (c.width - dw) / 2 + (panX * (c.width - dw) / 2);
+              const dy = (c.height - dh) / 2 - (panY * (c.height - dh) / 2);
+              ctx.drawImage(img, 0, 0, iw, ih, dx, dy, dw, dh);
+            } else {
+              const cropW = iw / zoom;
+              const cropH = ih / zoom;
+              const maxOffX = (iw - cropW) / 2;
+              const maxOffY = (ih - cropH) / 2;
+              const cropX = Math.max(0, Math.min(iw - cropW, maxOffX - (panX * maxOffX)));
+              const cropY = Math.max(0, Math.min(ih - cropH, maxOffY + (panY * maxOffY)));
+              ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height);
+            }
+            const flashDataUrl = c.toDataURL('image/jpeg', 0.90);
+            this.posesCaptured[poseIndex] = flashDataUrl;
+            this.renderFilmstripDock();
+
+            const holdOverlay = document.getElementById('postCapturePreviewOverlay');
+            const holdImg = document.getElementById('postCapturePreviewImg');
+            if (holdOverlay && holdOverlay.style.display !== 'none' && holdImg && this.lastCapturedPoseIndex === poseIndex) {
+              holdImg.src = flashDataUrl;
+            }
+          } catch (err) {
+            console.warn('Canvas render error for flash photo:', err);
+            if (!this.posesCaptured[poseIndex]) {
+              this.captureFrame(poseIndex);
+            }
           }
+          resolve(true);
         };
-        img.src = data.imageUrl + '?t=' + Date.now();
-      }
-    } catch (err) {
-      console.warn('Hardware camera flash trigger skipped:', err);
+        img.onerror = () => {
+          clearTimeout(timeout);
+          if (!this.posesCaptured[poseIndex]) {
+            this.captureFrame(poseIndex);
+          }
+          resolve(false);
+        };
+        const url = data.imageUrl.includes('?') ? data.imageUrl : (data.imageUrl + '?t=' + Date.now());
+        img.src = url;
+      });
     }
+
+    if (!this.posesCaptured[poseIndex]) {
+      this.captureFrame(poseIndex);
+    }
+    return false;
   }
 
   triggerShutterFlash() {

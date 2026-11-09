@@ -79,6 +79,7 @@ extern EdsError EdsDownload(EdsBaseRef inRef, EdsUInt64 inSize, EdsStreamRef out
 extern EdsError EdsDownloadComplete(EdsBaseRef inRef);
 extern EdsError EdsDownloadCancel(EdsBaseRef inRef);
 extern EdsError EdsSetCapacity(EdsCameraRef inCameraRef, EdsCapacity inCapacity);
+extern EdsError EdsGetEvent(void);
 
 #define kEdsPropID_SaveTo               0x0000000b
 #define kEdsSaveTo_Camera               1
@@ -152,11 +153,13 @@ static long long nowMs(void) {
 }
 
 static EdsError handleObjectEvent(EdsObjectEvent inEvent, EdsBaseRef inRef, void *inContext) {
-    if (inEvent == kEdsObjectEvent_DirItemRequestTransfer || inEvent == kEdsObjectEvent_DirItemCreated) {
+    NSLog(@"[CanonBridge] >>> handleObjectEvent event: 0x%04x, ref: %p", inEvent, inRef);
+    if (inEvent == kEdsObjectEvent_DirItemRequestTransfer) {
         EdsDirectoryItemInfo info;
         memset(&info, 0, sizeof(info));
         EdsError err = EdsGetDirectoryItemInfo(inRef, &info);
-        if (err == 0 && info.size > 2000) {
+        NSLog(@"[CanonBridge] DirItemInfo err: 0x%x, size: %llu, file: %s, isFolder: %u", err, info.size, info.szFileName, info.isFolder);
+        if (err == 0 && !info.isFolder && info.size > 2000) {
             EdsStreamRef stream = NULL;
             err = EdsCreateMemoryStream(info.size, &stream);
             if (err == 0 && stream) {
@@ -173,10 +176,12 @@ static EdsError handleObjectEvent(EdsObjectEvent inEvent, EdsBaseRef inRef, void
                             memcpy(g_capturedPhotoBuf, ptr, (size_t)len);
                             g_capturedPhotoLen = (size_t)len;
                             g_capturedPhotoTimeMs = nowMs();
+                            NSLog(@"[CanonBridge] *** Successfully downloaded high-res captured photo (%s, %zu bytes) ***", info.szFileName, (size_t)len);
                         }
                         pthread_mutex_unlock(&g_lock);
                     }
                 } else {
+                    NSLog(@"[CanonBridge] EdsDownload failed with err: 0x%x", err);
                     EdsDownloadCancel(inRef);
                 }
                 EdsRelease(stream);
@@ -381,6 +386,7 @@ static void disableICCameraDeviceHijack(void) {
     }
 
     NSLog(@"[CanonBridge] >>> Triggering physical capture with external hotshoe flash sync...");
+    long long captureStart = nowMs();
 
     // 1. Drop reflex mirror / exit Live View EVF:
     // On EOS 1300D / Rebel T6, Canon firmware forcibly disables the center hotshoe pin
@@ -392,26 +398,38 @@ static void disableICCameraDeviceHijack(void) {
     EdsUInt32 mode0 = 0;
     EdsSetPropertyData(_edsCamera, kEdsPropID_Evf_Mode, 0, sizeof(mode0), &mode0);
 
-    // 320ms gives the mechanical reflex mirror time to fully flip down
-    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.32]];
+    // 250ms gives the mechanical reflex mirror time to fully flip down
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.25]];
 
     // 2. Fire physical mechanical shutter with flash sync:
-    // First try standard remote release command (TakePicture)
-    EdsError err = EdsSendCommand(_edsCamera, kEdsCameraCommand_TakePicture, 0);
-    NSLog(@"[CanonBridge] EdsSendCommand TakePicture returned: 0x%x", err);
+    // Use Completely_NonAF directly: fires INSTANTLY without autofocus lag, and clicks strictly ONCE!
+    EdsError err = EdsSendCommand(_edsCamera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF);
+    NSLog(@"[CanonBridge] PressShutterButton Completely_NonAF returned: 0x%x", err);
 
     if (err != 0) {
-        // Fallback: Granular shutter button press (Completely then Release)
-        NSLog(@"[CanonBridge] TakePicture err 0x%x, using shutter button press fallback...", err);
-        EdsSendCommand(_edsCamera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF);
-        EdsSendCommand(_edsCamera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely);
-        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.12]];
-        EdsSendCommand(_edsCamera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
+        // Fallback for bodies that require standard Completely
+        NSLog(@"[CanonBridge] NonAF err 0x%x, trying ShutterButton_Completely...", err);
+        err = EdsSendCommand(_edsCamera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely);
+        NSLog(@"[CanonBridge] PressShutterButton Completely returned: 0x%x", err);
     }
 
-    // 3. Allow mechanical shutter curtains to travel across sensor, center hotshoe pin to close,
-    // Godox CT-16 to fire Yongnuo flash, and mirror to complete its cycle
-    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.42]];
+    // Hold briefly, then release shutter button back to OFF
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.12]];
+    EdsSendCommand(_edsCamera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
+
+    // 3. Pump EdsGetEvent while waiting for the camera to transfer the captured high-res flash photo
+    NSLog(@"[CanonBridge] Waiting for captured photo transfer from camera...");
+    for (int i = 0; i < 60; i++) {
+        EdsGetEvent();
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        pthread_mutex_lock(&g_lock);
+        BOOL gotPhoto = (g_capturedPhotoTimeMs >= captureStart && g_capturedPhotoLen > 1000);
+        pthread_mutex_unlock(&g_lock);
+        if (gotPhoto) {
+            NSLog(@"[CanonBridge] Captured photo acquired in %lld ms (%zu bytes)", nowMs() - captureStart, g_capturedPhotoLen);
+            break;
+        }
+    }
 
     // 4. Re-enable EVF Live View for PC
     EdsUInt32 evfMode = 1;
@@ -471,7 +489,7 @@ static void disableICCameraDeviceHijack(void) {
     g_cmdEv = -9999;
     g_cmdAf = 0;
     g_cmdFocusStep = 0;
-    g_cmdCapture = NO;
+    // Keep g_cmdCapture = YES until capture finishes so handleClient waits for completion!
     pthread_mutex_unlock(&g_cmdLock);
 
     if (!hasCmd) return;
@@ -485,6 +503,9 @@ static void disableICCameraDeviceHijack(void) {
 
     if (doCapture) {
         [self executePhysicalCapture];
+        pthread_mutex_lock(&g_cmdLock);
+        g_cmdCapture = NO;
+        pthread_mutex_unlock(&g_cmdLock);
         return;
     }
 
@@ -704,6 +725,9 @@ static void disableICCameraDeviceHijack(void) {
 - (void)tick {
     @autoreleasepool {
         _tickCount++;
+        if (_edsSessionOpen && _edsCamera) {
+            EdsGetEvent();
+        }
         [self processPendingCommands];
 
         // Try direct EDSDK session first if open
@@ -768,47 +792,7 @@ static void handleClient(int fd) {
         return;
     }
 
-    // Handle /capture or /api/camera/trigger-capture
-    if (strncmp(req, "POST /capture", 13) == 0 || strncmp(req, "GET /capture", 12) == 0 ||
-        strncmp(req, "POST /api/camera/trigger-capture", 32) == 0 || strncmp(req, "GET /api/camera/trigger-capture", 31) == 0) {
-        pthread_mutex_lock(&g_cmdLock);
-        g_cmdCapture = YES;
-        g_hasPendingCmd = YES;
-        pthread_mutex_unlock(&g_cmdLock);
-
-        // Wait up to 2.2s for physical shutter release & flash cycle to execute
-        for (int i = 0; i < 44; i++) {
-            usleep(50000);
-            pthread_mutex_lock(&g_cmdLock);
-            BOOL pending = g_cmdCapture;
-            pthread_mutex_unlock(&g_cmdLock);
-            if (!pending) break;
-        }
-
-        long long ts = nowMs();
-        char body[512];
-        snprintf(body, sizeof(body),
-            "{\"ok\":true,\"source\":\"canon-usb-edsdk\",\"captured\":true,"
-            "\"imageUrl\":\"http://127.0.0.1:19898/captured_pose.jpg?t=%lld\"}", ts);
-
-        char hdr[512];
-        snprintf(hdr, sizeof(hdr),
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: application/json\r\n"
-            "Access-Control-Allow-Origin: *\r\n"
-            "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
-            "Access-Control-Allow-Headers: *\r\n"
-            "Access-Control-Allow-Private-Network: true\r\n"
-            "Cache-Control: no-store, no-cache, must-revalidate\r\n"
-            "Content-Length: %zu\r\n"
-            "Connection: close\r\n\r\n", strlen(body));
-        send(fd, hdr, strlen(hdr), 0);
-        send(fd, body, strlen(body), 0);
-        close(fd);
-        return;
-    }
-
-    // Handle /captured_pose.jpg
+    // Handle /captured_pose.jpg (MUST be checked before /capture!)
     if (strncmp(req, "GET /captured_pose.jpg", 22) == 0) {
         pthread_mutex_lock(&g_lock);
         unsigned char *copyBuf = NULL;
@@ -853,6 +837,51 @@ static void handleClient(int fd) {
         send(fd, hdr, strlen(hdr), 0);
         send(fd, copyBuf, copyLen, 0);
         free(copyBuf);
+        close(fd);
+        return;
+    }
+
+    // Handle /capture or /api/camera/trigger-capture
+    BOOL isCaptureReq = NO;
+    if (strncmp(req, "POST /capture", 13) == 0 && (req[13] == ' ' || req[13] == '?' || req[13] == '\r')) isCaptureReq = YES;
+    if (strncmp(req, "GET /capture", 12) == 0 && (req[12] == ' ' || req[12] == '?' || req[12] == '\r')) isCaptureReq = YES;
+    if (strncmp(req, "POST /api/camera/trigger-capture", 32) == 0) isCaptureReq = YES;
+    if (strncmp(req, "GET /api/camera/trigger-capture", 31) == 0) isCaptureReq = YES;
+
+    if (isCaptureReq) {
+        pthread_mutex_lock(&g_cmdLock);
+        g_cmdCapture = YES;
+        g_hasPendingCmd = YES;
+        pthread_mutex_unlock(&g_cmdLock);
+
+        // Wait up to 3.5s for physical shutter release & flash photo download to complete
+        for (int i = 0; i < 70; i++) {
+            usleep(50000);
+            pthread_mutex_lock(&g_cmdLock);
+            BOOL pending = g_cmdCapture;
+            pthread_mutex_unlock(&g_cmdLock);
+            if (!pending) break;
+        }
+
+        long long ts = nowMs();
+        char body[512];
+        snprintf(body, sizeof(body),
+            "{\"ok\":true,\"source\":\"canon-usb-edsdk\",\"captured\":true,"
+            "\"imageUrl\":\"http://127.0.0.1:19898/captured_pose.jpg?t=%lld\"}", ts);
+
+        char hdr[512];
+        snprintf(hdr, sizeof(hdr),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+            "Access-Control-Allow-Headers: *\r\n"
+            "Access-Control-Allow-Private-Network: true\r\n"
+            "Cache-Control: no-store, no-cache, must-revalidate\r\n"
+            "Content-Length: %zu\r\n"
+            "Connection: close\r\n\r\n", strlen(body));
+        send(fd, hdr, strlen(hdr), 0);
+        send(fd, body, strlen(body), 0);
         close(fd);
         return;
     }
