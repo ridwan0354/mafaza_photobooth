@@ -23,6 +23,9 @@ echo [OK] Kebijakan browser berhasil diperbarui.
 
 echo.
 echo [2/3] Memeriksa dan Menyiapkan Bridge Executable (.NET Framework)...
+echo Mengunduh pembaruan terbaru MafazaCanonBridge.cs dari GitHub...
+powershell -NoProfile -Command "try { (New-Object Net.WebClient).DownloadFile('https://raw.githubusercontent.com/ridwan0354/mafaza_photobooth/main/canon-bridge/windows/MafazaCanonBridge.cs', 'MafazaCanonBridge.cs'); Write-Host '[OK] Kode bridge berhasil diperbarui dari GitHub.' -ForegroundColor Green } catch { Write-Host '[INFO] Menggunakan kode lokal.' -ForegroundColor Yellow }"
+
 set CSC=
 if exist "%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" (
     set CSC="%SystemRoot%\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
