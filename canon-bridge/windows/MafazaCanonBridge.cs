@@ -59,44 +59,51 @@ namespace MafazaCanonBridge
 
         static void Main(string[] args)
         {
-            if (args != null && Array.Exists(args, delegate(string a) {
-                return string.Equals(a, "-silent", StringComparison.OrdinalIgnoreCase) ||
-                       string.Equals(a, "/silent", StringComparison.OrdinalIgnoreCase) ||
-                       string.Equals(a, "-background", StringComparison.OrdinalIgnoreCase);
-            }))
+            try
             {
-                IntPtr hWnd = GetConsoleWindow();
-                if (hWnd != IntPtr.Zero)
+                if (args != null && Array.Exists(args, delegate(string a) {
+                    return string.Equals(a, "-silent", StringComparison.OrdinalIgnoreCase) ||
+                           string.Equals(a, "/silent", StringComparison.OrdinalIgnoreCase) ||
+                           string.Equals(a, "-background", StringComparison.OrdinalIgnoreCase);
+                }))
                 {
-                    ShowWindow(hWnd, SW_HIDE);
+                    IntPtr hWnd = GetConsoleWindow();
+                    if (hWnd != IntPtr.Zero)
+                    {
+                        ShowWindow(hWnd, SW_HIDE);
+                    }
+                }
+
+                Console.Title = "Mafaza Canon USB Bridge (Windows) - Port 19898";
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("==============================================================");
+                Console.WriteLine("  MAFAZA PHOTOBOOTH - CANON USB BRIDGE FOR WINDOWS 10 / 11    ");
+                Console.WriteLine("==============================================================");
+                Console.ResetColor();
+
+                // Try initializing EDSDK if available
+                TryInitEdsdk();
+
+                // Start background worker for Live View (EDSDK or digiCamControl)
+                _workerThread = new Thread(WorkerLoop) { IsBackground = true };
+                _workerThread.Start();
+
+                // Start HTTP Server
+                StartHttpServer();
+
+                Console.WriteLine("\n[INFO] Tekan [Ctrl+C] atau tutup jendela ini untuk mematikan bridge.");
+                while (_running)
+                {
+                    Thread.Sleep(1000);
                 }
             }
-
-            Console.Title = "Mafaza Canon USB Bridge (Windows) - Port 19898";
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("==============================================================");
-            Console.WriteLine("  MAFAZA PHOTOBOOTH - CANON USB BRIDGE FOR WINDOWS 10 / 11    ");
-            Console.WriteLine("==============================================================");
-            Console.ResetColor();
-
-            // Try initializing EDSDK if available
-            TryInitEdsdk();
-
-            // Start background worker for Live View (EDSDK or digiCamControl)
-            _workerThread = new Thread(WorkerLoop) { IsBackground = true };
-            _workerThread.Start();
-
-            // Start HTTP Server
-            StartHttpServer();
-
-            Console.WriteLine("\n[INFO] Tekan [Ctrl+C] atau tutup jendela ini untuk mematikan bridge.");
-            while (_running)
+            catch (Exception ex)
             {
-                if (_edsdkLoaded)
-                {
-                    EdsGetEvent();
-                }
-                Thread.Sleep(50);
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n[FATAL ERROR] Terjadi kesalahan: " + ex.ToString());
+                Console.ResetColor();
+                Console.WriteLine("\nTekan Enter untuk keluar...");
+                try { Console.ReadLine(); } catch { }
             }
         }
 
@@ -437,7 +444,6 @@ namespace MafazaCanonBridge
                 {
                     if (_isCapturing)
                     {
-                        EdsGetEvent();
                         Thread.Sleep(50);
                         continue;
                     }
@@ -624,7 +630,6 @@ namespace MafazaCanonBridge
             public int reset;
         }
 
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         public delegate uint EdsObjectEventHandler(uint inEvent, IntPtr inRef, IntPtr inContext);
 
         [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
