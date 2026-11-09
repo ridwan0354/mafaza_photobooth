@@ -753,17 +753,21 @@ public class CanonUsbPtpEngine {
         lastCapturedFullJpeg = null;
 
         try {
-            // 1. Set EVF Output to 0 briefly so mechanical shutter & hotshoe X-sync (Godox CT-16) fire reliably on EOS 1300D
+            // 1. Terminate Viewfinder and set EVF output to 0 to drop the reflex mirror completely
+            // On EOS 1300D (Rebel T6), the physical hotshoe center pin (Godox CT-16) is disabled during Live View.
+            // The mirror MUST drop down into optical viewfinder mode for the hotshoe sync contacts to fire!
             setCanonPropExLocked(PROP_EVF_OUTPUT_DEVICE, 0);
             sendPtpCommandLocked(PTP_OC_CANON_TERMINATE_VIEWFINDER, new int[0], null);
-            Thread.sleep(160);
+            Thread.sleep(350); // 350ms ensures reflex mirror is fully seated down
             drainCanonEventsLocked();
 
-            // 2. Fire Full Shutter Release (Half-press 1 -> Full-press 2 -> Release)
-            int rc1 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 0}, null);
-            int rc2 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 0}, null);
-            Thread.sleep(150);
+            // 2. Fire Full Shutter Release with AF bypassed (parameter 2 = 1 -> NO AF hunting)
+            int rc1 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 1}, null);
+            Thread.sleep(120);
+            int rc2 = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 1}, null);
+            Thread.sleep(180);
             sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{2}, null);
+            Thread.sleep(60);
             sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{1}, null);
 
             if (rc1 != PTP_RC_OK && rc2 != PTP_RC_OK) {
@@ -790,6 +794,7 @@ public class CanonUsbPtpEngine {
             Log.w(TAG, "Canon capture error: " + e.getMessage());
         } finally {
             // 4. Immediately resume Live View for the next pose
+            try { Thread.sleep(200); } catch (InterruptedException ignored) {}
             enableCanonLiveViewOutputLocked();
             lastKeepAliveMs = System.currentTimeMillis();
         }
@@ -811,7 +816,7 @@ public class CanonUsbPtpEngine {
 
             // 2. Half-press to trigger AF/AE lock (2 = Down)
             sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 2);
-            Thread.sleep(250);
+            Thread.sleep(200);
 
             // 3. Full-press to release shutter and fire Godox flash via Hotshoe X-sync (2 = Down)
             sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 2);
@@ -823,44 +828,41 @@ public class CanonUsbPtpEngine {
             sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 1);
 
             // 5. Post-shutter quiet grace period:
-            // Sony Alpha A7 III internal DSP needs 700ms to complete mechanical shutter,
+            // Sony Alpha A7 III internal DSP needs 600ms to complete mechanical shutter,
             // sensor readout, and write image data to the internal SD card / buffer.
-            // DO NOT send commands during this time to prevent USB controller panic!
-            Thread.sleep(700);
+            Thread.sleep(600);
             drainBulkInEndpoint();
 
-            // 6. Gentle check for in-memory image (0xFFFFC001) if PC Remote transfer is enabled
-            // Limit to at most 2 gentle attempts with 350ms interval
-            for (int attempt = 0; attempt < 2 && lastCapturedFullJpeg == null; attempt++) {
-                PtpTransactionResult infoRes = executePtpTransactionLocked(
-                        PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 800);
-                if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
-                    int compressedSize = 0;
-                    if (infoRes.dataPayload != null && infoRes.dataPayload.length >= 12) {
-                        compressedSize = readIntLE(infoRes.dataPayload, 8);
-                    }
-                    if (compressedSize <= 0 || compressedSize < 20 * 1024 * 1024) {
-                        PtpTransactionResult imgRes = executePtpTransactionLocked(
-                                PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 5000);
-                        if (imgRes != null && imgRes.dataPayload != null && imgRes.dataPayload.length > 2048) {
-                            byte[] jpeg = extractJpegFromBuffer(imgRes.dataPayload);
-                            if (jpeg != null && jpeg.length > 2048) {
-                                lastCapturedFullJpeg = jpeg;
-                                break;
-                            }
+            // 6. Check for in-memory image (0xFFFFC001) if PC Remote transfer is enabled.
+            // If camera is set to "Camera Only" (recommended), infoRes will return != PTP_RC_OK,
+            // and we immediately proceed without waiting or tying up the buffer.
+            PtpTransactionResult infoRes = executePtpTransactionLocked(
+                    PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 600);
+            if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
+                int compressedSize = 0;
+                if (infoRes.dataPayload != null && infoRes.dataPayload.length >= 12) {
+                    compressedSize = readIntLE(infoRes.dataPayload, 8);
+                }
+                // Only download if small (preview size <= 5MB) to keep USB buffer empty and fast
+                if (compressedSize > 0 && compressedSize <= 5 * 1024 * 1024) {
+                    PtpTransactionResult imgRes = executePtpTransactionLocked(
+                            PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 3000);
+                    if (imgRes != null && imgRes.dataPayload != null && imgRes.dataPayload.length > 2048) {
+                        byte[] jpeg = extractJpegFromBuffer(imgRes.dataPayload);
+                        if (jpeg != null && jpeg.length > 2048) {
+                            lastCapturedFullJpeg = jpeg;
                         }
                     }
                 }
-                Thread.sleep(350);
             }
             drainBulkInEndpoint();
 
             // 7. Re-arm Sony Live View cleanly for the next pose
-            Thread.sleep(200);
+            Thread.sleep(150);
             setSonyExtPropUInt16Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
-            executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 600);
+            executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 500);
             lastKeepAliveMs = System.currentTimeMillis();
-            Thread.sleep(300);
+            Thread.sleep(200);
 
         } catch (Exception e) {
             Log.w(TAG, "Sony capture error: " + e.getMessage());
