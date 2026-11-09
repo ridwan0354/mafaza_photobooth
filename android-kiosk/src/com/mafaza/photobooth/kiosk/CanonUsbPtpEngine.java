@@ -127,6 +127,8 @@ public class CanonUsbPtpEngine {
     private volatile long totalFramesReceived = 0;
     private volatile byte[] lastCapturedFullJpeg = null;
     private volatile String lastSonyDiag = "Belum dimulai";
+    private volatile boolean isCapturingPhoto = false;
+    private volatile long lastKeepAliveMs = 0;
     private int transactionId = 1;
     private int canonEvfParamIndex = 0;
 
@@ -367,7 +369,6 @@ public class CanonUsbPtpEngine {
     }
 
     private void runMainLoop() {
-        long lastKeepAlive = 0;
         int consecutiveFailures = 0;
 
         while (isRunning) {
@@ -378,19 +379,24 @@ public class CanonUsbPtpEngine {
                     continue;
                 }
 
+                if (isCapturingPhoto) {
+                    Thread.sleep(80);
+                    continue;
+                }
+
                 byte[] frame = null;
                 synchronized (usbLock) {
-                    if (!isConnected) continue;
+                    if (!isConnected || isCapturingPhoto) continue;
 
                     long now = System.currentTimeMillis();
-                    if (now - lastKeepAlive > 3500) {
+                    if (now - lastKeepAliveMs > 3500) {
                         if (isSonyCamera) {
                             executePtpTransactionLocked(PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 450);
                         } else {
                             sendPtpCommandLocked(PTP_OC_CANON_KEEP_DEVICE_ON, new int[0], null);
                             drainCanonEventsLocked();
                         }
-                        lastKeepAlive = now;
+                        lastKeepAliveMs = now;
                     }
 
                     frame = isSonyCamera ? fetchSonyLiveViewFrameLocked() : fetchCanonLiveViewFrameLocked();
@@ -410,9 +416,15 @@ public class CanonUsbPtpEngine {
                     consecutiveFailures++;
                     if (consecutiveFailures % 15 == 0) {
                         synchronized (usbLock) {
-                            if (isConnected && !isSonyCamera) {
-                                drainCanonEventsLocked();
-                                enableCanonLiveViewOutputLocked();
+                            if (isConnected && !isCapturingPhoto) {
+                                if (isSonyCamera) {
+                                    drainBulkInEndpoint();
+                                    setSonyExtPropUInt16Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
+                                    executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 400);
+                                } else {
+                                    drainCanonEventsLocked();
+                                    enableCanonLiveViewOutputLocked();
+                                }
                             }
                         }
                     }
@@ -723,10 +735,15 @@ public class CanonUsbPtpEngine {
     public byte[] capturePhotoWithFlash() {
         synchronized (usbLock) {
             if (!isConnected) return latestLiveViewJpeg;
-            if (isSonyCamera) {
-                return captureSonyPhotoWithFlashLocked();
-            } else {
-                return captureCanonPhotoWithFlashLocked();
+            isCapturingPhoto = true;
+            try {
+                if (isSonyCamera) {
+                    return captureSonyPhotoWithFlashLocked();
+                } else {
+                    return captureCanonPhotoWithFlashLocked();
+                }
+            } finally {
+                isCapturingPhoto = false;
             }
         }
     }
@@ -774,6 +791,7 @@ public class CanonUsbPtpEngine {
         } finally {
             // 4. Immediately resume Live View for the next pose
             enableCanonLiveViewOutputLocked();
+            lastKeepAliveMs = System.currentTimeMillis();
         }
 
         if (lastCapturedFullJpeg != null && lastCapturedFullJpeg.length > 2048) {
@@ -788,37 +806,65 @@ public class CanonUsbPtpEngine {
         lastCapturedFullJpeg = null;
 
         try {
-            // Half-press to trigger AF/AE lock and prepare mechanical shutter
+            // 1. Drain bulk endpoint to ensure clean USB pipe before shutter
+            drainBulkInEndpoint();
+
+            // 2. Half-press to trigger AF/AE lock (2 = Down)
             sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 2);
             Thread.sleep(250);
 
-            // Full-press to release shutter and fire Godox flash via Hotshoe X-sync
+            // 3. Full-press to release shutter and fire Godox flash via Hotshoe X-sync (2 = Down)
             sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 2);
             Thread.sleep(200);
 
-            // Release buttons
+            // 4. Release buttons cleanly with staggering (1 = Up)
             sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 1);
+            Thread.sleep(100);
             sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 1);
 
-            long deadline = System.currentTimeMillis() + 2500;
-            while (System.currentTimeMillis() < deadline && lastCapturedFullJpeg == null) {
-                Thread.sleep(120);
+            // 5. Post-shutter quiet grace period:
+            // Sony Alpha A7 III internal DSP needs 700ms to complete mechanical shutter,
+            // sensor readout, and write image data to the internal SD card / buffer.
+            // DO NOT send commands during this time to prevent USB controller panic!
+            Thread.sleep(700);
+            drainBulkInEndpoint();
+
+            // 6. Gentle check for in-memory image (0xFFFFC001) if PC Remote transfer is enabled
+            // Limit to at most 2 gentle attempts with 350ms interval
+            for (int attempt = 0; attempt < 2 && lastCapturedFullJpeg == null; attempt++) {
                 PtpTransactionResult infoRes = executePtpTransactionLocked(
-                        PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 600);
+                        PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 800);
                 if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
-                    PtpTransactionResult imgRes = executePtpTransactionLocked(
-                            PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 3500);
-                    if (imgRes != null && imgRes.dataPayload != null && imgRes.dataPayload.length > 2048) {
-                        byte[] jpeg = extractJpegFromBuffer(imgRes.dataPayload);
-                        if (jpeg != null && jpeg.length > 2048) {
-                            lastCapturedFullJpeg = jpeg;
-                            break;
+                    int compressedSize = 0;
+                    if (infoRes.dataPayload != null && infoRes.dataPayload.length >= 12) {
+                        compressedSize = readIntLE(infoRes.dataPayload, 8);
+                    }
+                    if (compressedSize <= 0 || compressedSize < 20 * 1024 * 1024) {
+                        PtpTransactionResult imgRes = executePtpTransactionLocked(
+                                PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 5000);
+                        if (imgRes != null && imgRes.dataPayload != null && imgRes.dataPayload.length > 2048) {
+                            byte[] jpeg = extractJpegFromBuffer(imgRes.dataPayload);
+                            if (jpeg != null && jpeg.length > 2048) {
+                                lastCapturedFullJpeg = jpeg;
+                                break;
+                            }
                         }
                     }
                 }
+                Thread.sleep(350);
             }
+            drainBulkInEndpoint();
+
+            // 7. Re-arm Sony Live View cleanly for the next pose
+            Thread.sleep(200);
+            setSonyExtPropUInt16Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
+            executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 600);
+            lastKeepAliveMs = System.currentTimeMillis();
+            Thread.sleep(300);
+
         } catch (Exception e) {
             Log.w(TAG, "Sony capture error: " + e.getMessage());
+            drainBulkInEndpoint();
         }
 
         if (lastCapturedFullJpeg != null && lastCapturedFullJpeg.length > 2048) {
@@ -1231,6 +1277,10 @@ public class CanonUsbPtpEngine {
                             return result;
                         }
                     }
+                }
+                if (bos.size() < expectedDataBytes) {
+                    Log.w(TAG, "PTP data transfer incomplete: read " + bos.size() + "/" + expectedDataBytes + " bytes");
+                    drainBulkInEndpoint();
                 }
             } else {
                 // Unbounded / Streaming length (Sony LiveView 0xFFFFC002)
