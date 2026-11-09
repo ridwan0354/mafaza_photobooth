@@ -23,6 +23,8 @@ typedef void*    EdsStreamRef;
 typedef void*    EdsEvfImageRef;
 typedef uint32_t EdsCameraCommand;
 typedef uint32_t EdsStateEvent;
+typedef uint32_t EdsObjectEvent;
+typedef uint32_t EdsBool;
 
 typedef struct tagEdsDeviceInfo {
     char szPortName[256];
@@ -31,8 +33,25 @@ typedef struct tagEdsDeviceInfo {
     EdsUInt32 reserved;
 } EdsDeviceInfo;
 
+typedef struct tagEdsDirectoryItemInfo {
+    EdsUInt64 size;
+    EdsUInt32 isFolder;
+    EdsUInt32 groupID;
+    EdsUInt32 option;
+    char szFileName[256];
+    EdsUInt32 format;
+    EdsUInt32 dateTime;
+} EdsDirectoryItemInfo;
+
+typedef struct tagEdsCapacity {
+    EdsInt32 numberOfFreeClusters;
+    EdsInt32 bytesPerSector;
+    EdsBool  reset;
+} EdsCapacity;
+
 typedef EdsError (*EdsCameraAddedHandler)(void *inContext);
 typedef EdsError (*EdsStateEventHandler)(EdsStateEvent inEvent, EdsUInt32 inEventData, void *inContext);
+typedef EdsError (*EdsObjectEventHandler)(EdsObjectEvent inEvent, EdsBaseRef inRef, void *inContext);
 
 extern EdsError EdsInitializeSDK(void);
 extern EdsError EdsTerminateSDK(void);
@@ -54,6 +73,18 @@ extern EdsError EdsGetLength(EdsStreamRef inStream, EdsUInt64 *outLength);
 extern EdsError EdsRelease(EdsBaseRef inRef);
 extern EdsError EdsRetain(EdsBaseRef inRef);
 
+extern EdsError EdsSetObjectEventHandler(EdsCameraRef inCameraRef, EdsObjectEvent inEvent, EdsObjectEventHandler inHandler, void *inContext);
+extern EdsError EdsGetDirectoryItemInfo(EdsBaseRef inRef, EdsDirectoryItemInfo *outDirItemInfo);
+extern EdsError EdsDownload(EdsBaseRef inRef, EdsUInt64 inSize, EdsStreamRef outStream);
+extern EdsError EdsDownloadComplete(EdsBaseRef inRef);
+extern EdsError EdsDownloadCancel(EdsBaseRef inRef);
+extern EdsError EdsSetCapacity(EdsCameraRef inCameraRef, EdsCapacity inCapacity);
+
+#define kEdsPropID_SaveTo               0x0000000b
+#define kEdsSaveTo_Camera               1
+#define kEdsSaveTo_Host                 2
+#define kEdsSaveTo_Both                 3
+
 #define kEdsPropID_AEMode               0x00000400
 #define kEdsPropID_ISOSpeed             0x00000402
 #define kEdsPropID_Av                   0x00000405
@@ -64,9 +95,21 @@ extern EdsError EdsRetain(EdsBaseRef inRef);
 #define kEdsPropID_Evf_Mode             0x00000501
 #define kEdsPropID_Evf_AFMode           0x0000050E
 
+#define kEdsCameraCommand_TakePicture         0x00000000
 #define kEdsCameraCommand_ExtendShutDownTimer 0x00000001
+#define kEdsCameraCommand_PressShutterButton  0x00000004
 #define kEdsCameraCommand_DoEvfAf             0x00000102
 #define kEdsCameraCommand_DriveLensEvf        0x00000103
+
+#define kEdsCameraCommand_ShutterButton_OFF                 0x00000000
+#define kEdsCameraCommand_ShutterButton_Halfway             0x00000001
+#define kEdsCameraCommand_ShutterButton_Completely          0x00000003
+#define kEdsCameraCommand_ShutterButton_Halfway_NonAF       0x00010001
+#define kEdsCameraCommand_ShutterButton_Completely_NonAF    0x00010003
+
+#define kEdsObjectEvent_All                     0x00000200
+#define kEdsObjectEvent_DirItemCreated          0x00000204
+#define kEdsObjectEvent_DirItemRequestTransfer  0x00000208
 
 // --- Global Thread-Safe State ---
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -79,6 +122,10 @@ static char g_cameraName[128] = "Canon EOS 1300D";
 static char g_sourceMode[32] = "idle";
 static char g_lastCmdStatus[64] = "ready";
 static uint32_t g_lastCmdError = 0;
+
+static unsigned char *g_capturedPhotoBuf = NULL;
+static size_t g_capturedPhotoLen = 0;
+static long long g_capturedPhotoTimeMs = 0;
 
 static uint32_t g_curIso = 0;
 static uint32_t g_curTv = 0;
@@ -97,10 +144,49 @@ static int g_cmdWb = -1;
 static int g_cmdEv = -9999;
 static int g_cmdAf = 0;
 static int g_cmdFocusStep = 0;
+static BOOL g_cmdCapture = NO;
 static BOOL g_forceDirectEdsdk = YES;
 
 static long long nowMs(void) {
     return (long long)([[NSDate date] timeIntervalSince1970] * 1000.0);
+}
+
+static EdsError handleObjectEvent(EdsObjectEvent inEvent, EdsBaseRef inRef, void *inContext) {
+    if (inEvent == kEdsObjectEvent_DirItemRequestTransfer || inEvent == kEdsObjectEvent_DirItemCreated) {
+        EdsDirectoryItemInfo info;
+        memset(&info, 0, sizeof(info));
+        EdsError err = EdsGetDirectoryItemInfo(inRef, &info);
+        if (err == 0 && info.size > 2000) {
+            EdsStreamRef stream = NULL;
+            err = EdsCreateMemoryStream(info.size, &stream);
+            if (err == 0 && stream) {
+                err = EdsDownload(inRef, info.size, stream);
+                if (err == 0) {
+                    EdsDownloadComplete(inRef);
+                    void *ptr = NULL;
+                    EdsUInt64 len = 0;
+                    if (EdsGetPointer(stream, &ptr) == 0 && EdsGetLength(stream, &len) == 0 && ptr && len > 1000) {
+                        pthread_mutex_lock(&g_lock);
+                        if (g_capturedPhotoBuf) free(g_capturedPhotoBuf);
+                        g_capturedPhotoBuf = (unsigned char *)malloc((size_t)len);
+                        if (g_capturedPhotoBuf) {
+                            memcpy(g_capturedPhotoBuf, ptr, (size_t)len);
+                            g_capturedPhotoLen = (size_t)len;
+                            g_capturedPhotoTimeMs = nowMs();
+                        }
+                        pthread_mutex_unlock(&g_lock);
+                    }
+                } else {
+                    EdsDownloadCancel(inRef);
+                }
+                EdsRelease(stream);
+            }
+        }
+    }
+    if (inRef) {
+        EdsRelease(inRef);
+    }
+    return 0;
 }
 
 static void noopICMethod(id self, SEL _cmd, id arg) {}
@@ -258,6 +344,15 @@ static void disableICCameraDeviceHijack(void) {
     }
     _edsSessionOpen = YES;
 
+    // Register object event handler for automatic image transfer
+    EdsSetObjectEventHandler(_edsCamera, kEdsObjectEvent_All, handleObjectEvent, NULL);
+
+    // Set save destination to Both (Camera SD card + Host PC) and report high capacity
+    EdsUInt32 saveTo = kEdsSaveTo_Both;
+    EdsSetPropertyData(_edsCamera, kEdsPropID_SaveTo, 0, sizeof(saveTo), &saveTo);
+    EdsCapacity capacity = { 0x7FFFFFFF, 0x1000, 1 };
+    EdsSetCapacity(_edsCamera, capacity);
+
     // Enable Live View output to PC
     EdsUInt32 evfMode = 1;
     EdsSetPropertyData(_edsCamera, kEdsPropID_Evf_Mode, 0, sizeof(evfMode), &evfMode);
@@ -275,6 +370,64 @@ static void disableICCameraDeviceHijack(void) {
     pthread_mutex_unlock(&g_lock);
     [self refreshCameraProperties];
     return YES;
+}
+
+- (void)executePhysicalCapture {
+    if (!_edsSessionOpen || !_edsCamera) {
+        pthread_mutex_lock(&g_lock);
+        snprintf(g_lastCmdStatus, sizeof(g_lastCmdStatus), "err_capture_no_session");
+        pthread_mutex_unlock(&g_lock);
+        return;
+    }
+
+    NSLog(@"[CanonBridge] >>> Triggering physical capture with external hotshoe flash sync...");
+
+    // 1. Drop reflex mirror / exit Live View EVF:
+    // On EOS 1300D / Rebel T6, Canon firmware forcibly disables the center hotshoe pin
+    // (Godox CT-16) while Live View is active.
+    // Setting EVF Output Device to 0 AND EVF Mode to 0 drops the mirror completely so
+    // the hotshoe center sync contact connects directly to the mechanical shutter!
+    EdsUInt32 dev0 = 0;
+    EdsSetPropertyData(_edsCamera, kEdsPropID_Evf_OutputDevice, 0, sizeof(dev0), &dev0);
+    EdsUInt32 mode0 = 0;
+    EdsSetPropertyData(_edsCamera, kEdsPropID_Evf_Mode, 0, sizeof(mode0), &mode0);
+
+    // 320ms gives the mechanical reflex mirror time to fully flip down
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.32]];
+
+    // 2. Fire physical mechanical shutter with flash sync:
+    // First try standard remote release command (TakePicture)
+    EdsError err = EdsSendCommand(_edsCamera, kEdsCameraCommand_TakePicture, 0);
+    NSLog(@"[CanonBridge] EdsSendCommand TakePicture returned: 0x%x", err);
+
+    if (err != 0) {
+        // Fallback: Granular shutter button press (Completely then Release)
+        NSLog(@"[CanonBridge] TakePicture err 0x%x, using shutter button press fallback...", err);
+        EdsSendCommand(_edsCamera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely_NonAF);
+        EdsSendCommand(_edsCamera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_Completely);
+        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.12]];
+        EdsSendCommand(_edsCamera, kEdsCameraCommand_PressShutterButton, kEdsCameraCommand_ShutterButton_OFF);
+    }
+
+    // 3. Allow mechanical shutter curtains to travel across sensor, center hotshoe pin to close,
+    // Godox CT-16 to fire Yongnuo flash, and mirror to complete its cycle
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.42]];
+
+    // 4. Re-enable EVF Live View for PC
+    EdsUInt32 evfMode = 1;
+    EdsSetPropertyData(_edsCamera, kEdsPropID_Evf_Mode, 0, sizeof(evfMode), &evfMode);
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.08]];
+
+    EdsUInt32 devPC = 2; // kEdsEvfOutputDevice_PC
+    EdsSetPropertyData(_edsCamera, kEdsPropID_Evf_OutputDevice, 0, sizeof(devPC), &devPC);
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.15]];
+
+    pthread_mutex_lock(&g_lock);
+    snprintf(g_lastCmdStatus, sizeof(g_lastCmdStatus), "capture_ok");
+    g_lastCmdError = err;
+    pthread_mutex_unlock(&g_lock);
+
+    NSLog(@"[CanonBridge] Capture complete, Live View resumed successfully.");
 }
 
 - (void)refreshCameraProperties {
@@ -308,6 +461,7 @@ static void disableICCameraDeviceHijack(void) {
     int ev = g_cmdEv;
     int af = g_cmdAf;
     int focusStep = g_cmdFocusStep;
+    BOOL doCapture = g_cmdCapture;
 
     g_hasPendingCmd = NO;
     g_cmdIso = -1;
@@ -317,6 +471,7 @@ static void disableICCameraDeviceHijack(void) {
     g_cmdEv = -9999;
     g_cmdAf = 0;
     g_cmdFocusStep = 0;
+    g_cmdCapture = NO;
     pthread_mutex_unlock(&g_cmdLock);
 
     if (!hasCmd) return;
@@ -326,6 +481,11 @@ static void disableICCameraDeviceHijack(void) {
         system("killall 'Camera Live' 2>/dev/null");
         usleep(450000);
         [self tryOpenDirectEdsSession];
+    }
+
+    if (doCapture) {
+        [self executePhysicalCapture];
+        return;
     }
 
     if (!_edsSessionOpen || !_edsCamera) {
@@ -608,6 +768,95 @@ static void handleClient(int fd) {
         return;
     }
 
+    // Handle /capture or /api/camera/trigger-capture
+    if (strncmp(req, "POST /capture", 13) == 0 || strncmp(req, "GET /capture", 12) == 0 ||
+        strncmp(req, "POST /api/camera/trigger-capture", 32) == 0 || strncmp(req, "GET /api/camera/trigger-capture", 31) == 0) {
+        pthread_mutex_lock(&g_cmdLock);
+        g_cmdCapture = YES;
+        g_hasPendingCmd = YES;
+        pthread_mutex_unlock(&g_cmdLock);
+
+        // Wait up to 2.2s for physical shutter release & flash cycle to execute
+        for (int i = 0; i < 44; i++) {
+            usleep(50000);
+            pthread_mutex_lock(&g_cmdLock);
+            BOOL pending = g_cmdCapture;
+            pthread_mutex_unlock(&g_cmdLock);
+            if (!pending) break;
+        }
+
+        long long ts = nowMs();
+        char body[512];
+        snprintf(body, sizeof(body),
+            "{\"ok\":true,\"source\":\"canon-usb-edsdk\",\"captured\":true,"
+            "\"imageUrl\":\"http://127.0.0.1:19898/captured_pose.jpg?t=%lld\"}", ts);
+
+        char hdr[512];
+        snprintf(hdr, sizeof(hdr),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: application/json\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+            "Access-Control-Allow-Headers: *\r\n"
+            "Access-Control-Allow-Private-Network: true\r\n"
+            "Cache-Control: no-store, no-cache, must-revalidate\r\n"
+            "Content-Length: %zu\r\n"
+            "Connection: close\r\n\r\n", strlen(body));
+        send(fd, hdr, strlen(hdr), 0);
+        send(fd, body, strlen(body), 0);
+        close(fd);
+        return;
+    }
+
+    // Handle /captured_pose.jpg
+    if (strncmp(req, "GET /captured_pose.jpg", 22) == 0) {
+        pthread_mutex_lock(&g_lock);
+        unsigned char *copyBuf = NULL;
+        size_t copyLen = 0;
+        // Prefer newly captured high-res photo if less than 60s old
+        if (g_capturedPhotoBuf && g_capturedPhotoLen > 1000 && (nowMs() - g_capturedPhotoTimeMs) < 60000) {
+            copyBuf = (unsigned char *)malloc(g_capturedPhotoLen);
+            if (copyBuf) {
+                memcpy(copyBuf, g_capturedPhotoBuf, g_capturedPhotoLen);
+                copyLen = g_capturedPhotoLen;
+            }
+        } else if (g_jpegBuf && g_jpegLen > 0) {
+            copyBuf = (unsigned char *)malloc(g_jpegLen);
+            if (copyBuf) {
+                memcpy(copyBuf, g_jpegBuf, g_jpegLen);
+                copyLen = g_jpegLen;
+            }
+        }
+        pthread_mutex_unlock(&g_lock);
+
+        if (!copyBuf || copyLen == 0) {
+            const char *hdr =
+                "HTTP/1.1 404 Not Found\r\n"
+                "Access-Control-Allow-Origin: *\r\n"
+                "Access-Control-Allow-Private-Network: true\r\n"
+                "Connection: close\r\n\r\n";
+            send(fd, hdr, strlen(hdr), 0);
+            if (copyBuf) free(copyBuf);
+            close(fd);
+            return;
+        }
+
+        char hdr[512];
+        snprintf(hdr, sizeof(hdr),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: image/jpeg\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Private-Network: true\r\n"
+            "Cache-Control: no-store, no-cache, must-revalidate\r\n"
+            "Content-Length: %zu\r\n"
+            "Connection: close\r\n\r\n", copyLen);
+        send(fd, hdr, strlen(hdr), 0);
+        send(fd, copyBuf, copyLen, 0);
+        free(copyBuf);
+        close(fd);
+        return;
+    }
+
     // Handle /control?iso=...&tv=...&av=...&wb=...&ev=...&af=...&focus=...
     if (strncmp(req, "GET /control", 12) == 0 || strncmp(req, "POST /control", 13) == 0) {
         const char *q = strchr(req, '?');
@@ -730,8 +979,8 @@ static void *httpServerThread(void *arg) {
     addr.sin_family = AF_INET;
     addr.sin_port = htons(19898);
     addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    if (bind(srv, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-        return NULL;
+    while (bind(srv, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        usleep(150000);
     }
     listen(srv, 32);
     while (1) {

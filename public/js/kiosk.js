@@ -760,16 +760,23 @@ class KioskEngine {
   testAudioJackFlash() {
     this.refreshAudioFlashOutputDevices();
     this.triggerAudioJackFlash();
-    // Jika kamera Canon / Sony USB aktif, tembakkan juga sinyal shutter & flash hotshoe
-    if (this.canonUsbStreamActive) {
+    // Jika kamera Canon / Sony USB aktif, tembakkan sinyal fisik shutter & flash hotshoe ke bridge lokal
+    if (this.canonUsbStreamActive || (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active)) {
       try {
-        fetch('/api/camera/trigger-capture', {
+        fetch('http://127.0.0.1:19898/capture', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ timeoutMs: 2500 })
-        }).catch(() => {});
+          mode: 'cors',
+          cache: 'no-store'
+        }).catch(err => console.warn('Canon local flash test error:', err));
       } catch (e) {}
     }
+    try {
+      fetch('/api/camera/trigger-capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeoutMs: 2500 })
+      }).catch(() => {});
+    } catch (e) {}
     this.showToast('⚡ Sinyal Flash Trigger ditembakkan!', '⚡', 2200);
   }
 
@@ -3018,14 +3025,39 @@ class KioskEngine {
       }
     }, 160);
 
+    let data = null;
+
+    // 1. Tembak langsung ke Canon USB Bridge lokal di 127.0.0.1:19898 jika aktif
+    if (this.canonUsbStreamActive || (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active)) {
+      try {
+        const localRes = await fetch('http://127.0.0.1:19898/capture', {
+          method: 'POST',
+          mode: 'cors',
+          cache: 'no-store'
+        });
+        if (localRes.ok) {
+          data = await localRes.json();
+        }
+      } catch (localErr) {
+        console.warn('Canon local USB capture warning:', localErr);
+      }
+    }
+
+    // 2. Jika bukan bridge lokal atau belum dapat data, fetch ke server
+    if (!data) {
+      try {
+        const res = await fetch('/api/camera/trigger-capture', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ poseIndex, timeoutMs: 2800 })
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch (e) {}
+    }
+
     try {
-      const res = await fetch('/api/camera/trigger-capture', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ poseIndex, timeoutMs: 2800 })
-      });
-      if (!res.ok) return;
-      const data = await res.json();
       if (data && data.imageUrl) {
         // Convert downloaded Sony A7III / Canon Flash JPEG into DataURL so canvas compositor & preview use the real flash photo!
         const img = new Image();
