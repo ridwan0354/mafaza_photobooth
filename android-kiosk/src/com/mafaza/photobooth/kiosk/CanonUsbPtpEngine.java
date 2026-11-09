@@ -843,10 +843,10 @@ public class CanonUsbPtpEngine {
                 if (infoRes.dataPayload != null && infoRes.dataPayload.length >= 12) {
                     compressedSize = readIntLE(infoRes.dataPayload, 8);
                 }
-                // Only download if small (preview size <= 5MB) to keep USB buffer empty and fast
-                if (compressedSize > 0 && compressedSize <= 5 * 1024 * 1024) {
+                // Always download the in-memory object to flush/free the Sony camera's internal RAM buffer slot!
+                if (compressedSize <= 0 || compressedSize <= 35 * 1024 * 1024) {
                     PtpTransactionResult imgRes = executePtpTransactionLocked(
-                            PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 3000);
+                            PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 4000);
                     if (imgRes != null && imgRes.dataPayload != null && imgRes.dataPayload.length > 2048) {
                         byte[] jpeg = extractJpegFromBuffer(imgRes.dataPayload);
                         if (jpeg != null && jpeg.length > 2048) {
