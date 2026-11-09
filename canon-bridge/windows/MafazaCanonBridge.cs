@@ -514,7 +514,7 @@ namespace MafazaCanonBridge
         private static extern uint EdsSendCommand(IntPtr inCameraRef, uint inCommand, int inParam);
 
         [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern uint EdsCreateMemoryStream(uint inBufferSize, out IntPtr outStreamRef);
+        private static extern uint EdsCreateMemoryStream(ulong inBufferSize, out IntPtr outStreamRef);
 
         [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern uint EdsCreateEvfImageRef(IntPtr inStreamRef, out IntPtr outEvfImageRef);
@@ -526,7 +526,10 @@ namespace MafazaCanonBridge
         private static extern uint EdsGetPointer(IntPtr inStreamRef, out IntPtr outPointer);
 
         [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
-        private static extern uint EdsGetLength(IntPtr inStreamRef, out uint outLength);
+        private static extern uint EdsGetLength(IntPtr inStreamRef, out ulong outLength);
+
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
+        private static extern uint EdsGetEvent();
 
         [DllImport("EDSDK.dll", CallingConvention = CallingConvention.Cdecl)]
         private static extern uint EdsRelease(IntPtr inRef);
@@ -659,8 +662,10 @@ namespace MafazaCanonBridge
                                 // Enable EVF (Live View)
                                 uint evfMode = 1;
                                 EdsSetPropertyData(cam, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref evfMode);
+                                Thread.Sleep(150);
                                 uint outDev = 2; // PC
                                 EdsSetPropertyData(cam, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
+                                Thread.Sleep(200);
 
                                 Console.ForegroundColor = ConsoleColor.Green;
                                 Console.WriteLine("[EDSDK] Kamera Canon EOS terhubung via USB! Live view aktif.");
@@ -674,41 +679,53 @@ namespace MafazaCanonBridge
             catch { }
         }
 
+        private static IntPtr _evfStreamRef = IntPtr.Zero;
+
         private static void DownloadEdsdkLiveViewFrame()
         {
             if (_cameraHandle == IntPtr.Zero) return;
             try
             {
-                IntPtr streamRef;
-                if (EdsCreateMemoryStream(0, out streamRef) == 0)
+                EdsGetEvent();
+
+                if (_evfStreamRef == IntPtr.Zero)
                 {
-                    IntPtr evfImageRef;
-                    if (EdsCreateEvfImageRef(streamRef, out evfImageRef) == 0)
+                    if (EdsCreateMemoryStream(0, out _evfStreamRef) != 0) return;
+                }
+
+                IntPtr evfImageRef;
+                if (EdsCreateEvfImageRef(_evfStreamRef, out evfImageRef) == 0)
+                {
+                    uint err = EdsDownloadEvfImage(_cameraHandle, evfImageRef);
+                    if (err == 0)
                     {
-                        uint err = EdsDownloadEvfImage(_cameraHandle, evfImageRef);
-                        if (err == 0)
+                        IntPtr ptr;
+                        ulong len;
+                        if (EdsGetPointer(_evfStreamRef, out ptr) == 0 && EdsGetLength(_evfStreamRef, out len) == 0 && len > 100)
                         {
-                            IntPtr ptr;
-                            uint len;
-                            if (EdsGetPointer(streamRef, out ptr) == 0 && EdsGetLength(streamRef, out len) == 0 && len > 100)
+                            byte[] frameData = new byte[len];
+                            Marshal.Copy(ptr, frameData, 0, (int)len);
+                            lock (_frameLock)
                             {
-                                byte[] frameData = new byte[len];
-                                Marshal.Copy(ptr, frameData, 0, (int)len);
-                                lock (_frameLock)
-                                {
-                                    _latestJpeg = frameData;
-                                    _lastFrameTime = GetCurrentUnixTimeMs();
-                                }
-                                _isConnected = true;
-                                _activeMode = "edsdk";
+                                _latestJpeg = frameData;
+                                _lastFrameTime = GetCurrentUnixTimeMs();
                             }
+                            _isConnected = true;
+                            _activeMode = "edsdk";
                         }
-                        EdsRelease(evfImageRef);
                     }
-                    EdsRelease(streamRef);
+                    else if (err != 0xA102 /* OBJECT_NOTREADY */)
+                    {
+                        uint outDev = 2;
+                        EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
+                    }
+                    EdsRelease(evfImageRef);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Console.WriteLine("[EVF] Error: " + ex.Message);
+            }
         }
 
         private static bool ApplyEdsdkControl(string iso, string tv, string av, string wb, string ev, string af, string focus)
