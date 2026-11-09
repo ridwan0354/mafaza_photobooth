@@ -1,7 +1,19 @@
 @echo off
 title Mafaza Photobooth - Pasang Canon USB Bridge (Windows)
 color 0b
-cd /d "%~dp0"
+
+REM 1. Jika dijalankan dari folder Downloads, otomatis pindahkan ke C:\MafazaBridge agar bebas dari blokiran Device Guard
+echo "%~dp0" | findstr /i "\\Downloads\\" >nul 2>&1
+if not errorlevel 1 (
+    echo [INFO] Folder berada di Downloads. Memindahkan ke C:\MafazaBridge agar bebas dari Device Guard...
+    if not exist "C:\MafazaBridge" mkdir "C:\MafazaBridge" >nul 2>&1
+    xcopy /y /e /q "%~dp0*" "C:\MafazaBridge\" >nul 2>&1
+    cd /d "C:\MafazaBridge"
+    powershell -NoProfile -Command "Get-ChildItem -Path 'C:\MafazaBridge\*' -Recurse | Unblock-File" >nul 2>&1
+) else (
+    cd /d "%~dp0"
+    powershell -NoProfile -Command "Get-ChildItem -Path '%~dp0*' -Recurse | Unblock-File" >nul 2>&1
+)
 
 REM Matikan proses bridge lama jika sedang berjalan agar port 19898 bebas
 taskkill /f /im MafazaCanonBridge.exe >nul 2>&1
