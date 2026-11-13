@@ -223,7 +223,44 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+function toggleMobileSidebar(force) {
+  const sidebar = document.querySelector('.admin-sidebar');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  if (!sidebar) return;
+  const isOpen = (force !== undefined) ? !!force : !sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', isOpen);
+  if (backdrop) {
+    backdrop.classList.toggle('active', isOpen);
+  }
+  if (window.innerWidth <= 992) {
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+  } else {
+    document.body.style.overflow = '';
+  }
+}
+window.toggleMobileSidebar = toggleMobileSidebar;
+
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 992) {
+    const sidebar = document.querySelector('.admin-sidebar');
+    const backdrop = document.getElementById('sidebarBackdrop');
+    if (sidebar) sidebar.classList.remove('open');
+    if (backdrop) backdrop.classList.remove('active');
+    document.body.style.overflow = '';
+  }
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    toggleMobileSidebar(false);
+  }
+});
+
 function switchTab(tabId, element) {
+  if (window.innerWidth <= 992 && typeof toggleMobileSidebar === 'function') {
+    toggleMobileSidebar(false);
+  }
+
   document.querySelectorAll('.tab-content, .tab-pane').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.nav-btn, .nav-item').forEach(el => el.classList.remove('active'));
   
