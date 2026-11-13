@@ -352,14 +352,14 @@ async function loadOverview() {
 
       if (sessions && sessions.length > 0) {
         table.innerHTML = `
-          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px;">
+          <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; min-width: 580px;">
             <thead>
-              <tr style="border-bottom: 2px solid var(--border-soft); color: var(--text-muted); font-size: 13px;">
-                <th style="padding: 10px;">ID Sesi</th>
-                <th>Mode</th>
-                <th>Media Foto</th>
-                <th>Status</th>
-                <th>Waktu Sesi</th>
+              <tr style="border-bottom: 2px solid var(--border-soft); color: var(--text-muted); font-size: 12px; text-transform: uppercase;">
+                <th style="padding: 12px 14px; white-space: nowrap;">ID Sesi</th>
+                <th style="padding: 12px 14px; white-space: nowrap;">Mode</th>
+                <th style="padding: 12px 14px; white-space: nowrap;">Media Foto</th>
+                <th style="padding: 12px 14px; white-space: nowrap;">Status</th>
+                <th style="padding: 12px 14px; white-space: nowrap;">Waktu Sesi</th>
               </tr>
             </thead>
             <tbody>
@@ -367,11 +367,11 @@ async function loadOverview() {
                 const timeStr = s.started_at ? new Date(s.started_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-';
                 return `
                   <tr style="border-bottom: 1px solid var(--border-soft);">
-                    <td style="padding: 12px; font-family: monospace; font-weight: 700; color: var(--caramel-brown);">${s.id}</td>
-                    <td><span class="badge-pill badge-active">${s.mode || 'Strip'}</span></td>
-                    <td><span class="sticker-badge sticker-teal" style="font-size: 12px;">📷 ${s.media_count || 0} File</span></td>
-                    <td><span class="badge-pill badge-active">${s.status || 'completed'}</span></td>
-                    <td style="font-size: 13px; color: var(--dark-roast);">${timeStr}</td>
+                    <td style="padding: 12px 14px; font-family: monospace; font-weight: 700; color: var(--caramel-brown); white-space: nowrap;">${s.id}</td>
+                    <td style="white-space: nowrap;"><span class="badge-pill badge-active">${s.mode || 'Strip'}</span></td>
+                    <td style="white-space: nowrap;"><span class="sticker-badge sticker-teal" style="font-size: 12px;">📷 ${s.media_count || 0} File</span></td>
+                    <td style="white-space: nowrap;"><span class="badge-pill badge-active">${s.status || 'completed'}</span></td>
+                    <td style="font-size: 13px; color: var(--dark-roast); white-space: nowrap;">${timeStr}</td>
                   </tr>
                 `;
               }).join('')}
@@ -472,40 +472,42 @@ function renderEventsTable() {
 
     return `
       <tr style="border-bottom: 1px solid var(--border-soft); transition: background 0.2s ease;">
-        <td style="padding: 14px 12px; font-weight: 700; color: var(--caramel-brown);">
+        <td style="padding: 14px 12px; font-weight: 700; color: var(--caramel-brown); min-width: 160px;">
           ${ev.name}
-          ${isKioskActive ? '<span class="badge-pill badge-active" style="margin-left: 8px; font-size: 11px;">Aktif di Kiosk</span>' : ''}
+          ${isKioskActive ? '<span class="badge-pill badge-active" style="margin-left: 8px; font-size: 11px; white-space: nowrap;">Aktif di Kiosk</span>' : ''}
         </td>
-        <td style="font-size: 13.5px; font-weight: 600; color: var(--dark-roast);">${dateFormatted}</td>
-        <td>
-          <span class="sticker-badge sticker-mustard" style="font-size: 11.5px; font-weight: 700;">
-            📸 ${shotsCount}x Cekrek
-          </span>
-          <span class="sticker-badge sticker-teal" style="font-size: 11px; font-weight: 700; margin-left: 4px;">
-            ${qrLabel}
-          </span>
-          <span class="sticker-badge sticker-purple" style="font-size: 11px; font-weight: 700; margin-left: 4px;">
-            ${bgLabel}
-          </span>
+        <td style="font-size: 13.5px; font-weight: 600; color: var(--dark-roast); min-width: 110px; white-space: nowrap;">${dateFormatted}</td>
+        <td style="min-width: 230px; white-space: nowrap;">
+          <div style="display: flex; gap: 5px; align-items: center; flex-wrap: nowrap; white-space: nowrap;">
+            <span class="sticker-badge sticker-mustard" style="font-size: 11.5px; font-weight: 700; white-space: nowrap;">
+              📸 ${shotsCount}x Cekrek
+            </span>
+            <span class="sticker-badge sticker-teal" style="font-size: 11px; font-weight: 700; white-space: nowrap;">
+              ${qrLabel}
+            </span>
+            <span class="sticker-badge sticker-purple" style="font-size: 11px; font-weight: 700; white-space: nowrap;">
+              ${bgLabel}
+            </span>
+          </div>
         </td>
-        <td style="font-size: 12.5px; color: var(--dusty-teal); font-weight: 600;" title="Semua foto otomatis dihapus permanen tepat 1 tahun setelah acara">
+        <td style="font-size: 12.5px; color: var(--dusty-teal); font-weight: 600; min-width: 130px; white-space: nowrap;" title="Semua foto otomatis dihapus permanen tepat 1 tahun setelah acara">
           🗑️ ${autoDeleteFormatted}
         </td>
-        <td><span class="badge-pill badge-active">${ev.status || 'active'}</span></td>
-        <td>
-          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <button class="btn btn-mustard" style="padding: 6px 12px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;" onclick="showEventQrModal('${ev.id}')" title="Lihat &amp; Unduh QR Galeri Seluruh Foto Event Ini">
+        <td style="min-width: 80px; white-space: nowrap;"><span class="badge-pill badge-active">${ev.status || 'active'}</span></td>
+        <td style="min-width: 220px; white-space: nowrap;">
+          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; white-space: nowrap;">
+            <button class="btn btn-mustard" style="padding: 6px 12px; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;" onclick="showEventQrModal('${ev.id}')" title="Lihat &amp; Unduh QR Galeri Seluruh Foto Event Ini">
               🎟️ Lihat QR
             </button>
-            <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;" onclick="selectEventForEdit('${ev.id}')">
+            <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; white-space: nowrap;" onclick="selectEventForEdit('${ev.id}')">
               ⚙️ Konfigurasi
             </button>
             ${!isKioskActive ? `
-              <button class="btn btn-teal" style="padding: 6px 12px; font-size: 12px;" onclick="setActiveKioskEvent('${ev.id}')">
+              <button class="btn btn-teal" style="padding: 6px 12px; font-size: 12px; white-space: nowrap;" onclick="setActiveKioskEvent('${ev.id}')">
                 🖥️ Jadikan Aktif
               </button>
             ` : `
-              <span style="font-size: 12px; color: var(--dusty-teal); font-weight: 700; padding: 4px 8px;">✓ Aktif</span>
+              <span style="font-size: 12px; color: var(--dusty-teal); font-weight: 700; padding: 4px 8px; white-space: nowrap;">✓ Aktif</span>
             `}
           </div>
         </td>
@@ -3927,11 +3929,11 @@ function renderPrintQueueTable() {
         <td style="padding: 12px 14px; font-size: 12.5px; color: var(--text-muted); font-weight: 600;">
           ${timeStr}
         </td>
-        <td style="padding: 12px 14px; text-align: right;">
-          <div style="display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap;">
-            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewFromJob('${job.id}')" title="Pratinjau foto">👁️ Lihat</button>
-            <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})" title="Cetak ulang lembar ini">🖨️ Cetak</button>
-            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25);" onclick="deletePrintJob('${job.id}', event)" title="Hapus dari antrean">🗑️</button>
+        <td style="padding: 12px 14px; text-align: right; white-space: nowrap;">
+          <div style="display: flex; gap: 6px; justify-content: flex-end; flex-wrap: nowrap; white-space: nowrap;">
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff; white-space: nowrap;" onclick="openPhotoPreviewFromJob('${job.id}')" title="Pratinjau foto">👁️ Lihat</button>
+            <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700; white-space: nowrap;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})" title="Cetak ulang lembar ini">🖨️ Cetak</button>
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25); white-space: nowrap;" onclick="deletePrintJob('${job.id}', event)" title="Hapus dari antrean">🗑️</button>
           </div>
         </td>
       </tr>
@@ -3964,23 +3966,23 @@ function updateTabPrintsTable(jobs) {
 
     return `
       <tr style="border-bottom: 1px solid var(--border-soft);">
-        <td style="padding: 8px 12px; width: 75px;">
+        <td style="padding: 8px 12px; width: 75px; white-space: nowrap;">
           <div style="width: 44px; height: 58px; background: var(--cream-bg); border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1.5px solid var(--border-soft); box-shadow: 0 2px 6px rgba(0,0,0,0.06);" 
                onclick="openPhotoPreviewFromJob('${job.id}')" title="Klik untuk melihat foto ukuran penuh & opsi cetak ulang">
             <img src="${thumbUrl}" onerror="this.src='/assets/templates/strip-green-template.svg'" style="max-width: 100%; max-height: 100%; object-fit: contain;">
           </div>
         </td>
-        <td style="padding: 12px; font-family: monospace; font-weight: 700; font-size: 13px;">${job.id}</td>
-        <td style="font-family: monospace; font-size: 13px; color: var(--charcoal); font-weight: 600;">${job.spooler_job_id || '-'}</td>
-        <td style="font-weight: 700; color: var(--caramel-brown);">${escapeHtml(job.event_name || 'Event Aktif')}</td>
-        <td>${job.copies || 1} Lembar</td>
-        <td><span class="badge-pill ${stateBadge}">${job.state ? job.state.toUpperCase() : 'COMPLETED'}</span></td>
-        <td>${timeStr}</td>
-        <td>
-          <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewFromJob('${job.id}')">👁️ Lihat</button>
-            <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})">🖨️ Cetak</button>
-            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25);" onclick="deletePrintJob('${job.id}', event)" title="Hapus dari antrean cetak">🗑️</button>
+        <td style="padding: 12px; font-family: monospace; font-weight: 700; font-size: 13px; white-space: nowrap;">${job.id}</td>
+        <td style="font-family: monospace; font-size: 13px; color: var(--charcoal); font-weight: 600; white-space: nowrap;">${job.spooler_job_id || '-'}</td>
+        <td style="font-weight: 700; color: var(--caramel-brown); white-space: nowrap;">${escapeHtml(job.event_name || 'Event Aktif')}</td>
+        <td style="white-space: nowrap;">${job.copies || 1} Lembar</td>
+        <td style="white-space: nowrap;"><span class="badge-pill ${stateBadge}">${job.state ? job.state.toUpperCase() : 'COMPLETED'}</span></td>
+        <td style="white-space: nowrap;">${timeStr}</td>
+        <td style="white-space: nowrap;">
+          <div style="display: flex; gap: 6px; flex-wrap: nowrap; white-space: nowrap;">
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff; white-space: nowrap;" onclick="openPhotoPreviewFromJob('${job.id}')">👁️ Lihat</button>
+            <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700; white-space: nowrap;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})">🖨️ Cetak</button>
+            <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25); white-space: nowrap;" onclick="deletePrintJob('${job.id}', event)" title="Hapus dari antrean cetak">🗑️</button>
           </div>
         </td>
       </tr>

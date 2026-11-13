@@ -238,7 +238,38 @@
       width: 100%;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
-      margin-bottom: 8px;
+      margin-bottom: 14px;
+      border-radius: 14px;
+      background: #fff;
+      border: 1.5px solid var(--border-soft);
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+    }
+    .table-responsive table {
+      min-width: 760px !important;
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+    .table-responsive th,
+    .table-responsive td {
+      padding: 12px 14px;
+      vertical-align: middle;
+      font-size: 13.5px;
+    }
+    .table-responsive th {
+      white-space: nowrap !important;
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 2px solid var(--border-soft);
+    }
+    .table-responsive td {
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .mobile-table-hint {
+      display: none;
     }
     .topbar-container {
       display: flex;
@@ -254,6 +285,56 @@
       padding: 8px 0 14px 0;
       transition: all 0.2s ease;
     }
+    .topbar-row-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .topbar-logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid var(--muted-mustard);
+      box-shadow: 0 4px 12px rgba(123, 72, 46, 0.25);
+      cursor: pointer;
+    }
+    .topbar-actions-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .topbar-kiosk-btn {
+      padding: 10px 20px;
+      font-size: 13.5px;
+      font-weight: 800;
+      border-radius: var(--radius-pill);
+      text-decoration: none;
+      box-shadow: 0 4px 14px rgba(230, 120, 107, 0.35);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .topbar-logout-btn {
+      padding: 9px 15px;
+      font-size: 13px;
+      font-weight: 700;
+      border-radius: var(--radius-pill);
+      background: #FFFDF9;
+      border: 1.5px solid var(--border-soft);
+      color: var(--caramel-brown);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    }
+    .topbar-status-badge {
+      white-space: nowrap;
+    }
     canvas {
       max-width: 100%;
       height: auto;
@@ -261,6 +342,19 @@
 
     /* Tablets & Mobile Screens (<= 992px) */
     @media (max-width: 992px) {
+      .mobile-table-hint {
+        display: inline-flex !important;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--dusty-teal);
+        background: rgba(95, 143, 138, 0.12);
+        border: 1px solid rgba(95, 143, 138, 0.25);
+        padding: 4px 10px;
+        border-radius: 8px;
+        width: fit-content;
+      }
       .admin-container {
         flex-direction: column;
         position: relative;
@@ -339,10 +433,24 @@
         padding: 8px 0 10px 0;
         margin-bottom: 16px;
         border-bottom: 1px solid rgba(212, 167, 84, 0.22);
+        display: flex;
+        flex-direction: column;
         gap: 10px;
+        width: 100%;
+      }
+      .topbar-row-header {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .topbar-logo {
+        width: 40px;
+        height: 40px;
+        flex-shrink: 0;
       }
       #topActiveEventTitle {
-        font-size: 20px !important;
+        font-size: 19px !important;
         line-height: 1.25 !important;
         margin-top: 2px !important;
       }
@@ -350,9 +458,24 @@
         width: 100%;
         display: flex;
         align-items: center;
-        justify-content: space-between;
         gap: 8px;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
+      }
+      .topbar-kiosk-btn {
+        flex: 1 1 auto;
+        justify-content: center;
+        font-size: 12.5px !important;
+        padding: 8px 10px !important;
+      }
+      .topbar-logout-btn {
+        flex: 0 0 auto;
+        font-size: 12px !important;
+        padding: 8px 12px !important;
+      }
+      .topbar-status-badge {
+        flex: 0 0 auto;
+        font-size: 11px !important;
+        padding: 5px 8px !important;
       }
       .stat-cards-grid {
         grid-template-columns: 1fr !important;
@@ -505,24 +628,26 @@
     <div class="admin-main">
       <!-- Top Bar (Sticky di pojok kanan atas untuk akses cepat Kiosk) -->
       <div class="topbar-container">
-        <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
-          <button type="button" class="mobile-nav-toggle" onclick="toggleMobileSidebar(true)" aria-label="Buka Menu Navigasi" title="Buka Menu">
-            ☰
-          </button>
-          <div style="min-width: 0;">
-            <span class="sticker-badge sticker-purple" style="margin-bottom: 4px;">Event Aktif Saat Ini</span>
-            <h1 id="topActiveEventTitle" style="font-size: 30px; font-weight: 800; color: var(--charcoal); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">Memuat Event...</h1>
+        <div class="topbar-row-header">
+          <div style="display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1;">
+            <button type="button" class="mobile-nav-toggle" onclick="toggleMobileSidebar(true)" aria-label="Buka Menu Navigasi" title="Buka Menu">
+              ☰
+            </button>
+            <div style="min-width: 0;">
+              <span class="sticker-badge sticker-purple" style="margin-bottom: 2px;">Event Aktif Saat Ini</span>
+              <h1 id="topActiveEventTitle" style="font-size: 26px; font-weight: 800; color: var(--charcoal); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">Memuat Event...</h1>
+            </div>
           </div>
+          <img src="/assets/logo-mafaza.jpg" alt="Mafaza" class="topbar-logo" onclick="toggleMobileSidebar(true)" title="Buka Menu Navigasi">
         </div>
-        <div class="topbar-actions-wrap" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-          <a href="/kiosk?fullscreen=1" target="_blank" class="btn btn-coral topbar-kiosk-btn" style="padding: 10px 20px; font-size: 13.5px; font-weight: 800; border-radius: var(--radius-pill); text-decoration: none; box-shadow: 0 4px 14px rgba(230, 120, 107, 0.35); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;">
+        <div class="topbar-actions-wrap">
+          <a href="/kiosk?fullscreen=1" target="_blank" class="btn btn-coral topbar-kiosk-btn">
             🖥️ Buka Kiosk Full-Screen ➔
           </a>
-          <button type="button" onclick="logoutAdmin()" class="btn btn-secondary topbar-logout-btn" style="padding: 9px 15px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill); background: #FFFDF9; border: 1.5px solid var(--border-soft); color: var(--caramel-brown); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.04);" title="Kunci Dashboard &amp; Keluar">
+          <button type="button" onclick="logoutAdmin()" class="btn btn-secondary topbar-logout-btn" title="Kunci Dashboard &amp; Keluar">
             <span>🔒</span> Keluar
           </button>
-          <span class="badge-pill badge-active" style="white-space: nowrap;">● Kiosk Online</span>
-          <img src="/assets/logo-mafaza.jpg" alt="Mafaza" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 2px solid var(--muted-mustard); box-shadow: 0 4px 12px rgba(123, 72, 46, 0.25); cursor: pointer;" onclick="toggleMobileSidebar(true)" title="Menu">
+          <span class="badge-pill badge-active topbar-status-badge">● Kiosk Online</span>
         </div>
       </div>
 
@@ -547,8 +672,8 @@
 
       <!-- TAB 1: OVERVIEW (RINGKASAN HARI INI DARI GAMBAR 2 SCREEN 4) -->
       <div id="tab-overview" class="tab-content active">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-          <h3 style="font-size: 22px; font-weight: 800; color: var(--caramel-brown);">Ringkasan Hari Ini</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 8px;">
+          <h3 style="font-size: 22px; font-weight: 800; color: var(--caramel-brown); margin: 0;">Ringkasan Hari Ini</h3>
           <span style="font-size: 13px; color: var(--text-muted); font-weight: 600;">Event: <strong id="overviewActiveEventName" style="color: var(--coral);">Memuat...</strong></span>
         </div>
 
@@ -638,9 +763,12 @@
 
         <!-- Sesi Foto Terbaru -->
         <div class="card-pop" style="padding: 24px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h3 style="font-size: 19px; font-weight: 800; color: var(--caramel-brown);">Riwayat Sesi Foto Booth</h3>
-            <span style="font-size: 13px; color: var(--text-muted);">Sesi foto terbaru dari event aktif</span>
+          <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+              <h3 style="font-size: 19px; font-weight: 800; color: var(--caramel-brown); margin: 0;">Riwayat Sesi Foto Booth</h3>
+              <span class="mobile-table-hint">👉 Geser ke samping</span>
+            </div>
+            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Sesi foto terbaru dari event aktif</p>
           </div>
           <div id="recentSessionsTable" class="table-responsive">
             <!-- Populated via JS -->
@@ -714,21 +842,24 @@
 
         <!-- 1. Daftar Event Tersedia -->
         <div class="card-pop" style="margin-bottom: 28px; padding: 24px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <h3 style="font-size: 19px; font-weight: 800; color: var(--caramel-brown);">Daftar Semua Event</h3>
-            <span style="font-size: 13px; color: var(--text-muted);">Pilih event untuk mengaktifkannya di Layar Kiosk Booth</span>
+          <div style="display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+              <h3 style="font-size: 19px; font-weight: 800; color: var(--caramel-brown); margin: 0;">Daftar Semua Event</h3>
+              <span class="mobile-table-hint">👉 Geser tabel ke samping</span>
+            </div>
+            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Pilih event untuk mengaktifkannya di Layar Kiosk Booth</p>
           </div>
 
           <div class="table-responsive">
             <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px;">
               <thead>
-                <tr style="border-bottom: 2px solid var(--border-soft); color: var(--text-muted); font-size: 13px;">
-                  <th style="padding: 12px;">Nama Event</th>
-                  <th>Tanggal Acara</th>
-                  <th>Jumlah Cekrek</th>
-                  <th>Hapus Otomatis (1 Thn)</th>
-                  <th>Status</th>
-                  <th>Aksi</th>
+                <tr style="border-bottom: 2px solid var(--border-soft); color: var(--text-muted); font-size: 12px; text-transform: uppercase;">
+                  <th style="padding: 12px 14px; min-width: 160px; white-space: nowrap;">Nama Event</th>
+                  <th style="padding: 12px 14px; min-width: 110px; white-space: nowrap;">Tanggal Acara</th>
+                  <th style="padding: 12px 14px; min-width: 220px; white-space: nowrap;">Jumlah Cekrek</th>
+                  <th style="padding: 12px 14px; min-width: 130px; white-space: nowrap;">Hapus Otomatis (1 Thn)</th>
+                  <th style="padding: 12px 14px; min-width: 90px; white-space: nowrap;">Status</th>
+                  <th style="padding: 12px 14px; min-width: 210px; white-space: nowrap;">Aksi</th>
                 </tr>
               </thead>
               <tbody id="eventsTableBody">
@@ -1452,18 +1583,18 @@
           </div>
 
           <!-- Table -->
-          <div style="overflow-x: auto;">
-            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px;">
+          <div class="table-responsive">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; min-width: 820px;">
               <thead>
                 <tr style="border-bottom: 2px solid var(--border-soft); color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
-                  <th style="padding: 12px 14px; width: 75px;">Foto</th>
-                  <th style="padding: 12px 14px;">Job ID</th>
-                  <th style="padding: 12px 14px;">Spooler OS</th>
-                  <th style="padding: 12px 14px;">Event</th>
-                  <th style="padding: 12px 14px;">Lembar</th>
-                  <th style="padding: 12px 14px;">Status Cetak &amp; Progres</th>
-                  <th style="padding: 12px 14px;">Waktu</th>
-                  <th style="padding: 12px 14px; text-align: right;">Aksi</th>
+                  <th style="padding: 12px 14px; width: 75px; white-space: nowrap;">Foto</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Job ID</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Spooler OS</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Event</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Lembar</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Status Cetak &amp; Progres</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Waktu</th>
+                  <th style="padding: 12px 14px; text-align: right; white-space: nowrap;">Aksi</th>
                 </tr>
               </thead>
               <tbody id="pqJobsTableBody">
@@ -1633,19 +1764,22 @@
 
         <!-- Print Queue Table -->
         <div class="card-pop">
-          <h3 style="font-size: 18px; font-weight: 800; margin-bottom: 14px; color: var(--charcoal);">Antrean &amp; Riwayat Cetak</h3>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+            <h3 style="font-size: 18px; font-weight: 800; margin: 0; color: var(--charcoal);">Antrean &amp; Riwayat Cetak</h3>
+            <span class="mobile-table-hint">👉 Geser tabel ke samping</span>
+          </div>
           <div class="table-responsive">
-            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px;">
+            <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; min-width: 780px;">
               <thead>
-                <tr style="border-bottom: 2px solid var(--soft-gray); color: var(--text-muted);">
-                  <th style="padding: 12px; width: 75px;">Foto</th>
-                  <th>Job ID</th>
-                  <th>Spooler ID</th>
-                  <th>Event</th>
-                  <th>Jumlah Copy</th>
-                  <th>Status</th>
-                  <th>Waktu</th>
-                  <th>Aksi</th>
+                <tr style="border-bottom: 2px solid var(--soft-gray); color: var(--text-muted); font-size: 12px; text-transform: uppercase;">
+                  <th style="padding: 12px 14px; width: 75px; white-space: nowrap;">Foto</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Job ID</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Spooler ID</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Event</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Jumlah Copy</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Status</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Waktu</th>
+                  <th style="padding: 12px 14px; white-space: nowrap;">Aksi</th>
                 </tr>
               </thead>
               <tbody id="printJobsTableBody">
@@ -2452,6 +2586,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/admin.js?v=responsive-v6.0"></script>
+  <script src="/js/admin.js?v=responsive-v6.1"></script>
 </body>
 </html>
