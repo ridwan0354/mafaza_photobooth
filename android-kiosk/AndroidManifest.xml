@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.mafaza.photobooth.kiosk"
-    android:versionCode="7"
-    android:versionName="2.5.0">
+    android:versionCode="8"
+    android:versionName="2.5.1">
 
     <uses-sdk
         android:minSdkVersion="24"
         android:targetSdkVersion="31" />
 
-    <!-- Permissions for Web Kiosk, USB OTG Canon DSLR, UVC Webcam & Audio Flash -->
+    <!-- Permissions for Web Kiosk, Sony/Canon USB Host, UVC Webcam & Audio Flash -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -45,7 +45,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- Auto-launch / Auto-grant permission when Canon EOS DSLR is plugged in via USB OTG -->
+            <!-- Offer to open the kiosk when a supported USB camera is attached. -->
             <intent-filter>
                 <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>

@@ -32,11 +32,12 @@ echo "[2/6] Linking AndroidManifest.xml and resources..."
 "$BUILD_TOOLS/aapt2" link \
   -I "$PLATFORM_JAR" \
   --manifest AndroidManifest.xml \
+  -A assets \
   --java build/gen \
   -o build/unaligned.apk \
   build/compiled_res/resources.zip
 
-echo "[3/6] Compiling Java source files (CanonUsbPtpEngine, LocalCanonHttpServer, MainActivity)..."
+echo "[3/6] Compiling Android kiosk and USB camera sources..."
 find src build/gen -name "*.java" > build/sources.txt
 "$JAVAC" \
   -source 11 -target 11 \
@@ -83,6 +84,7 @@ echo "[6/6] Signing APK with apksigner (v1 + v2 + v3 signatures)..."
   build/aligned.apk
 
 "$BUILD_TOOLS/apksigner" verify --verbose "$OUTPUT_APK"
+node "$SCRIPT_DIR/write-release-info.mjs"
 
 rm -rf build
 ls -lh "$OUTPUT_APK"

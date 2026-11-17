@@ -18,6 +18,7 @@ import android.os.Looper;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
+import android.util.Base64;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -36,6 +37,9 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends Activity {
     private static final String PREFS_NAME = "MafazaKioskPrefs";
@@ -85,7 +89,7 @@ public class MainActivity extends Activity {
             @Override
             public void onStatusMessage(String message) {
                 mainHandler.post(() -> {
-                    if (!canonEngine.isActive()) {
+                    if (!canonEngine.hasLiveFrame()) {
                         updateUsbBadge(false, message);
                     }
                 });
@@ -108,7 +112,7 @@ public class MainActivity extends Activity {
 
         // Floating small USB indicator badge at bottom-left corner (tap to rescan / long-press to change URL)
         usbBadgeView = new TextView(this);
-        usbBadgeView.setText("📷 USB EOS: Siap Colok OTG");
+        usbBadgeView.setText("📷 USB kamera: Sambungkan kabel USB-C data");
         usbBadgeView.setTextColor(Color.WHITE);
         usbBadgeView.setTextSize(11f);
         usbBadgeView.setPadding(22, 10, 22, 10);
@@ -163,7 +167,7 @@ public class MainActivity extends Activity {
         // Set Desktop User-Agent so public/js/kiosk.js automatically enables Canon USB 127.0.0.1:19898 polling
         // without modifying a single line of public/js/kiosk.js!
         settings.setUserAgentString(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.0");
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.1");
 
         wv.addJavascriptInterface(new MafazaAndroidBridge(), "MafazaAndroidBridge");
 
@@ -274,9 +278,33 @@ public class MainActivity extends Activity {
                 + "  }, 250);\n"
                 + "})();";
         view.evaluateJavascript(js, null);
+        // Ship the capture guard inside the APK so an older server page also receives
+        // the fix immediately after updating the app.
+        try (InputStream input = getAssets().open("usb-capture-guard.js")) {
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int n;
+            while ((n = input.read(buffer)) > 0) bytes.write(buffer, 0, n);
+            view.evaluateJavascript(new String(bytes.toByteArray(), StandardCharsets.UTF_8), null);
+        } catch (Exception error) {
+            Toast.makeText(this, "Perbaikan pengambilan foto gagal dimuat. Buka ulang aplikasi.", Toast.LENGTH_LONG).show();
+        }
     }
 
     public class MafazaAndroidBridge {
+        @JavascriptInterface
+        public String getCameraStatus() {
+            return localHttpServer.buildStatusJson();
+        }
+
+        @JavascriptInterface
+        public String getLiveViewFrame() {
+            if (!canonEngine.hasLiveFrame()) return "";
+            byte[] jpeg = canonEngine.getLatestLiveViewJpeg();
+            if (jpeg == null) return "";
+            return "data:image/jpeg;base64," + Base64.encodeToString(jpeg, Base64.NO_WRAP);
+        }
+
         @JavascriptInterface
         public void printPage() {
             mainHandler.post(() -> {
@@ -317,7 +345,7 @@ public class MainActivity extends Activity {
         input.setText(getSavedKioskUrl());
 
         new AlertDialog.Builder(this)
-                .setTitle("Pengaturan & Diagnostik USB (Redmi Pad 2 / Android)")
+                .setTitle("MAFAZA 2.5.1 · Pengaturan USB Sony / Canon")
                 .setMessage(canonEngine.getUsbDiagnosticsReport() + "\n\nURL Server Kiosk Photobooth:")
                 .setView(input)
                 .setPositiveButton("Simpan & Muat Ulang", (dialog, which) -> {
@@ -328,7 +356,7 @@ public class MainActivity extends Activity {
                         webView.loadUrl(newUrl);
                     }
                 })
-                .setNeutralButton("Scan Ulang USB Canon", (dialog, which) -> {
+                .setNeutralButton("Scan Ulang Kamera USB", (dialog, which) -> {
                     canonEngine.scanAndConnectIfAvailable();
                 })
                 .setNegativeButton("Batal", null)

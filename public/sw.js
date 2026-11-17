@@ -6,7 +6,7 @@
  * dan tetap bisa dibuka kembali saat di-refresh (F5 / reload).
  */
 
-const CACHE_NAME = 'mafaza-offline-v3.55';
+const CACHE_NAME = 'mafaza-offline-v3.56';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -88,6 +88,9 @@ self.addEventListener('fetch', (event) => {
 
   // Hanya proses method GET dan skema protokol HTTP/HTTPS (abaikan chrome-extension dll.)
   if (req.method !== 'GET' || !url.protocol.startsWith('http')) return;
+
+  // Installer APK harus selalu diunduh dari server, termasuk saat dibuka lewat QR.
+  if (url.pathname.endsWith('.apk')) return;
 
   // A. NAVIGASI HALAMAN HTML (Kiosk, Admin, Gallery)
   // Ketika user me-refresh halaman di Mode Pesawat, Service Worker mengembalikan HTML dari cache

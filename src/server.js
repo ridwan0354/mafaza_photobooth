@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 
 import { initDatabase, db } from './db/database.js';
 import { apiRouter } from './routes/api.js';
+import { appDownloadRouter } from './routes/app-downloads.js';
 import { cleanupExpiredEventPhotos } from './services/event.js';
 import { verifyToken, createToken } from './services/auth.js';
 
@@ -107,6 +108,7 @@ app.get(['/sw.js', '/sw-kiosk.js'], (req, res) => {
 });
 
 // Static files (admin.html sudah dilindungi di atas)
+app.use(appDownloadRouter);
 app.use(express.static(publicDir));
 
 // Prevent 404 console error for favicon.ico

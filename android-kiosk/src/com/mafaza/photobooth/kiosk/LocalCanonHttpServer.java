@@ -37,6 +37,7 @@ public class LocalCanonHttpServer {
     private volatile boolean running = false;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private volatile byte[] lastCapturedPhotoBytes = null;
+    private volatile long lastCaptureId = 0;
 
     public LocalCanonHttpServer(CanonUsbPtpEngine engine) {
         this.canonEngine = engine;
@@ -112,7 +113,7 @@ public class LocalCanonHttpServer {
                 sendJson(out, 200, buildStatusJson());
             } else if ("/frame.jpg".equals(path)) {
                 byte[] jpeg = canonEngine.getLatestLiveViewJpeg();
-                if (jpeg != null && jpeg.length > 0) {
+                if (canonEngine.hasLiveFrame() && jpeg != null && jpeg.length > 0) {
                     sendBinary(out, 200, "image/jpeg", jpeg);
                 } else {
                     sendJson(out, 503, "{\"ok\":false,\"error\":\"Waiting for LiveView frame\"}");
@@ -124,9 +125,12 @@ public class LocalCanonHttpServer {
             } else if ("/capture".equals(path) || "/api/camera/trigger-capture".equals(path)) {
                 handlePhysicalShutterCapture(out);
             } else if ("/captured_pose.jpg".equals(path)) {
-                byte[] photo = lastCapturedPhotoBytes;
-                if (photo == null || photo.length == 0) {
-                    photo = canonEngine.getLatestLiveViewJpeg();
+                Map<String, String> params = parseQueryParams(query);
+                byte[] photo = null;
+                synchronized (this) {
+                    if (canonEngine.isActive() && Long.toString(lastCaptureId).equals(params.get("id"))) {
+                        photo = lastCapturedPhotoBytes;
+                    }
                 }
                 if (photo != null && photo.length > 0) {
                     sendBinary(out, 200, "image/jpeg", photo);
@@ -170,24 +174,31 @@ public class LocalCanonHttpServer {
         }
     }
 
-    private void handlePhysicalShutterCapture(OutputStream out) throws IOException {
+    private synchronized void handlePhysicalShutterCapture(OutputStream out) throws IOException {
+        lastCapturedPhotoBytes = null;
+        lastCaptureId++;
         if (!canonEngine.isActive()) {
-            sendJson(out, 200, "{\"ok\":false,\"error\":\"Canon USB belum aktif\"}");
+            sendCaptureError(out, "Kamera USB belum siap. Periksa kabel USB-C dan PC Remote.");
             return;
         }
         byte[] capturedJpeg = canonEngine.capturePhotoWithFlash();
         if (capturedJpeg != null && capturedJpeg.length > 1024) {
             lastCapturedPhotoBytes = capturedJpeg;
-            long ts = System.currentTimeMillis();
-            String json = "{\"ok\":true,\"source\":\"canon-usb-ptp-apk\",\"imageUrl\":\"http://127.0.0.1:"
-                    + PORT + "/captured_pose.jpg?t=" + ts + "\"}";
+            String source = canonEngine.isSonyCamera() ? "sony-usb-ptp-apk" : "canon-usb-ptp-apk";
+            String json = "{\"ok\":true,\"captureKind\":\"still\",\"source\":\"" + source
+                    + "\",\"imageUrl\":\"http://127.0.0.1:" + PORT + "/captured_pose.jpg?id=" + lastCaptureId + "\"}";
             sendJson(out, 200, json);
         } else {
-            sendJson(out, 200, "{\"ok\":false,\"error\":\"Shutter triggered, using LiveView fallback\"}");
+            sendCaptureError(out, canonEngine.getLastCaptureError());
         }
     }
 
-    private String buildStatusJson() {
+    private void sendCaptureError(OutputStream out, String message) throws IOException {
+        // Keep a JSON response for older kiosk pages, but never include an image URL on failure.
+        sendJson(out, 200, "{\"ok\":false,\"retryable\":true,\"error\":\"" + escapeJson(message) + "\"}");
+    }
+
+    public String buildStatusJson() {
         boolean active = canonEngine.isActive();
         boolean hasFrame = canonEngine.hasLiveFrame();
         long frames = canonEngine.getTotalFramesReceived();
@@ -213,6 +224,10 @@ public class LocalCanonHttpServer {
                 + "\"wb\":" + wb + ","
                 + "\"aeMode\":" + ae + ","
                 + "\"cmdError\":" + err + ","
+                + "\"connectionError\":\"" + escapeJson(canonEngine.getLastConnectionError()) + "\","
+                + "\"captureError\":\"" + escapeJson(canonEngine.getLastCaptureError()) + "\","
+                + "\"liveViewDiagnostic\":\"" + escapeJson(canonEngine.getLiveViewDiagnostic()) + "\","
+                + "\"captureKind\":\"still\","
                 + "\"platform\":\"android-apk\""
                 + "}";
     }
@@ -238,7 +253,8 @@ public class LocalCanonHttpServer {
 
     private String escapeJson(String s) {
         if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+        return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
     private void sendCorsPreflight(OutputStream out) throws IOException {

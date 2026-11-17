@@ -4175,8 +4175,10 @@ window.addEventListener('beforeinstallprompt', (e) => {
 
 async function loadAppDownloadInfo(customServerUrl = null) {
   try {
-    const query = customServerUrl ? `?serverUrl=${encodeURIComponent(customServerUrl)}` : '';
-    const res = await fetch(`/api/apps/info${query}`);
+    const localHost = ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
+    const serverUrl = customServerUrl || (localHost ? '' : window.location.origin);
+    const query = serverUrl ? `?serverUrl=${encodeURIComponent(serverUrl)}` : '';
+    const res = await fetch(`/api/apps/info${query}`, { cache: 'no-store' });
     if (!res.ok) return;
     const data = await res.json();
 
@@ -4200,7 +4202,20 @@ async function loadAppDownloadInfo(customServerUrl = null) {
 
     const lanText = document.getElementById('androidLanUrlText');
     if (lanText) {
-      lanText.textContent = data.androidKioskUrl || `${data.primaryLanUrl}/kiosk?fullscreen=1`;
+      lanText.textContent = data.androidApkUrl || data.androidKioskUrl;
+    }
+
+    if (data.androidApk) {
+      const release = data.androidApk;
+      const versionText = document.getElementById('androidApkReleaseText');
+      if (versionText) versionText.textContent = `Versi ${release.version}`;
+      for (const id of ['quickDownloadAndroidApkBtn', 'btnDownloadAndroidApk', 'androidApkDirectLink']) {
+        const link = document.getElementById(id);
+        if (!link) continue;
+        link.href = release.downloadUrl;
+        link.download = release.filename;
+        link.textContent = id === 'androidApkDirectLink' ? release.filename : `⬇️ Download APK Android v${release.version}`;
+      }
     }
 
     if (data.downloads) {

@@ -119,6 +119,11 @@ export function getLanAddresses(port = 3000) {
   return ips;
 }
 
+export function getAndroidApkRelease() {
+  const releasePath = path.join(__dirname, '../../public/android-kiosk-release.json');
+  return JSON.parse(fs.readFileSync(releasePath, 'utf8'));
+}
+
 export async function getAppDownloadInfo(reqHost = 'localhost:3000', customServerUrl = null) {
   const port = (reqHost.split(':')[1]) || 3000;
   const lanList = getLanAddresses(port);
@@ -127,9 +132,11 @@ export async function getAppDownloadInfo(reqHost = 'localhost:3000', customServe
   const targetUrl = (customServerUrl && customServerUrl.trim()) ? customServerUrl.trim().replace(/\/$/, '') : primaryLan;
 
   const androidKioskUrl = `${targetUrl}/kiosk?app=android&fullscreen=1`;
+  const androidApk = getAndroidApkRelease();
+  const androidApkUrl = `${targetUrl}${androidApk.downloadUrl}`;
   let androidQrDataUrl = '';
   try {
-    androidQrDataUrl = await QRCode.toDataURL(androidKioskUrl, {
+    androidQrDataUrl = await QRCode.toDataURL(androidApkUrl, {
       width: 280,
       margin: 2,
       color: { dark: '#381E11', light: '#FFF8EF' }
@@ -142,10 +149,13 @@ export async function getAppDownloadInfo(reqHost = 'localhost:3000', customServe
     lanAddresses: lanList,
     targetServerUrl: targetUrl,
     androidKioskUrl,
+    androidApk,
+    androidApkUrl,
     androidQrDataUrl,
     downloads: {
       macos: `/api/apps/download/macos?serverUrl=${encodeURIComponent(targetUrl)}`,
       windows: `/api/apps/download/windows?serverUrl=${encodeURIComponent(targetUrl)}`,
+      androidApk: androidApk.downloadUrl,
       androidZip: `/api/apps/download/android?serverUrl=${encodeURIComponent(targetUrl)}`,
       androidHtml: `/api/apps/download/android-launcher?serverUrl=${encodeURIComponent(targetUrl)}`
     }

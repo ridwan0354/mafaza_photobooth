@@ -17,7 +17,7 @@ import android.os.Looper;
 import android.util.Log;
 import android.widget.Toast;
 
-import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.HashMap;
@@ -127,6 +127,8 @@ public class CanonUsbPtpEngine {
     private volatile long totalFramesReceived = 0;
     private volatile byte[] lastCapturedFullJpeg = null;
     private volatile String lastSonyDiag = "Belum dimulai";
+    private volatile String lastCaptureError = "";
+    private volatile String lastConnectionError = "";
     private volatile boolean isCapturingPhoto = false;
     private volatile long lastKeepAliveMs = 0;
     private int transactionId = 1;
@@ -217,7 +219,7 @@ public class CanonUsbPtpEngine {
     }
 
     public boolean isCameraActive() {
-        return isConnected && latestLiveViewJpeg != null && latestLiveViewJpeg.length > 200;
+        return hasLiveFrame();
     }
 
     public boolean isActive() {
@@ -225,8 +227,14 @@ public class CanonUsbPtpEngine {
     }
 
     public boolean hasLiveFrame() {
-        return latestLiveViewJpeg != null && latestLiveViewJpeg.length > 256;
+        return isConnected && latestLiveViewJpeg != null && latestLiveViewJpeg.length > 256
+                && System.currentTimeMillis() - latestFrameTimeMs < 5000;
     }
+
+    public String getLastCaptureError() { return lastCaptureError; }
+    public String getLastConnectionError() { return lastConnectionError; }
+    public boolean isSonyCamera() { return isSonyCamera; }
+    public String getLiveViewDiagnostic() { return isSonyCamera ? lastSonyDiag : "Frame: " + totalFramesReceived; }
 
     public long getTotalFramesReceived() {
         return totalFramesReceived;
@@ -234,7 +242,12 @@ public class CanonUsbPtpEngine {
 
     public void scanAndConnectIfAvailable() {
         lastPermissionRequestMs = 0; // Reset cooldown on manual tap
-        new Thread(this::scanForCameraDevices, "UsbCameraScan").start();
+        new Thread(() -> {
+            synchronized (usbLock) {
+                if (isConnected && !hasLiveFrame() && !isCapturingPhoto) closeCurrentConnection();
+            }
+            scanForCameraDevices();
+        }, "UsbCameraScan").start();
     }
 
     public void setIso(String valStr) {
@@ -336,8 +349,9 @@ public class CanonUsbPtpEngine {
             return "🔌 Status Port USB OTG: TIDAK ADA perangkat USB yang terbaca (0 perangkat).\n\n"
                     + "Tips untuk Redmi Pad 2:\n"
                     + "1. Pastikan adaptor/kabel OTG Type-C mendukung transfer data (bukan hanya kabel cas).\n"
-                    + "2. Pastikan kamera Canon EOS 1300D dalam keadaan ON dan tekan setengah tombol shutter kamera agar tidak Sleep.\n"
-                    + "3. Pastikan menu Wi-Fi/NFC di kamera Canon posisi Disable.";
+                    + "2. Nyalakan kamera dan pastikan baterainya cukup.\n"
+                    + "3. Sony A7 III: USB Connection = PC Remote, Ctrl w/ Smartphone = Off.\n"
+                    + "4. Untuk flash hot shoe: Silent Shooting = Off, pilih format JPEG.";
         }
         StringBuilder sb = new StringBuilder();
         sb.append("🔌 Terdeteksi ").append(map.size()).append(" perangkat di port USB OTG:\n");
@@ -350,6 +364,8 @@ public class CanonUsbPtpEngine {
         }
         sb.append("\nStatus Sesi PTP: ").append(isConnected ? "TERHUBUNG (" + cameraModelName + ")" : "BELUM TERHUBUNG");
         sb.append("\nFrame Live View diterima: ").append(totalFramesReceived);
+        if (!lastConnectionError.isEmpty()) sb.append("\nKoneksi: ").append(lastConnectionError);
+        if (!lastCaptureError.isEmpty()) sb.append("\nFoto: ").append(lastCaptureError);
         if (isSonyCamera) {
             sb.append("\nSony LiveView Diag: ").append(lastSonyDiag);
         }
@@ -404,22 +420,24 @@ public class CanonUsbPtpEngine {
 
                 if (frame != null && frame.length > 512) {
                     boolean wasFirstFrame = (totalFramesReceived == 0);
+                    boolean recovered = consecutiveFailures > 0;
                     latestLiveViewJpeg = frame;
                     latestFrameTimeMs = System.currentTimeMillis();
                     totalFramesReceived++;
                     consecutiveFailures = 0;
-                    if (wasFirstFrame && listener != null) {
+                    if ((wasFirstFrame || recovered) && listener != null) {
                         listener.onCameraConnected(cameraModelName + " (LIVE)");
                     }
                     Thread.sleep(36); // ~25 FPS smooth Live View
                 } else {
                     consecutiveFailures++;
+                    if (!hasLiveFrame()) notifyStatus(cameraModelName + ": Live View belum siap. Periksa kabel dan mode USB kamera.");
                     if (consecutiveFailures % 15 == 0) {
                         synchronized (usbLock) {
                             if (isConnected && !isCapturingPhoto) {
                                 if (isSonyCamera) {
                                     drainBulkInEndpoint();
-                                    setSonyExtPropUInt16Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
+                                    setSonyExtPropUInt8Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
                                     executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 400);
                                 } else {
                                     drainCanonEventsLocked();
@@ -462,7 +480,7 @@ public class CanonUsbPtpEngine {
         if (usbManager == null) return;
         HashMap<String, UsbDevice> map = usbManager.getDeviceList();
         if (map == null || map.isEmpty()) {
-            notifyStatus("USB EOS: Siap Colok OTG (Pastikan Wi-Fi Kamera OFF)");
+            notifyStatus("USB kamera: Sambungkan kabel USB-C data");
             return;
         }
         for (UsbDevice dev : map.values()) {
@@ -487,7 +505,7 @@ public class CanonUsbPtpEngine {
             if (targetIf == null && dev.getInterfaceCount() > 0) {
                 targetIf = dev.getInterface(0);
             }
-            if (targetIf == null) return;
+            if (targetIf == null) throw new IOException("Antarmuka kamera USB tidak tersedia.");
 
             UsbEndpoint bulkOut = null;
             UsbEndpoint bulkIn = null;
@@ -501,14 +519,14 @@ public class CanonUsbPtpEngine {
                     }
                 }
             }
-            if (bulkOut == null || bulkIn == null) return;
+            if (bulkOut == null || bulkIn == null) throw new IOException("Mode USB kamera belum mendukung remote. Sony: pilih PC Remote.");
 
             UsbDeviceConnection conn = usbManager.openDevice(dev);
-            if (conn == null) return;
+            if (conn == null) throw new IOException("Akses USB belum diberikan. Izinkan kamera USB di Android.");
 
             if (!conn.claimInterface(targetIf, true)) {
                 conn.close();
-                return;
+                throw new IOException("Kamera sedang dipakai aplikasi lain. Tutup aplikasi kamera lain.");
             }
 
             this.activeDevice = dev;
@@ -531,48 +549,56 @@ public class CanonUsbPtpEngine {
 
             // 1. Open PTP Session
             int rc = sendPtpCommandLocked(PTP_OC_OPEN_SESSION, new int[]{1}, null);
-            if (rc == PTP_RC_SESSION_ALREADY_OPEN || rc != PTP_RC_OK) {
+            if (rc != PTP_RC_OK) {
                 sendPtpCommandLocked(PTP_OC_CLOSE_SESSION, new int[0], null);
                 this.transactionId = 1;
-                sendPtpCommandLocked(PTP_OC_OPEN_SESSION, new int[]{1}, null);
+                rc = sendPtpCommandLocked(PTP_OC_OPEN_SESSION, new int[]{1}, null);
             }
+            requirePtpOk(rc, "Membuka sesi kamera");
 
             if (isSonyCamera) {
                 // Sony Alpha (A7 III / ILCE-7M3) PC Remote Handshake Sequence
                 drainBulkInEndpoint();
-                sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{1, 0, 0}, null);
-                sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{2, 0, 0}, null);
-                executePtpTransactionLocked(PTP_OC_SONY_SDIO_GET_EXT_DEVICE_INFO, new int[]{0x00C8}, null, 800);
-                sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{3, 0, 0}, null);
-                executePtpTransactionLocked(PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 800);
+                requirePtpOk(sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{1, 0, 0}, null), "Sony PC Remote tahap 1");
+                requirePtpOk(sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{2, 0, 0}, null), "Sony PC Remote tahap 2");
+                requirePtpOk(sendPtpCommandLocked(PTP_OC_SONY_SDIO_GET_EXT_DEVICE_INFO, new int[]{0x00C8}, null), "Informasi Sony PC Remote");
+                requirePtpOk(sendPtpCommandLocked(PTP_OC_SONY_SDIO_CONNECT, new int[]{3, 0, 0}, null), "Sony PC Remote tahap 3");
+                requirePtpOk(sendPtpCommandLocked(PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null), "Status Sony PC Remote");
 
                 // Arm Sony Alpha LiveView virtual stream handle (0xFFFFC002)
-                setSonyExtPropUInt16Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
+                setSonyExtPropUInt8Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
                 executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 600);
             } else {
                 // Canon EOS (1300D / Rebel T6, etc.) Remote Mode + LiveView Handshake Sequence
-                sendPtpCommandLocked(PTP_OC_CANON_SET_REMOTE_MODE, new int[]{1}, null);
-                sendPtpCommandLocked(PTP_OC_CANON_SET_EVENT_MODE, new int[]{1}, null);
+                requirePtpOk(sendPtpCommandLocked(PTP_OC_CANON_SET_REMOTE_MODE, new int[]{1}, null), "Canon Remote Mode");
+                requirePtpOk(sendPtpCommandLocked(PTP_OC_CANON_SET_EVENT_MODE, new int[]{1}, null), "Canon Event Mode");
                 try { Thread.sleep(80); } catch (InterruptedException ignored) {}
                 drainCanonEventsLocked();
                 drainCanonEventsLocked();
                 // Set Capture Destination: 4 = RAM/Host on Canon EOS PTP (fallback 2 = Host)
                 if (setCanonPropExLocked(PROP_CAPTURE_DESTINATION, 4) != PTP_RC_OK) {
-                    setCanonPropExLocked(PROP_CAPTURE_DESTINATION, 2);
+                    requirePtpOk(setCanonPropExLocked(PROP_CAPTURE_DESTINATION, 2), "Tujuan penyimpanan foto Canon");
                 }
                 drainCanonEventsLocked();
                 enableCanonLiveViewOutputLocked();
             }
 
             this.isConnected = true;
-            if (listener != null) {
-                listener.onCameraConnected(this.cameraModelName);
-            }
-            showToast("✅ " + this.cameraModelName + " Terhubung! Memulai Live View...");
+            lastConnectionError = "";
+            notifyStatus(this.cameraModelName + ": Sesi USB siap, menunggu Live View...");
             Log.i(TAG, "USB PTP Session Connected: " + this.cameraModelName + " (Sony=" + isSonyCamera + ")");
         } catch (Exception e) {
             Log.e(TAG, "Failed to open USB PTP connection", e);
             closeCurrentConnection();
+            lastConnectionError = e.getMessage() == null ? "Koneksi kamera gagal." : e.getMessage();
+            notifyStatus(lastConnectionError);
+        }
+    }
+
+    private void requirePtpOk(int rc, String action) throws IOException {
+        if (rc != PTP_RC_OK) {
+            String detail = rc < 0 ? "USB tidak merespons lengkap" : "PTP 0x" + Integer.toHexString(rc);
+            throw new IOException(action + " gagal (" + detail + "). Sony: periksa USB Connection = PC Remote.");
         }
     }
 
@@ -600,6 +626,8 @@ public class CanonUsbPtpEngine {
             boolean wasConnected = isConnected;
             isConnected = false;
             latestLiveViewJpeg = null;
+            latestFrameTimeMs = 0;
+            lastCapturedFullJpeg = null;
             totalFramesReceived = 0;
             if (wasConnected && listener != null) {
                 listener.onCameraDisconnected();
@@ -734,7 +762,12 @@ public class CanonUsbPtpEngine {
      */
     public byte[] capturePhotoWithFlash() {
         synchronized (usbLock) {
-            if (!isConnected) return latestLiveViewJpeg;
+            lastCaptureError = "";
+            lastCapturedFullJpeg = null;
+            if (!isConnected) {
+                lastCaptureError = "Kamera USB belum siap. Periksa kabel dan pilih PC Remote pada Sony.";
+                return null;
+            }
             isCapturingPhoto = true;
             try {
                 if (isSonyCamera) {
@@ -749,7 +782,6 @@ public class CanonUsbPtpEngine {
     }
 
     private byte[] captureCanonPhotoWithFlashLocked() {
-        byte[] backupFrame = latestLiveViewJpeg;
         lastCapturedFullJpeg = null;
 
         try {
@@ -775,9 +807,9 @@ public class CanonUsbPtpEngine {
                     sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{3}, null);
                 } else {
                     // Fallback B: Half-press (1, 1) + Full-press (2, 1) without AF wait
-                    sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 1}, null);
+                    requirePtpOk(sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 1}, null), "Fokus Canon");
                     Thread.sleep(100);
-                    sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 1}, null);
+                    requirePtpOk(sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 1}, null), "Shutter Canon");
                     Thread.sleep(180);
                     sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{2}, null);
                     Thread.sleep(50);
@@ -786,7 +818,7 @@ public class CanonUsbPtpEngine {
             }
 
             // 3. Poll Canon events for up to 2.5 seconds to download the newly captured JPEG object
-            long deadline = System.currentTimeMillis() + 2500;
+            long deadline = System.currentTimeMillis() + 10000;
             while (System.currentTimeMillis() < deadline && lastCapturedFullJpeg == null) {
                 int objHandle = pollCanonTransferObjectHandleLocked();
                 if (objHandle != 0) {
@@ -800,6 +832,7 @@ public class CanonUsbPtpEngine {
             }
         } catch (Exception e) {
             Log.w(TAG, "Canon capture error: " + e.getMessage());
+            lastCaptureError = "Foto Canon gagal: " + e.getMessage();
         } finally {
             // 4. Immediately resume Live View for the next pose
             try { Thread.sleep(300); } catch (InterruptedException ignored) {}
@@ -808,88 +841,109 @@ public class CanonUsbPtpEngine {
         }
 
         if (lastCapturedFullJpeg != null && lastCapturedFullJpeg.length > 2048) {
-            latestLiveViewJpeg = lastCapturedFullJpeg;
             return lastCapturedFullJpeg;
         }
-        return (latestLiveViewJpeg != null) ? latestLiveViewJpeg : backupFrame;
+        if (lastCaptureError.isEmpty()) lastCaptureError = "Foto asli Canon belum diterima. Periksa format JPEG dan coba lagi.";
+        return null;
     }
 
     private byte[] captureSonyPhotoWithFlashLocked() {
-        byte[] backupFrame = latestLiveViewJpeg;
         lastCapturedFullJpeg = null;
+        boolean shutterAttempted = false;
+        boolean photoPending = false;
 
         try {
             // 1. Drain bulk endpoint to ensure clean USB pipe before shutter
             drainBulkInEndpoint();
 
             // 2. Half-press to trigger AF/AE lock (2 = Down)
-            sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 2);
+            shutterAttempted = true;
+            requirePtpOk(sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 2), "Fokus Sony");
             Thread.sleep(200);
 
             // 3. Full-press to release shutter and fire Godox flash via Hotshoe X-sync (2 = Down)
-            sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 2);
+            requirePtpOk(sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 2), "Shutter Sony");
+            photoPending = true;
             Thread.sleep(200);
 
             // 4. Release buttons cleanly with staggering (1 = Up)
-            sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 1);
+            requirePtpOk(sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 1), "Melepas shutter Sony");
             Thread.sleep(100);
-            sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 1);
+            requirePtpOk(sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 1), "Melepas fokus Sony");
+            shutterAttempted = false;
 
             // 5. Post-shutter quiet grace period:
-            // Sony Alpha A7 III internal DSP needs 600ms to complete mechanical shutter,
-            // sensor readout, and write image data to the internal SD card / buffer.
+            // Allow time for sensor readout before polling the camera's image buffer.
             Thread.sleep(600);
             drainBulkInEndpoint();
 
-            // 6. Actively drain in-memory object (0xFFFFC001) to keep the Sony PC Remote FIFO buffer empty.
-            // Because Sony A7 III only has "PC+Camera" or "PC Only" (no "Camera Only"), every single shot
-            // is queued in volatile RAM until fetched by the host via PTP.
-            // If not retrieved, after 5-7 shots the FIFO fills and the camera reboots.
-            long deadline = System.currentTimeMillis() + 3000;
+            // Fetch the actual still image. A preview is never a substitute for this object.
+            long deadline = System.currentTimeMillis() + 12000;
             while (System.currentTimeMillis() < deadline) {
                 PtpTransactionResult infoRes = executePtpTransactionLocked(
                         PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 400);
                 if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
-                    int compressedSize = 0;
-                    if (infoRes.dataPayload != null && infoRes.dataPayload.length >= 12) {
-                        compressedSize = readIntLE(infoRes.dataPayload, 8);
+                    if (infoRes.dataPayload == null || infoRes.dataPayload.length < 12) {
+                        throw new IOException("Informasi foto Sony tidak lengkap.");
                     }
-                    if (compressedSize <= 0 || compressedSize <= 40 * 1024 * 1024) {
-                        PtpTransactionResult imgRes = executePtpTransactionLocked(
-                                PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 4500);
-                        if (imgRes != null && imgRes.dataPayload != null && imgRes.dataPayload.length > 2048) {
-                            byte[] jpeg = extractJpegFromBuffer(imgRes.dataPayload);
-                            if (jpeg != null && jpeg.length > 2048) {
-                                lastCapturedFullJpeg = jpeg;
-                            }
-                        }
+                    int compressedSize = readIntLE(infoRes.dataPayload, 8);
+                    if (compressedSize < 0 || compressedSize > 64 * 1024 * 1024) {
+                        throw new IOException("Ukuran foto Sony tidak valid. Pilih format JPEG.");
                     }
-                    break; // Successfully fetched and cleared Sony RAM slot!
+                    PtpTransactionResult imgRes = executePtpTransactionLocked(
+                            PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 20000);
+                    requirePtpOk(imgRes == null ? -1 : imgRes.responseCode, "Mengunduh foto Sony");
+                    if ((readShortLE(infoRes.dataPayload, 4) & 0xffff) != 0x3801) {
+                        throw new IOException("Foto bukan JPEG. Pilih JPEG atau RAW+JPEG dengan transfer JPEG Only.");
+                    }
+                    if (imgRes.dataPayload == null || (compressedSize > 0 && imgRes.dataPayload.length != compressedSize)) {
+                        throw new IOException("Unduhan foto Sony tidak lengkap. Periksa kabel USB-C data.");
+                    }
+                    lastCapturedFullJpeg = extractJpegFromBuffer(imgRes.dataPayload);
+                    if (lastCapturedFullJpeg == null || lastCapturedFullJpeg.length <= 2048) {
+                        throw new IOException("Foto JPEG Sony tidak lengkap. Coba ambil ulang.");
+                    }
+                    photoPending = false;
+                    break;
                 }
                 Thread.sleep(100);
             }
             drainBulkInEndpoint();
 
-            // 7. Re-arm Sony Live View cleanly for the next pose
-            Thread.sleep(150);
-            setSonyExtPropUInt16Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
-            executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 500);
-            lastKeepAliveMs = System.currentTimeMillis();
-            Thread.sleep(200);
-
         } catch (Exception e) {
             Log.w(TAG, "Sony capture error: " + e.getMessage());
+            lastCaptureError = "Foto Sony gagal: " + e.getMessage();
+            lastCapturedFullJpeg = null;
             drainBulkInEndpoint();
+        } finally {
+            // Release even if AF, shutter or USB transfer failed midway.
+            if (shutterAttempted) {
+                sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 1);
+                sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 1);
+            }
+            setSonyExtPropUInt8Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
+            executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 500);
+            lastKeepAliveMs = System.currentTimeMillis();
+            // A failed download must not leave an old image queued for the next
+            // pose. The next scan establishes a fresh remote session.
+            if (photoPending) closeCurrentConnection();
         }
 
         if (lastCapturedFullJpeg != null && lastCapturedFullJpeg.length > 2048) {
-            latestLiveViewJpeg = lastCapturedFullJpeg;
             return lastCapturedFullJpeg;
         }
-        return (latestLiveViewJpeg != null) ? latestLiveViewJpeg : backupFrame;
+        if (lastCaptureError.isEmpty()) lastCaptureError = "Foto asli Sony belum diterima. Periksa JPEG, PC Remote, lalu ambil ulang pose ini.";
+        return null;
     }
 
     // --- Sony Alpha Property Helpers & Value Mappers ---
+
+    private int setSonyExtPropUInt8Locked(int propCode, int val) {
+        byte[] value = new byte[]{(byte) val};
+        int rc = sendPtpCommandLocked(PTP_OC_SONY_SET_EXT_DEVICE_PROP_VALUE, new int[]{propCode}, value);
+        if (rc != PTP_RC_OK) rc = sendPtpCommandLocked(PTP_OC_SET_DEVICE_PROP_VALUE, new int[]{propCode}, value);
+        return rc;
+    }
 
     private int setSonyExtPropUInt16Locked(int propCode, int val) {
         ByteBuffer bb = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN);
@@ -1044,11 +1098,11 @@ public class CanonUsbPtpEngine {
     }
 
     private byte[] downloadCanonObjectJpegLocked(int objectHandle) {
-        PtpTransactionResult res = executePtpTransactionLocked(PTP_OC_GET_OBJECT, new int[]{objectHandle}, null, 3500);
-        sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objectHandle}, null);
-        if (res != null && res.dataPayload != null && res.dataPayload.length > 1024) {
+        PtpTransactionResult res = executePtpTransactionLocked(PTP_OC_GET_OBJECT, new int[]{objectHandle}, null, 20000);
+        if (res != null && res.responseCode == PTP_RC_OK && res.dataPayload != null && res.dataPayload.length > 1024) {
             byte[] extracted = extractJpegFromBuffer(res.dataPayload);
-            return (extracted != null) ? extracted : res.dataPayload;
+            if (extracted != null) sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objectHandle}, null);
+            return extracted;
         }
         return null;
     }
@@ -1084,20 +1138,24 @@ public class CanonUsbPtpEngine {
         if (connection == null || epIn == null) return;
         byte[] drainBuf = new byte[8192];
         int drained;
-        while ((drained = connection.bulkTransfer(epIn, drainBuf, drainBuf.length, 25)) > 0) {
+        int attempts = 0;
+        while (attempts++ < 64 && (drained = connection.bulkTransfer(epIn, drainBuf, drainBuf.length, 25)) > 0) {
             // clear out leftover unread bytes
         }
     }
 
     private byte[] fetchSonyLiveViewFrameLocked() {
-        // Send GetObjectInfo first on initial connection or periodically every 45 frames to keep virtual object armed
-        if (totalFramesReceived == 0 || (totalFramesReceived % 45 == 0)) {
-            executePtpTransactionLocked(
+        // Sony virtual preview objects must be queried before each frame. If the
+        // object is not ready, wait for the next poll instead of issuing GetObject.
+        PtpTransactionResult info = executePtpTransactionLocked(
                     PTP_OC_GET_OBJECT_INFO,
                     new int[]{SONY_HANDLE_LIVEVIEW_FRAME},
                     null,
                     450
             );
+        if (info == null || info.responseCode != PTP_RC_OK) {
+            lastSonyDiag = "GetObjectInfo: " + (info == null ? "timeout" : "0x" + Integer.toHexString(info.responseCode));
+            return null;
         }
 
         PtpTransactionResult res = executePtpTransactionLocked(
@@ -1111,7 +1169,7 @@ public class CanonUsbPtpEngine {
             drainBulkInEndpoint();
             return null;
         }
-        if (res.dataPayload == null || res.dataPayload.length < 256) {
+        if (res.responseCode != PTP_RC_OK || res.dataPayload == null || res.dataPayload.length < 256) {
             lastSonyDiag = "resp=0x" + Integer.toHexString(res.responseCode) + ",len=" + (res.dataPayload != null ? res.dataPayload.length : 0);
             if (res.responseCode != PTP_RC_OK) {
                 // Re-arm virtual handle if camera rejected command
@@ -1120,18 +1178,29 @@ public class CanonUsbPtpEngine {
             return null;
         }
 
-        byte[] extracted = extractJpegFromBuffer(res.dataPayload);
-        if (extracted == null && res.dataPayload.length > 1024) {
-            if ((res.dataPayload[0] & 0xFF) == 0xFF && (res.dataPayload[1] & 0xFF) == 0xD8) {
-                extracted = res.dataPayload;
-            }
-        }
+        byte[] extracted = extractSonyLiveViewJpeg(res.dataPayload);
         if (extracted != null) {
             lastSonyDiag = "OK (" + extracted.length + "B)";
         } else {
             lastSonyDiag = "parseErr (raw " + res.dataPayload.length + "B)";
         }
         return extracted;
+    }
+
+    private byte[] extractSonyLiveViewJpeg(byte[] payload) {
+        // The Sony header may contain FF D8 as metadata. Its first UINT32 points
+        // at the actual JPEG; scanning the header first can produce an invalid image.
+        if (payload != null && payload.length >= 4) {
+            long offset = readIntLE(payload, 0) & 0xffffffffL;
+            if (offset >= 4 && offset < payload.length - 2
+                    && (payload[(int) offset] & 0xff) == 0xff
+                    && (payload[(int) offset + 1] & 0xff) == 0xd8) {
+                byte[] image = new byte[payload.length - (int) offset];
+                System.arraycopy(payload, (int) offset, image, 0, image.length);
+                return extractJpegFromBuffer(image);
+            }
+        }
+        return extractJpegFromBuffer(payload);
     }
 
     private byte[] extractJpegFromBuffer(byte[] data) {
@@ -1152,14 +1221,7 @@ public class CanonUsbPtpEngine {
                 break;
             }
         }
-        // Fallback: if SOI was found and buffer has sufficient size, return from startIdx to end
-        if (endIdx == -1 || endIdx <= startIdx) {
-            if (data.length - startIdx >= 1024) {
-                endIdx = data.length;
-            } else {
-                return null;
-            }
-        }
+        if (endIdx == -1 || endIdx <= startIdx) return null;
 
         int len = endIdx - startIdx;
         byte[] jpeg = new byte[len];
@@ -1203,144 +1265,18 @@ public class CanonUsbPtpEngine {
 
     private PtpTransactionResult executePtpTransactionLocked(int opCode, int[] params, byte[] dataOut, int timeoutMs) {
         if (connection == null || epOut == null || epIn == null) return null;
-
-        int tid = this.transactionId++;
-        int paramCount = (params != null) ? params.length : 0;
-        int cmdLen = 12 + (paramCount * 4);
-
-        ByteBuffer cmdBuf = ByteBuffer.allocate(cmdLen).order(ByteOrder.LITTLE_ENDIAN);
-        cmdBuf.putInt(cmdLen);
-        cmdBuf.putShort(PTP_CNT_COMMAND);
-        cmdBuf.putShort((short) opCode);
-        cmdBuf.putInt(tid);
-        for (int i = 0; i < paramCount; i++) {
-            cmdBuf.putInt(params[i]);
-        }
-
-        byte[] cmdBytes = cmdBuf.array();
-        int sent = connection.bulkTransfer(epOut, cmdBytes, cmdBytes.length, timeoutMs);
-        if (sent < 0) return null;
-
-        if (dataOut != null && dataOut.length > 0) {
-            int dataLen = 12 + dataOut.length;
-            ByteBuffer dataBuf = ByteBuffer.allocate(dataLen).order(ByteOrder.LITTLE_ENDIAN);
-            dataBuf.putInt(dataLen);
-            dataBuf.putShort(PTP_CNT_DATA);
-            dataBuf.putShort((short) opCode);
-            dataBuf.putInt(tid);
-            dataBuf.put(dataOut);
-            byte[] dataBytes = dataBuf.array();
-            int dataSent = connection.bulkTransfer(epOut, dataBytes, dataBytes.length, timeoutMs);
-            if (dataSent < 0) return null;
-        }
-
+        PtpUsbTransport.Result received = PtpUsbTransport.transact(new PtpUsbTransport.PacketIO() {
+            @Override public int write(byte[] bytes, int timeout) {
+                return connection.bulkTransfer(epOut, bytes, bytes.length, timeout);
+            }
+            @Override public int read(byte[] bytes, int timeout) {
+                return connection.bulkTransfer(epIn, bytes, bytes.length, timeout);
+            }
+        }, transactionId++, opCode, params, dataOut, timeoutMs);
         PtpTransactionResult result = new PtpTransactionResult();
-        byte[] readChunk = new byte[32768];
-
-        int r1 = connection.bulkTransfer(epIn, readChunk, readChunk.length, timeoutMs);
-        if (r1 < 12) return null;
-
-        int totalContainerLen = readIntLE(readChunk, 0);
-        short containerType = readShortLE(readChunk, 4);
-        int containerCode = readShortLE(readChunk, 6) & 0xFFFF;
-
-        if (containerType == PTP_CNT_RESPONSE) {
-            result.responseCode = containerCode;
-            return result;
-        }
-
-        if (containerType == PTP_CNT_DATA) {
-            long unsignedLen = totalContainerLen & 0xFFFFFFFFL;
-            boolean isUnbounded = (unsignedLen == 0xFFFFFFFFL || totalContainerLen <= 12);
-            int expectedDataBytes = isUnbounded ? -1 : (int) (unsignedLen - 12);
-
-            ByteArrayOutputStream bos = new ByteArrayOutputStream(isUnbounded ? 131072 : Math.min(expectedDataBytes, 1048576));
-
-            int firstPayloadBytes = isUnbounded ? (r1 - 12) : Math.min(r1 - 12, expectedDataBytes);
-            if (firstPayloadBytes > 0) {
-                bos.write(readChunk, 12, firstPayloadBytes);
-            }
-
-            // Check if trailing PTP_CNT_RESPONSE was already coalesced into r1
-            int remInFirst = r1 - (12 + firstPayloadBytes);
-            if (remInFirst >= 12) {
-                int respOffset = 12 + firstPayloadBytes;
-                if (readShortLE(readChunk, respOffset + 4) == PTP_CNT_RESPONSE) {
-                    result.responseCode = readShortLE(readChunk, respOffset + 6) & 0xFFFF;
-                    result.dataPayload = bos.toByteArray();
-                    return result;
-                }
-            }
-
-            if (!isUnbounded) {
-                // Known length
-                while (bos.size() < expectedDataBytes) {
-                    int nr = connection.bulkTransfer(epIn, readChunk, readChunk.length, timeoutMs);
-                    if (nr <= 0) break;
-
-                    int needed = expectedDataBytes - bos.size();
-                    int toCopy = Math.min(nr, needed);
-                    if (toCopy > 0) {
-                        bos.write(readChunk, 0, toCopy);
-                    }
-
-                    int rem = nr - toCopy;
-                    if (rem >= 12) {
-                        if (readShortLE(readChunk, toCopy + 4) == PTP_CNT_RESPONSE) {
-                            result.responseCode = readShortLE(readChunk, toCopy + 6) & 0xFFFF;
-                            result.dataPayload = bos.toByteArray();
-                            return result;
-                        }
-                    }
-                }
-                if (bos.size() < expectedDataBytes) {
-                    Log.w(TAG, "PTP data transfer incomplete: read " + bos.size() + "/" + expectedDataBytes + " bytes");
-                    drainBulkInEndpoint();
-                }
-            } else {
-                // Unbounded / Streaming length (Sony LiveView 0xFFFFC002)
-                int epMaxPacket = epIn.getMaxPacketSize();
-                if (epMaxPacket <= 0) epMaxPacket = 512;
-
-                while (bos.size() < 1048576) {
-                    int nr = connection.bulkTransfer(epIn, readChunk, readChunk.length, 500);
-                    if (nr <= 0) break;
-
-                    // Check if this packet is a standalone PTP_CNT_RESPONSE (12 bytes)
-                    if (nr == 12 && readShortLE(readChunk, 4) == PTP_CNT_RESPONSE) {
-                        result.responseCode = readShortLE(readChunk, 6) & 0xFFFF;
-                        result.dataPayload = bos.toByteArray();
-                        return result;
-                    }
-
-                    // Check if PTP_CNT_RESPONSE is at the end of this packet
-                    if (nr > 12 && readShortLE(readChunk, nr - 8) == PTP_CNT_RESPONSE) {
-                        result.responseCode = readShortLE(readChunk, nr - 6) & 0xFFFF;
-                        bos.write(readChunk, 0, nr - 12);
-                        result.dataPayload = bos.toByteArray();
-                        return result;
-                    }
-
-                    bos.write(readChunk, 0, nr);
-
-                    // If short packet and JPEG end marker seen, break
-                    if (nr < readChunk.length && hasJpegEoi(readChunk, nr)) {
-                        break;
-                    }
-                }
-            }
-
-            result.dataPayload = bos.toByteArray();
-
-            // Read the trailing 12-byte PTP_CNT_RESPONSE packet if not yet captured
-            int r2 = connection.bulkTransfer(epIn, readChunk, readChunk.length, 450);
-            if (r2 >= 12 && readShortLE(readChunk, 4) == PTP_CNT_RESPONSE) {
-                result.responseCode = readShortLE(readChunk, 6) & 0xFFFF;
-            } else {
-                result.responseCode = PTP_RC_OK;
-            }
-        }
-
+        result.responseCode = received.responseCode;
+        result.dataPayload = received.dataPayload;
+        if (result.responseCode < 0) drainBulkInEndpoint();
         return result;
     }
 }
