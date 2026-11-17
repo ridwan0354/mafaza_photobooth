@@ -1,13 +1,13 @@
-# MAFAZA Android Kiosk 2.5.3
+# MAFAZA Android Kiosk 2.5.4
 
 Satu APK mendukung **Kamera Bawaan Tablet** (depan/belakang), **kamera UVC/HDMI** yang dikenali Android, dan driver USB PTP untuk **Sony Alpha (ILCE-7M3, dll)**, **Canon EOS**, **Nikon**, serta kamera **PTP standar**.
-Perbaikan live view, OpenSession fallback (`tid=0`/`tid=1`), reset USB PIMA, dan pengambilan foto disertakan dalam APK, termasuk saat halaman kiosk dari server belum diperbarui.
+Perbaikan live view, OpenSession fallback (`tid=0`/`tid=1`), reset USB PIMA, batas transfer streaming 64 MB & sinkronisasi shutter Sony (`0xC201`/`0xD215`), serta pengambilan foto disertakan dalam APK, termasuk saat halaman kiosk dari server belum diperbarui.
 
 ## Kabel dan kamera
 
 | Kamera | Kabel ke Redmi Pad 2 | Pengaturan awal |
 | --- | --- | --- |
-| Sony A7 III | USB-C ke USB-C yang mendukung data | USB Connection: PC Remote; Ctrl w/ Smartphone: Off; JPEG; Silent Shooting: Off untuk flash |
+| Sony A7 III | USB-C ke USB-C yang mendukung data | USB Connection: PC Remote; Ctrl w/ Smartphone: Off; **USB Power Supply: Off**; JPEG; Silent Shooting: Off untuk flash |
 | Canon EOS 1300D | USB-C ke Mini-USB Mini-B data, atau adaptor USB-C OTG ke kabel USB-A/Mini-B | Wi-Fi/NFC: Disable; JPEG; mode foto |
 
 Flash eksternal mengikuti shutter kamera melalui hot shoe. Kompatibilitas model
@@ -16,7 +16,7 @@ dengan shutter 1/125 detik dan tunggu flash siap sebelum foto berikutnya.
 
 ## Memasang dan mencoba
 
-1. Pasang APK 2.5.3 sebagai pembaruan aplikasi lama. Tanda tangan tetap sama.
+1. Pasang APK 2.5.4 sebagai pembaruan aplikasi lama. Tanda tangan tetap sama.
 2. Tanpa kabel USB, aplikasi langsung memakai kamera bawaan tablet tanpa terhalang status USB.
 3. Cabut & colok ulang kabel data untuk menghubungkan kamera eksternal secara otomatis, dan izinkan akses USB jika Android memintanya.
 4. Buka kamera di kiosk. Indikator USB menunggu gambar sebelum menampilkan status LIVE.
@@ -49,7 +49,7 @@ bash android-kiosk/build-apk.sh
 Pengujian otomatis memakai simulasi paket USB dan tampilan kiosk. Pengujian ini
 tidak menggantikan uji Redmi Pad 2, kabel, kamera, dan flash fisik.
 
-Versi 2.5.3 menambahkan dukungan penuh kamera bawaan saat tanpa USB, fallback OpenSession `tid=0` lalu `tid=1` beserta reset USB PIMA, dukungan Nikon/Fujifilm/PTP generik, deteksi UVC non-intrusif, dan buffer bulk 16 KB.
+Versi 2.5.4 memperbaiki Sony A7 III agar tidak restart saat memotret (batas streaming `0xFFFFFFFF` 64 MB, polling event Interrupt IN `0xC201` + properti `0xD215`, jeda baca sensor tanpa membanjiri `GetObjectInfo`, penanganan RAW+JPEG, serta `CloseSession` yang rapi). Versi 2.5.3 menyertakan kamera bawaan, OpenSession fallback `tid=0`/`tid=1`, Nikon/Fujifilm/PTP generik, UVC non-intrusif, dan buffer bulk 16 KB.
 
 Referensi konektor dan pengaturan:
 - [Sony A7 III: USB Connection](https://helpguide.sony.net/ilc/1720/v1/en/contents/TP0001629775.html)

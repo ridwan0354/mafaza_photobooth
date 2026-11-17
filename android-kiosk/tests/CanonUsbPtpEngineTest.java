@@ -195,6 +195,24 @@ public class CanonUsbPtpEngineTest {
         engine = connect(usb, true, new Listener());
         set(engine, "latestLiveViewJpeg", JPEG.clone());
         check(engine.capturePhotoWithFlash() == null, "interrupted Sony JPEG download cannot return preview");
+        check(usb.operations.contains(0x1003), "aborted Sony transfer sends polite CloseSession before disconnect");
+
+        Method inMemParser = CanonUsbPtpEngine.class.getDeclaredMethod("findSonyObjectInMemoryFlag", byte[].class);
+        inMemParser.setAccessible(true);
+        // Sony 0x9209 payload: uint64 count=2; prop0=0x5005 (15B); prop1=0xD215 (11B, cur@+8=0x8001)
+        byte[] propReady = ByteBuffer.allocate(8 + 15 + 11).order(ByteOrder.LITTLE_ENDIAN)
+                .putLong(2L)
+                .putShort((short) 0x5005).putShort((short) 0x0004).put((byte) 1).put((byte) 1)
+                .putShort((short) 2).putShort((short) 2).put((byte) 2).putShort((short) 1).putShort((short) 2)
+                .putShort((short) 0xD215).putShort((short) 0x0004).put((byte) 0).put((byte) 1)
+                .putShort((short) 0).putShort((short) 0x8001).put((byte) 0)
+                .array();
+        check(((Integer) inMemParser.invoke(null, (Object) propReady)) == 0x8001,
+                "Sony 0x9209 parser reads 0xD215 ObjectInMemory=0x8001 readiness flag");
+        byte[] propZero = Arrays.copyOf(propReady, propReady.length);
+        ByteBuffer.wrap(propZero).order(ByteOrder.LITTLE_ENDIAN).putShort(8 + 15 + 8, (short) 0);
+        check(((Integer) inMemParser.invoke(null, (Object) propZero)) == 0,
+                "Sony 0x9209 parser reads 0xD215 ObjectInMemory=0 pending flag");
 
         usb = new USB(); engine = connect(usb, true, new Listener());
         preview = JPEG.clone(); set(engine, "latestLiveViewJpeg", preview);

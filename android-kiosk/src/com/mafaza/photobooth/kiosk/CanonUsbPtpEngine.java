@@ -95,6 +95,7 @@ public class CanonUsbPtpEngine {
     private static final int SONY_PROP_APERTURE = 0x5007;           // UINT16 (F * 100)
     private static final int SONY_PROP_FOCUS_MODE = 0x500A;         // UINT16 (1=MF, 2=AF-S, 0x8004=AF-C)
     private static final int SONY_PROP_SHUTTER_SPEED = 0xD20D;      // UINT32 ((num << 16) | den)
+    private static final int SONY_PROP_OBJECT_IN_MEMORY = 0xD215;   // UINT16 (>= 0x8000 when photo is in RAM)
     private static final int SONY_PROP_ISO = 0xD21E;                // UINT32
     private static final int SONY_PROP_LIVEVIEW_STATUS = 0xD221;    // UINT8
     private static final int SONY_CTRL_HALF_PRESS_SHUTTER = 0xD2C1; // UINT16 (2=Down, 1=Up)
@@ -102,6 +103,11 @@ public class CanonUsbPtpEngine {
     private static final int SONY_CTRL_NEAR_FAR_FOCUS = 0xD2C7;     // INT16  (-7..+7)
     private static final int SONY_HANDLE_IN_MEMORY_IMAGE = 0xFFFFC001;
     private static final int SONY_HANDLE_LIVEVIEW_FRAME  = 0xFFFFC002;
+    private static final int PTP_EC_OBJECT_ADDED         = 0x4002;
+    private static final int PTP_EC_CAPTURE_COMPLETE     = 0x400D;
+    private static final int PTP_EC_SONY_OBJECT_ADDED    = 0xC201;
+    private static final int PTP_EC_SONY_OBJECT_REMOVED  = 0xC202;
+    private static final int PTP_EC_SONY_PROP_CHANGED    = 0xC203;
 
     // Nikon DSLR / Z Mirrorless Vendor PTP Operation Codes
     private static final int PTP_OC_NIKON_CAPTURE_SDRAM = 0x90C0;
@@ -145,6 +151,7 @@ public class CanonUsbPtpEngine {
     private UsbInterface ptpInterface;
     private UsbEndpoint epOut;
     private UsbEndpoint epIn;
+    private UsbEndpoint epInt;
 
     private volatile boolean isRunning = false;
     private volatile boolean isConnected = false;
@@ -589,7 +596,8 @@ public class CanonUsbPtpEngine {
                     long now = System.currentTimeMillis();
                     if (now - lastKeepAliveMs > 3500) {
                         if (driverType == DriverType.SONY) {
-                            executePtpTransactionLocked(PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 450);
+                            executePtpTransactionLocked(PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 1500);
+                            drainSonyInterruptEventsLocked();
                         } else if (driverType == DriverType.CANON) {
                             sendPtpCommandLocked(PTP_OC_CANON_KEEP_DEVICE_ON, new int[0], null);
                             drainCanonEventsLocked();
@@ -699,6 +707,7 @@ public class CanonUsbPtpEngine {
         UsbInterface iface;
         UsbEndpoint epOut;
         UsbEndpoint epIn;
+        UsbEndpoint epInt;
     }
 
     private BulkPtpInterface findBulkPtpInterface(UsbDevice dev) {
@@ -709,11 +718,15 @@ public class CanonUsbPtpEngine {
                 if (candidate.getInterfaceClass() != wantClass) continue;
                 UsbEndpoint out = null;
                 UsbEndpoint in = null;
+                UsbEndpoint intr = null;
                 for (int e = 0; e < candidate.getEndpointCount(); e++) {
                     UsbEndpoint ep = candidate.getEndpoint(e);
                     if (ep.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
                         if (ep.getDirection() == UsbConstants.USB_DIR_OUT && out == null) out = ep;
                         else if (ep.getDirection() == UsbConstants.USB_DIR_IN && in == null) in = ep;
+                    } else if (ep.getType() == 3 && ep.getDirection() == UsbConstants.USB_DIR_IN && intr == null) {
+                        // Type 3 = USB_ENDPOINT_XFER_INT; Sony pushes 0xC201 ObjectAdded events here.
+                        intr = ep;
                     }
                 }
                 if (out != null && in != null) {
@@ -721,6 +734,7 @@ public class CanonUsbPtpEngine {
                     match.iface = candidate;
                     match.epOut = out;
                     match.epIn = in;
+                    match.epInt = intr;
                     return match;
                 }
             }
@@ -753,6 +767,7 @@ public class CanonUsbPtpEngine {
             this.ptpInterface = targetIf;
             this.epOut = bulkOut;
             this.epIn = bulkIn;
+            this.epInt = ptpIf.epInt;
             this.transactionId = 0;
             this.totalFramesReceived = 0;
             this.isSonyCamera = (dev.getVendorId() == SONY_VENDOR_ID);
@@ -1013,6 +1028,7 @@ public class CanonUsbPtpEngine {
             ptpInterface = null;
             epOut = null;
             epIn = null;
+            epInt = null;
             activeDevice = null;
         }
     }
@@ -1225,80 +1241,128 @@ public class CanonUsbPtpEngine {
         boolean photoPending = false;
 
         try {
-            // 1. Drain bulk endpoint to ensure clean USB pipe before shutter
-            drainBulkInEndpoint();
+            // Drain only the Interrupt IN queue before shutter; avoid issuing Bulk IN drains on a clean LV pipe.
+            drainSonyInterruptEventsLocked();
 
-            // 2. Half-press to trigger AF/AE lock (2 = Down)
+            // 1. Half-press to trigger AF/AE lock (2 = Down) with generous timeout for lens focusing.
             shutterAttempted = true;
             requirePtpOk(sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 2), "Fokus Sony");
             Thread.sleep(200);
 
-            // 3. Full-press to release shutter and fire Godox flash via Hotshoe X-sync (2 = Down)
+            // 2. Full-press to release shutter and fire Godox flash via Hotshoe X-sync (2 = Down)
             requirePtpOk(sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 2), "Shutter Sony");
             photoPending = true;
             Thread.sleep(200);
 
-            // 4. Release buttons cleanly with staggering (1 = Up)
+            // 3. Release buttons cleanly with staggering (1 = Up)
             requirePtpOk(sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 1), "Melepas shutter Sony");
             Thread.sleep(100);
             requirePtpOk(sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 1), "Melepas fokus Sony");
             shutterAttempted = false;
 
-            // 5. Post-shutter quiet grace period:
-            // Allow time for sensor readout before polling the camera's image buffer.
-            Thread.sleep(600);
-            drainBulkInEndpoint();
+            // 4. Passive post-shutter readout window (avoid Bulk IN/OUT storm while BIONZ writes 24MP JPEG):
+            // listen passively on USB Interrupt IN for 0xC201 (ObjectAdded 0xFFFFC001) up to ~900ms.
+            boolean eventReady = waitForSonyInterruptReadyLocked(900);
 
-            // Fetch the actual still image. A preview is never a substitute for this object.
-            long deadline = System.currentTimeMillis() + 12000;
+            // 5. Wait for readiness via Interrupt IN (0xC201), property 0xD215 (ObjectInMemory >= 0x8000),
+            // or gentle GetObjectInfo(0xFFFFC001) fallback with generous 2500ms timeout.
+            long pollStartMs = System.currentTimeMillis();
+            long deadline = pollStartMs + 12000;
+            boolean skippedNonJpeg = false;
+
             while (System.currentTimeMillis() < deadline) {
-                PtpTransactionResult infoRes = executePtpTransactionLocked(
-                        PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 400);
-                if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
-                    if (infoRes.dataPayload == null || infoRes.dataPayload.length < 12) {
-                        throw new IOException("Informasi foto Sony tidak lengkap.");
+                if (!eventReady) {
+                    int ev = pollSonyInterruptEventLocked(120);
+                    if (ev == PTP_EC_SONY_OBJECT_ADDED || ev == PTP_EC_OBJECT_ADDED || ev == PTP_EC_CAPTURE_COMPLETE) {
+                        eventReady = true;
                     }
-                    int compressedSize = readIntLE(infoRes.dataPayload, 8);
-                    if (compressedSize < 0 || compressedSize > 64 * 1024 * 1024) {
-                        throw new IOException("Ukuran foto Sony tidak valid. Pilih format JPEG.");
-                    }
-                    PtpTransactionResult imgRes = executePtpTransactionLocked(
-                            PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 20000);
-                    requirePtpOk(imgRes == null ? -1 : imgRes.responseCode, "Mengunduh foto Sony");
-                    if ((readShortLE(infoRes.dataPayload, 4) & 0xffff) != 0x3801) {
-                        throw new IOException("Foto bukan JPEG. Pilih JPEG atau RAW+JPEG dengan transfer JPEG Only.");
-                    }
-                    if (imgRes.dataPayload == null || (compressedSize > 0 && imgRes.dataPayload.length != compressedSize)) {
-                        throw new IOException("Unduhan foto Sony tidak lengkap. Periksa kabel USB-C data.");
-                    }
-                    lastCapturedFullJpeg = extractJpegFromBuffer(imgRes.dataPayload);
-                    if (lastCapturedFullJpeg == null || lastCapturedFullJpeg.length <= 2048) {
-                        throw new IOException("Foto JPEG Sony tidak lengkap. Coba ambil ulang.");
-                    }
-                    photoPending = false;
-                    break;
                 }
-                Thread.sleep(100);
+
+                int inMemoryFlag = -1;
+                if (!eventReady) {
+                    PtpTransactionResult propsRes = executePtpTransactionLocked(
+                            PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 2000);
+                    if (propsRes != null && propsRes.responseCode == PTP_RC_OK && propsRes.dataPayload != null) {
+                        inMemoryFlag = findSonyObjectInMemoryFlag(propsRes.dataPayload);
+                        if (inMemoryFlag >= 0x8000) {
+                            eventReady = true;
+                        }
+                    }
+                }
+
+                boolean allowObjectInfoProbe = eventReady
+                        || inMemoryFlag < 0
+                        || (System.currentTimeMillis() - pollStartMs) >= 3000;
+
+                if (allowObjectInfoProbe) {
+                    PtpTransactionResult infoRes = executePtpTransactionLocked(
+                            PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 2500);
+                    if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
+                        if (infoRes.dataPayload == null || infoRes.dataPayload.length < 12) {
+                            throw new IOException("Informasi foto Sony tidak lengkap.");
+                        }
+                        int objectFormat = readShortLE(infoRes.dataPayload, 4) & 0xffff;
+                        long compressedSize = readIntLE(infoRes.dataPayload, 8) & 0xffffffffL;
+                        if (compressedSize == 0xffffffffL) compressedSize = 0;
+                        if (compressedSize > 64L * 1024 * 1024) {
+                            throw new IOException("Ukuran foto Sony melebihi 64 MB. Pilih format JPEG.");
+                        }
+
+                        PtpTransactionResult imgRes = executePtpTransactionLocked(
+                                PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 25000);
+                        requirePtpOk(imgRes == null ? -1 : imgRes.responseCode, "Mengunduh foto Sony");
+
+                        if (objectFormat != 0x3801) {
+                            // If Sony was left in RAW+JPEG, consume the non-JPEG object once so JPEG follows without stalling FIFO.
+                            if (!skippedNonJpeg) {
+                                skippedNonJpeg = true;
+                                eventReady = false;
+                                Thread.sleep(250);
+                                continue;
+                            }
+                            throw new IOException("Foto bukan JPEG. Pilih JPEG atau RAW+JPEG dengan transfer JPEG Only.");
+                        }
+                        if (imgRes.dataPayload == null || (compressedSize > 0 && imgRes.dataPayload.length != compressedSize)) {
+                            throw new IOException("Unduhan foto Sony tidak lengkap. Periksa kabel USB-C data.");
+                        }
+                        lastCapturedFullJpeg = extractJpegFromBuffer(imgRes.dataPayload);
+                        if (lastCapturedFullJpeg == null || lastCapturedFullJpeg.length <= 2048) {
+                            throw new IOException("Foto JPEG Sony tidak lengkap. Coba ambil ulang.");
+                        }
+                        photoPending = false;
+                        break;
+                    }
+                }
+                eventReady = false;
+                Thread.sleep(350);
             }
-            drainBulkInEndpoint();
+            drainSonyInterruptEventsLocked();
 
         } catch (Exception e) {
             Log.w(TAG, "Sony capture error: " + e.getMessage());
             lastCaptureError = "Foto Sony gagal: " + e.getMessage();
             lastCapturedFullJpeg = null;
-            drainBulkInEndpoint();
         } finally {
             // Release even if AF, shutter or USB transfer failed midway.
             if (shutterAttempted) {
                 sendSonyControlUInt16Locked(SONY_CTRL_CAPTURE_SHUTTER, 1);
                 sendSonyControlUInt16Locked(SONY_CTRL_HALF_PRESS_SHUTTER, 1);
             }
-            setSonyExtPropUInt8Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
-            executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 500);
+            if (photoPending) {
+                // Polite CloseSession before dropping USB prevents Sony firmware panic/reboot on aborted transfer.
+                try {
+                    sendPtpCommandLocked(PTP_OC_CLOSE_SESSION, new int[0], null);
+                    Thread.sleep(80);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+                closeCurrentConnection();
+            } else {
+                try { Thread.sleep(200); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                setSonyExtPropUInt8Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
+                executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 800);
+            }
             lastKeepAliveMs = System.currentTimeMillis();
-            // A failed download must not leave an old image queued for the next
-            // pose. The next scan establishes a fresh remote session.
-            if (photoPending) closeCurrentConnection();
         }
 
         if (lastCapturedFullJpeg != null && lastCapturedFullJpeg.length > 2048) {
@@ -1306,6 +1370,120 @@ public class CanonUsbPtpEngine {
         }
         if (lastCaptureError.isEmpty()) lastCaptureError = "Foto asli Sony belum diterima. Periksa JPEG, PC Remote, lalu ambil ulang pose ini.";
         return null;
+    }
+
+    private int pollSonyInterruptEventLocked(int timeoutMs) {
+        if (connection == null || epInt == null) return 0;
+        int maxPacket = Math.max(64, Math.min(epInt.getMaxPacketSize(), 512));
+        byte[] buf = new byte[maxPacket];
+        int n = connection.bulkTransfer(epInt, buf, buf.length, Math.max(1, timeoutMs));
+        if (n < 8) return 0;
+        int containerType = readShortLE(buf, 4) & 0xFFFF;
+        if (containerType != 4) return 0;
+        return readShortLE(buf, 6) & 0xFFFF;
+    }
+
+    private void drainSonyInterruptEventsLocked() {
+        if (connection == null || epInt == null) return;
+        for (int i = 0; i < 8; i++) {
+            if (pollSonyInterruptEventLocked(5) == 0) break;
+        }
+    }
+
+    private boolean waitForSonyInterruptReadyLocked(int totalMs) throws InterruptedException {
+        if (connection == null || epInt == null) {
+            Thread.sleep(totalMs);
+            return false;
+        }
+        long endMs = System.currentTimeMillis() + totalMs;
+        while (true) {
+            long rem = endMs - System.currentTimeMillis();
+            if (rem <= 0) return false;
+            long t0 = System.currentTimeMillis();
+            int ev = pollSonyInterruptEventLocked((int) Math.min(150L, rem));
+            if (ev == PTP_EC_SONY_OBJECT_ADDED || ev == PTP_EC_OBJECT_ADDED || ev == PTP_EC_CAPTURE_COMPLETE) {
+                return true;
+            }
+            long elapsed = System.currentTimeMillis() - t0;
+            if (elapsed < 40) {
+                long nap = Math.min(rem, 150L) - elapsed;
+                if (nap > 0) Thread.sleep(nap);
+            }
+        }
+    }
+
+    /** Returns Sony 0xD215 (ObjectInMemory) flag from 0x9209 payload, or -1 if absent/unrecognized. */
+    private static int findSonyObjectInMemoryFlag(byte[] data) {
+        if (data == null || data.length < 16) return -1;
+        int propCount = readIntLE(data, 0);
+        if (propCount <= 0 || propCount > 512) return -1;
+        int pos = 8; // Sony 0x9209 prefixes properties with UINT64 count
+        for (int i = 0; i < propCount && pos + 6 <= data.length; i++) {
+            int propCode = readShortLE(data, pos) & 0xFFFF;
+            int dataType = readShortLE(data, pos + 2) & 0xFFFF;
+            pos += 6; // propCode(2) + dataType(2) + getSet(1) + isEnable(1)
+            int afterDef = skipSonyPropValue(data, pos, dataType);
+            if (afterDef < 0 || afterDef > data.length) return -1;
+            int valStart = afterDef;
+            int afterCur = skipSonyPropValue(data, valStart, dataType);
+            if (afterCur < 0 || afterCur >= data.length) return -1;
+            if (propCode == SONY_PROP_OBJECT_IN_MEMORY) {
+                if (dataType == 0x0003 || dataType == 0x0004) return readShortLE(data, valStart) & 0xFFFF;
+                if (dataType == 0x0001 || dataType == 0x0002) return data[valStart] & 0xFF;
+                if (dataType == 0x0005 || dataType == 0x0006) return readIntLE(data, valStart);
+            }
+            int formFlag = data[afterCur] & 0xFF;
+            pos = afterCur + 1;
+            if (formFlag == 1) {
+                for (int r = 0; r < 3; r++) {
+                    pos = skipSonyPropValue(data, pos, dataType);
+                    if (pos < 0 || pos > data.length) return -1;
+                }
+            } else if (formFlag == 2) {
+                if (pos + 2 > data.length) return -1;
+                int enumCount = readShortLE(data, pos) & 0xFFFF;
+                pos += 2;
+                for (int e = 0; e < enumCount; e++) {
+                    pos = skipSonyPropValue(data, pos, dataType);
+                    if (pos < 0 || pos > data.length) return -1;
+                }
+            } else if (formFlag != 0) {
+                return -1;
+            }
+        }
+        return -1;
+    }
+
+    private static int scalarSizeForPtpType(int dataType) {
+        switch (dataType) {
+            case 0x0001: case 0x0002: return 1;
+            case 0x0003: case 0x0004: return 2;
+            case 0x0005: case 0x0006: return 4;
+            case 0x0007: case 0x0008: return 8;
+            case 0x0009: case 0x000A: return 16;
+            default: return -1;
+        }
+    }
+
+    private static int skipSonyPropValue(byte[] data, int pos, int dataType) {
+        if (data == null || pos < 0 || pos > data.length) return -1;
+        int fixed = scalarSizeForPtpType(dataType);
+        if (fixed > 0) return (pos + fixed <= data.length) ? pos + fixed : -1;
+        if (dataType == 0xFFFF) {
+            if (pos + 1 > data.length) return -1;
+            int chars = data[pos] & 0xFF;
+            int end = pos + 1 + chars * 2;
+            return (end <= data.length) ? end : -1;
+        }
+        if ((dataType & 0xFF00) == 0x4000) {
+            if (pos + 4 > data.length) return -1;
+            int count = readIntLE(data, pos);
+            int elemSize = scalarSizeForPtpType(dataType & 0x00FF);
+            if (count < 0 || count > 4096 || elemSize <= 0) return -1;
+            long next = pos + 4L + (long) count * elemSize;
+            return (next <= data.length) ? (int) next : -1;
+        }
+        return -1;
     }
 
     // --- Sony Alpha Property Helpers & Value Mappers ---
@@ -1340,7 +1518,9 @@ public class CanonUsbPtpEngine {
     private int sendSonyControlUInt16Locked(int ctrlCode, int val) {
         ByteBuffer bb = ByteBuffer.allocate(2).order(ByteOrder.LITTLE_ENDIAN);
         bb.putShort((short) (val & 0xFFFF));
-        return sendPtpCommandLocked(PTP_OC_SONY_CONTROL_DEVICE, new int[]{ctrlCode}, bb.array());
+        PtpTransactionResult res = executePtpTransactionLocked(
+                PTP_OC_SONY_CONTROL_DEVICE, new int[]{ctrlCode}, bb.array(), 2500);
+        return (res != null) ? res.responseCode : -1;
     }
 
     private int mapCanonIsoToSony(int canonCode) {
@@ -1753,6 +1933,7 @@ public class CanonUsbPtpEngine {
         }
         if (endIdx == -1 || endIdx <= startIdx) return null;
 
+        if (startIdx == 0 && endIdx == data.length) return data;
         int len = endIdx - startIdx;
         byte[] jpeg = new byte[len];
         System.arraycopy(data, startIdx, jpeg, 0, len);

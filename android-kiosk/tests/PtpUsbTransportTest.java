@@ -80,6 +80,20 @@ public class PtpUsbTransportTest {
         check(Arrays.equals(jpeg, result.dataPayload), "Sony coalesced stream response is removed from JPEG");
         result = run(new IO(packet(12, 3, 0x2001, TID, new byte[0])));
         check(result.responseCode == 0x2001 && result.dataPayload == null, "response-only command");
+
+        // Sony A7 III full-resolution JPEGs exceed 4 MB and may arrive as unbounded (0xFFFFFFFF) streams.
+        byte[] largeJpeg = new byte[5 * 1024 * 1024];
+        Arrays.fill(largeJpeg, (byte) 0x42);
+        largeJpeg[0] = (byte) 0xff; largeJpeg[1] = (byte) 0xd8;
+        largeJpeg[largeJpeg.length - 2] = (byte) 0xff; largeJpeg[largeJpeg.length - 1] = (byte) 0xd9;
+        byte[] largeStream = join(packet(-1, 2, OP, TID, largeJpeg), response(0x2001));
+        IO largeIo = new IO();
+        for (int off = 0; off < largeStream.length; off += 16384) {
+            largeIo.packets.add(Arrays.copyOfRange(largeStream, off, Math.min(largeStream.length, off + 16384)));
+        }
+        result = run(largeIo);
+        check(result.responseCode == 0x2001 && result.dataPayload != null && result.dataPayload.length == largeJpeg.length,
+                "Sony >4MB unbounded streaming JPEG completes without mid-stream abort");
         System.out.println("PTP framing: " + passed + " checks passed");
     }
 }

@@ -153,7 +153,7 @@ public class MainActivity extends Activity {
     }
 
     private void showUsbDiagnosticsDialog() {
-        final String report = "MAFAZA 2.5.3\n" + canonEngine.getUsbDiagnosticsReport();
+        final String report = "MAFAZA 2.5.4\n" + canonEngine.getUsbDiagnosticsReport();
         new AlertDialog.Builder(this)
                 .setTitle("Diagnostik Kamera USB")
                 .setMessage(report)
@@ -190,7 +190,7 @@ public class MainActivity extends Activity {
         // Set Desktop User-Agent so public/js/kiosk.js automatically enables Canon USB 127.0.0.1:19898 polling
         // without modifying a single line of public/js/kiosk.js!
         settings.setUserAgentString(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.3");
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.4");
 
         wv.addJavascriptInterface(new MafazaAndroidBridge(), "MafazaAndroidBridge");
 
@@ -368,7 +368,7 @@ public class MainActivity extends Activity {
         input.setText(getSavedKioskUrl());
 
         new AlertDialog.Builder(this)
-                .setTitle("MAFAZA 2.5.3 · Pengaturan Kamera & USB")
+                .setTitle("MAFAZA 2.5.4 · Pengaturan Kamera & USB")
                 .setMessage(canonEngine.getUsbDiagnosticsReport() + "\n\nURL Server Kiosk Photobooth:")
                 .setView(input)
                 .setPositiveButton("Simpan & Muat Ulang", (dialog, which) -> {

@@ -10,7 +10,7 @@ import java.util.Arrays;
 final class PtpUsbTransport {
     static final int OK = 0x2001;
     private static final int MAX_DATA_BYTES = 64 * 1024 * 1024;
-    private static final int MAX_STREAM_BYTES = 4 * 1024 * 1024;
+    private static final int MAX_STREAM_BYTES = 64 * 1024 * 1024;
 
     interface PacketIO {
         int write(byte[] bytes, int timeoutMs);
