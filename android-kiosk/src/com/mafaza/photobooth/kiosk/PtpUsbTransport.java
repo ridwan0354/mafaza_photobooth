@@ -20,6 +20,7 @@ final class PtpUsbTransport {
     static final class Result {
         int responseCode = -1;
         byte[] dataPayload;
+        String diagnostic = "";
     }
 
     static Result transact(PacketIO io, int tid, int opCode, int[] params, byte[] dataOut, int timeoutMs) {
@@ -38,7 +39,7 @@ final class PtpUsbTransport {
 
             Reader reader = new Reader(io, deadline);
             byte[] header = reader.exact(12);
-            if (integer(header, 8) != tid) throw new IOException("Unexpected transaction");
+            if (integer(header, 8) != tid) throw new IOException("Transaction mismatch: received=" + integer(header, 8) + ", expected=" + tid);
             int type = word(header, 4);
             int code = word(header, 6);
             if (type == 3) {
@@ -73,6 +74,7 @@ final class PtpUsbTransport {
         } catch (IOException error) {
             result.responseCode = -1;
             result.dataPayload = null;
+            result.diagnostic = "op=0x" + Integer.toHexString(opCode) + ", tx=" + tid + ": " + error.getMessage();
         }
         return result;
     }
@@ -86,7 +88,8 @@ final class PtpUsbTransport {
 
     private static void write(PacketIO io, byte[] bytes, long deadline) throws IOException {
         // A short command/data write leaves the transaction unusable. Never report it as sent.
-        if (io.write(bytes, remaining(deadline)) != bytes.length) throw new IOException("Incomplete write");
+        int written = io.write(bytes, remaining(deadline));
+        if (written != bytes.length) throw new IOException("USB OUT " + written + "/" + bytes.length + " bytes");
     }
 
     private static int remaining(long deadline) throws IOException {
@@ -121,7 +124,11 @@ final class PtpUsbTransport {
             byte[] bytes = new byte[size];
             int copied = 0;
             while (copied < size) {
-                fill();
+                try {
+                    fill();
+                } catch (IOException error) {
+                    throw new IOException("USB IN " + copied + "/" + size + " bytes: " + error.getMessage());
+                }
                 int n = Math.min(size - copied, length - offset);
                 System.arraycopy(buffer, offset, bytes, copied, n);
                 copied += n;

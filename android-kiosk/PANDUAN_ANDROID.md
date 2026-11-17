@@ -1,4 +1,4 @@
-# MAFAZA Android Kiosk 2.5.1
+# MAFAZA Android Kiosk 2.5.2
 
 Satu APK menyediakan driver USB untuk Sony A7 III (ILCE-7M3) dan Canon EOS 1300D.
 Perbaikan live view dan pengambilan foto disertakan dalam APK, termasuk saat halaman
@@ -18,7 +18,7 @@ dengan shutter 1/125 detik dan tunggu flash siap sebelum foto berikutnya.
 
 ## Memasang dan mencoba
 
-1. Pasang APK 2.5.1 sebagai pembaruan aplikasi lama. Tanda tangan tetap sama.
+1. Pasang APK 2.5.2 sebagai pembaruan aplikasi lama. Tanda tangan tetap sama.
 2. Cabut kabel kamera, matikan lalu nyalakan kamera, dan buka aplikasi kembali.
 3. Sambungkan kabel data dan izinkan akses USB jika Android memintanya.
 4. Buka kamera di kiosk. Indikator USB menunggu gambar sebelum menampilkan status LIVE.
@@ -32,7 +32,9 @@ pengganti. Mode `webcam_only` tetap tersedia untuk pemakaian webcam secara ekspl
 
 ## Jika layar masih hitam
 
-Ketuk indikator USB di kiri bawah untuk melihat jumlah frame dan diagnostik.
+Ketuk indikator USB di kiri bawah untuk membuka dialog jumlah frame dan diagnostik.
+Pilih **Salin Diagnostik** untuk menyalin laporan lengkap, termasuk operasi USB,
+nomor transaksi, interface, endpoint, dan jumlah byte saat terjadi kegagalan.
 Jika sesi USB siap tetapi frame masih 0, cek mode USB dan sambungkan ulang kamera.
 Tombol scan ulang membuka ulang sesi yang belum menerima gambar. Jika frame terus
 bertambah tetapi gambar tidak tampil, catat pesan pada layar dan diagnostiknya.
@@ -48,6 +50,9 @@ bash android-kiosk/build-apk.sh
 
 Pengujian otomatis memakai simulasi paket USB dan tampilan kiosk. Pengujian ini
 tidak menggantikan uji Redmi Pad 2, kabel, kamera, dan flash fisik.
+
+Versi 2.5.2 membetulkan TransactionID OpenSession menjadi 0, mempertahankan
+pemeriksaan balasan kamera, dan mencegah pembukaan sesi berulang secara bersamaan.
 
 Referensi konektor dan pengaturan:
 - [Sony A7 III: USB Connection](https://helpguide.sony.net/ilc/1720/v1/en/contents/TP0001629775.html)

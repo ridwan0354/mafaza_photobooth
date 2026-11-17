@@ -250,6 +250,8 @@
         kiosk.canonUsbBridgeInfo = status;
         if (typeof kiosk.populateQuickCameraSelect === 'function') kiosk.populateQuickCameraSelect([], 'canon_usb_direct');
         startNativeLiveView(kiosk, status);
+      } else if (!status.active && kiosk.currentScreen === 'screenCapture') {
+        liveMessage(status.connectionError || 'Menunggu koneksi kamera USB. Ketuk indikator USB untuk melihat diagnostik.');
       }
     } catch (error) {}
   }, 500);

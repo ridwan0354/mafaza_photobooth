@@ -48,7 +48,7 @@ test('Android download serves the exact released APK with a versioned filename a
 test('Admin download info targets the APK on the selected server', async () => {
   const info = await getAppDownloadInfo('localhost:3000', 'https://mafaza.galipatsistem.com');
   const release = getAndroidApkRelease();
-  assert.equal(info.androidApk.version, '2.5.1');
+  assert.deepEqual(info.androidApk, release);
   assert.equal(info.downloads.androidApk, release.downloadUrl);
   assert.equal(info.androidApkUrl, `https://mafaza.galipatsistem.com${release.downloadUrl}`);
   assert.ok(info.androidQrDataUrl.startsWith('data:image/png;base64,'));

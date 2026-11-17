@@ -129,9 +129,12 @@ public class CanonUsbPtpEngine {
     private volatile String lastSonyDiag = "Belum dimulai";
     private volatile String lastCaptureError = "";
     private volatile String lastConnectionError = "";
+    private volatile String lastTransportDiagnostic = "";
+    private volatile String lastConnectionDiagnostic = "";
+    private volatile boolean isConnecting = false;
     private volatile boolean isCapturingPhoto = false;
     private volatile long lastKeepAliveMs = 0;
-    private int transactionId = 1;
+    private int transactionId = 0;
     private int canonEvfParamIndex = 0;
 
     // Cached Camera Hardware State (using Canon UI code representation for seamless kiosk.html sync)
@@ -360,11 +363,23 @@ public class CanonUsbPtpEngine {
             boolean hasPerm = usbManager.hasPermission(d);
             sb.append("• ").append(pName)
               .append(" (VID: 0x").append(Integer.toHexString(d.getVendorId()).toUpperCase())
+              .append(", PID: 0x").append(Integer.toHexString(d.getProductId()).toUpperCase())
               .append(", Izin: ").append(hasPerm ? "SUDAH" : "BELUM").append(")\n");
+            for (int i = 0; i < d.getInterfaceCount(); i++) {
+                UsbInterface intf = d.getInterface(i);
+                sb.append("  Interface ").append(intf.getId()).append(" class=").append(intf.getInterfaceClass()).append(": ");
+                for (int e = 0; e < intf.getEndpointCount(); e++) {
+                    UsbEndpoint ep = intf.getEndpoint(e);
+                    sb.append("ep0x").append(Integer.toHexString(ep.getAddress()))
+                      .append(" type=").append(ep.getType()).append(" packet=").append(ep.getMaxPacketSize()).append(" ");
+                }
+                sb.append("\n");
+            }
         }
         sb.append("\nStatus Sesi PTP: ").append(isConnected ? "TERHUBUNG (" + cameraModelName + ")" : "BELUM TERHUBUNG");
         sb.append("\nFrame Live View diterima: ").append(totalFramesReceived);
         if (!lastConnectionError.isEmpty()) sb.append("\nKoneksi: ").append(lastConnectionError);
+        if (!lastConnectionDiagnostic.isEmpty()) sb.append("\nDetail USB: ").append(lastConnectionDiagnostic);
         if (!lastCaptureError.isEmpty()) sb.append("\nFoto: ").append(lastCaptureError);
         if (isSonyCamera) {
             sb.append("\nSony LiveView Diag: ").append(lastSonyDiag);
@@ -372,14 +387,17 @@ public class CanonUsbPtpEngine {
         return sb.toString();
     }
 
-    private void connectToDeviceAsync(final UsbDevice dev) {
+    private synchronized void connectToDeviceAsync(final UsbDevice dev) {
+        if (isConnecting || (isConnected && activeDevice != null && activeDevice.getDeviceId() == dev.getDeviceId())) return;
+        isConnecting = true;
         new Thread(() -> {
-            synchronized (usbLock) {
-                if (isConnected && activeDevice != null && activeDevice.getDeviceId() == dev.getDeviceId()) {
-                    return;
+            try {
+                synchronized (usbLock) {
+                    closeCurrentConnection();
+                    openPtpConnection(dev);
                 }
-                closeCurrentConnection();
-                openPtpConnection(dev);
+            } finally {
+                isConnecting = false;
             }
         }).start();
     }
@@ -493,6 +511,7 @@ public class CanonUsbPtpEngine {
     }
 
     private void openPtpConnection(UsbDevice dev) {
+        lastTransportDiagnostic = "";
         try {
             UsbInterface targetIf = null;
             for (int i = 0; i < dev.getInterfaceCount(); i++) {
@@ -503,9 +522,14 @@ public class CanonUsbPtpEngine {
                 }
             }
             if (targetIf == null && dev.getInterfaceCount() > 0) {
-                targetIf = dev.getInterface(0);
+                // Some PC Remote interfaces are vendor-specific. Never send PTP
+                // commands to a storage, audio or video interface as a fallback.
+                for (int i = 0; i < dev.getInterfaceCount(); i++) {
+                    UsbInterface candidate = dev.getInterface(i);
+                    if (candidate.getInterfaceClass() == 255) { targetIf = candidate; break; }
+                }
             }
-            if (targetIf == null) throw new IOException("Antarmuka kamera USB tidak tersedia.");
+            if (targetIf == null) throw new IOException("Mode USB kamera belum mendukung PTP. Sony: pilih PC Remote lalu sambungkan ulang kabel.");
 
             UsbEndpoint bulkOut = null;
             UsbEndpoint bulkIn = null;
@@ -534,7 +558,7 @@ public class CanonUsbPtpEngine {
             this.ptpInterface = targetIf;
             this.epOut = bulkOut;
             this.epIn = bulkIn;
-            this.transactionId = 1;
+            this.transactionId = 0;
             this.totalFramesReceived = 0;
             this.isSonyCamera = (dev.getVendorId() == SONY_VENDOR_ID);
 
@@ -547,12 +571,21 @@ public class CanonUsbPtpEngine {
                 this.cameraModelName = prodName;
             }
 
-            // 1. Open PTP Session
-            int rc = sendPtpCommandLocked(PTP_OC_OPEN_SESSION, new int[]{1}, null);
-            if (rc != PTP_RC_OK) {
+            notifyStatus("Menghubungkan " + cameraModelName + " melalui USB...");
+            // OpenSession is outside a session: TransactionID MUST be zero.
+            // Subsequent requests begin at one. Do not relax response validation.
+            // See AOSP media/mtp/MtpDevice.cpp::openSession.
+            drainBulkInEndpoint();
+            int rc = openCameraSessionLocked();
+            if (rc == PTP_RC_SESSION_ALREADY_OPEN) {
                 sendPtpCommandLocked(PTP_OC_CLOSE_SESSION, new int[0], null);
-                this.transactionId = 1;
-                rc = sendPtpCommandLocked(PTP_OC_OPEN_SESSION, new int[]{1}, null);
+                rc = openCameraSessionLocked();
+            } else if (rc < 0) {
+                // One bounded retry for a slow USB initialization. A timeout does
+                // not establish a session, so do not send CloseSession here.
+                Thread.sleep(200);
+                drainBulkInEndpoint();
+                rc = openCameraSessionLocked();
             }
             requirePtpOk(rc, "Membuka sesi kamera");
 
@@ -585,20 +618,29 @@ public class CanonUsbPtpEngine {
 
             this.isConnected = true;
             lastConnectionError = "";
+            lastConnectionDiagnostic = "";
             notifyStatus(this.cameraModelName + ": Sesi USB siap, menunggu Live View...");
             Log.i(TAG, "USB PTP Session Connected: " + this.cameraModelName + " (Sony=" + isSonyCamera + ")");
         } catch (Exception e) {
             Log.e(TAG, "Failed to open USB PTP connection", e);
+            lastConnectionDiagnostic = lastTransportDiagnostic;
             closeCurrentConnection();
             lastConnectionError = e.getMessage() == null ? "Koneksi kamera gagal." : e.getMessage();
             notifyStatus(lastConnectionError);
         }
     }
 
+    private int openCameraSessionLocked() {
+        transactionId = 0;
+        PtpTransactionResult result = executePtpTransactionLocked(PTP_OC_OPEN_SESSION, new int[]{1}, null, 8000);
+        return result == null ? -1 : result.responseCode;
+    }
+
     private void requirePtpOk(int rc, String action) throws IOException {
         if (rc != PTP_RC_OK) {
             String detail = rc < 0 ? "USB tidak merespons lengkap" : "PTP 0x" + Integer.toHexString(rc);
-            throw new IOException(action + " gagal (" + detail + "). Sony: periksa USB Connection = PC Remote.");
+            String tip = isSonyCamera ? "Sony: periksa USB Connection = PC Remote." : "Canon: nonaktifkan Wi-Fi/NFC lalu sambungkan ulang USB.";
+            throw new IOException(action + " gagal (" + detail + "). " + tip);
         }
     }
 
@@ -1276,6 +1318,9 @@ public class CanonUsbPtpEngine {
         PtpTransactionResult result = new PtpTransactionResult();
         result.responseCode = received.responseCode;
         result.dataPayload = received.dataPayload;
+        lastTransportDiagnostic = received.diagnostic.isEmpty()
+                ? "op=0x" + Integer.toHexString(opCode) + ", response=0x" + Integer.toHexString(received.responseCode)
+                : received.diagnostic;
         if (result.responseCode < 0) drainBulkInEndpoint();
         return result;
     }

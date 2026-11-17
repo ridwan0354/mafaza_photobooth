@@ -5,6 +5,8 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -125,13 +127,7 @@ public class MainActivity extends Activity {
         badgeParams.setMargins(20, 20, 20, 16);
 
         usbBadgeView.setOnClickListener(v -> {
-            canonEngine.scanAndConnectIfAvailable();
-            Toast.makeText(this, canonEngine.getUsbDiagnosticsReport(), Toast.LENGTH_LONG).show();
-            if (webView != null) {
-                webView.evaluateJavascript(
-                        "if (typeof pollCanonUsbBridge === 'function') { pollCanonUsbBridge(); }",
-                        null);
-            }
+            showUsbDiagnosticsDialog();
         });
 
         usbBadgeView.setOnLongClickListener(v -> {
@@ -144,6 +140,23 @@ public class MainActivity extends Activity {
 
         requestRuntimeCameraPermissions();
         webView.loadUrl(getSavedKioskUrl());
+    }
+
+    private void showUsbDiagnosticsDialog() {
+        final String report = "MAFAZA 2.5.2\n" + canonEngine.getUsbDiagnosticsReport();
+        new AlertDialog.Builder(this)
+                .setTitle("Diagnostik Kamera USB")
+                .setMessage(report)
+                .setPositiveButton("Scan Ulang", (dialog, which) -> canonEngine.scanAndConnectIfAvailable())
+                .setNeutralButton("Salin Diagnostik", (dialog, which) -> {
+                    ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Diagnostik MAFAZA", report));
+                        Toast.makeText(this, "Diagnostik disalin. Tempelkan saat melaporkan kendala.", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("Tutup", null)
+                .show();
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -167,7 +180,7 @@ public class MainActivity extends Activity {
         // Set Desktop User-Agent so public/js/kiosk.js automatically enables Canon USB 127.0.0.1:19898 polling
         // without modifying a single line of public/js/kiosk.js!
         settings.setUserAgentString(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.1");
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.2");
 
         wv.addJavascriptInterface(new MafazaAndroidBridge(), "MafazaAndroidBridge");
 
@@ -345,7 +358,7 @@ public class MainActivity extends Activity {
         input.setText(getSavedKioskUrl());
 
         new AlertDialog.Builder(this)
-                .setTitle("MAFAZA 2.5.1 · Pengaturan USB Sony / Canon")
+                .setTitle("MAFAZA 2.5.2 · Pengaturan USB Sony / Canon")
                 .setMessage(canonEngine.getUsbDiagnosticsReport() + "\n\nURL Server Kiosk Photobooth:")
                 .setView(input)
                 .setPositiveButton("Simpan & Muat Ulang", (dialog, which) -> {

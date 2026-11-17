@@ -4,6 +4,7 @@ import android.content.Context;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
+import android.hardware.usb.UsbInterface;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -25,9 +26,14 @@ public class CanonUsbPtpEngineTest {
     }
     static class Device extends UsbDevice {
         final boolean sony;
-        Device(boolean sony) { this.sony = sony; }
+        final int usbClass;
+        Device(boolean sony) { this(sony, 6); }
+        Device(boolean sony, int usbClass) { this.sony = sony; this.usbClass = usbClass; }
         @Override public int getVendorId() { return sony ? 0x054c : 0x04a9; }
         @Override public String getProductName() { return sony ? "ILCE-7M3" : "Canon EOS 1300D"; }
+        @Override public UsbInterface getInterface(int i) {
+            return new UsbInterface() { @Override public int getInterfaceClass() { return usbClass; } };
+        }
     }
     static class Listener implements CanonUsbPtpEngine.Listener {
         int live;
@@ -39,11 +45,15 @@ public class CanonUsbPtpEngineTest {
         final Queue<byte[]> replies = new ArrayDeque<>();
         final List<String> controls = new ArrayList<>();
         final List<Integer> operations = new ArrayList<>();
+        final List<String> transactions = new ArrayList<>();
         int rejectOp = -1;
         int pendingProperty;
         boolean rejectShutter;
         boolean omitPhotoResponse;
         boolean canonShot;
+        boolean timeoutFirstOpen;
+        boolean noOpenResponse;
+        boolean alreadyOpenOnce;
         int livePropertySize;
         @Override public int bulkTransfer(UsbEndpoint ep, byte[] bytes, int length, int timeout) {
             if (ep.getDirection() == 128) {
@@ -62,9 +72,16 @@ public class CanonUsbPtpEngineTest {
                 return length;
             }
             operations.add(op);
+            transactions.add(Integer.toHexString(op) + ":" + tid);
+            // PTP OpenSession is outside a session and must use transaction 0.
+            // Simulate a camera that ignores the non-compliant opening request.
+            if (op == 0x1002 && tid != 0) return length;
+            if (op == 0x1002 && noOpenResponse) return length;
+            if (op == 0x1002 && timeoutFirstOpen) { timeoutFirstOpen = false; return length; }
             int param = length >= 16 ? b.getInt(12) : 0;
             pendingProperty = param;
             int rc = op == rejectOp || (rejectShutter && (op == 0x910f || op == 0x9128 || (op == 0x9207 && param == 0xd2c2))) ? 0x2019 : 0x2001;
+            if (op == 0x1002 && alreadyOpenOnce) { rc = 0x201e; alreadyOpenOnce = false; }
             byte[] data = null;
             if (rc == 0x2001 && (op == 0x9202 || op == 0x9209)) data = new byte[16];
             if (rc == 0x2001 && op == 0x1008) {
@@ -85,12 +102,16 @@ public class CanonUsbPtpEngineTest {
         }
     }
     static CanonUsbPtpEngine connect(USB usb, boolean sony, Listener listener) throws Exception {
+        return connect(usb, new Device(sony), listener);
+    }
+    static CanonUsbPtpEngine connect(USB usb, Device device, Listener listener) throws Exception {
         Context context = new Context();
         context.manager.connection = usb;
+        context.manager.devices.put("camera", device);
         CanonUsbPtpEngine engine = new CanonUsbPtpEngine(context, listener);
         Method open = CanonUsbPtpEngine.class.getDeclaredMethod("openPtpConnection", UsbDevice.class);
         open.setAccessible(true);
-        open.invoke(engine, new Device(sony));
+        open.invoke(engine, device);
         return engine;
     }
     static void set(Object instance, String name, Object value) throws Exception {
@@ -112,6 +133,24 @@ public class CanonUsbPtpEngineTest {
         check(!engine.isActive() && listener.live == 0 && usb.closed, "failed session is not connected");
         check(!engine.getLastConnectionError().isEmpty(), "session failure has actionable diagnostics");
 
+        usb = new USB(); usb.noOpenResponse = true;
+        engine = connect(usb, true, new Listener());
+        check(!engine.isActive() && !usb.operations.contains(0x1003), "OpenSession timeout is not treated as an opened session");
+        check(engine.getUsbDiagnosticsReport().contains("op=0x1002, tx=0: USB IN 0/12"), "diagnostics identify the failed request and USB direction");
+
+        usb = new USB(); usb.timeoutFirstOpen = true;
+        engine = connect(usb, true, new Listener());
+        check(engine.isActive() && usb.transactions.get(0).equals("1002:0") && usb.transactions.get(1).equals("1002:0"), "bounded retry opens again with transaction zero");
+        check(!usb.operations.contains(0x1003), "slow initialization does not send a close for a nonexistent session");
+
+        usb = new USB(); usb.alreadyOpenOnce = true;
+        engine = connect(usb, true, new Listener());
+        check(engine.isActive() && usb.transactions.subList(0, 4).equals(Arrays.asList("1002:0", "1003:1", "1002:0", "9201:1")), "existing session is closed and reopened with correct counters");
+
+        usb = new USB(); engine = connect(usb, new Device(true, 8), new Listener());
+        check(!engine.isActive() && usb.operations.isEmpty(), "mass storage interface never receives PTP commands");
+        check(engine.getLastConnectionError().contains("PC Remote"), "wrong USB mode explains the camera setting");
+
         usb = new USB(); usb.rejectOp = 0x9201;
         engine = connect(usb, true, new Listener());
         check(!engine.isActive() && !usb.operations.contains(0x9202), "rejected Sony handshake stops initialization");
@@ -119,6 +158,7 @@ public class CanonUsbPtpEngineTest {
         usb = new USB(); listener = new Listener();
         engine = connect(usb, true, listener);
         check(engine.isActive() && listener.live == 0 && !engine.hasLiveFrame(), "session alone is not a live preview");
+        check(usb.transactions.get(0).equals("1002:0") && usb.transactions.get(1).equals("9201:1"), "Sony opens at transaction zero, then starts remote transactions at one");
         check(usb.livePropertySize == 1, "Sony LiveView status uses UINT8 payload");
         set(engine, "latestLiveViewJpeg", JPEG.clone());
         set(engine, "latestFrameTimeMs", System.currentTimeMillis() - 6000);
@@ -151,6 +191,7 @@ public class CanonUsbPtpEngineTest {
 
         usb = new USB(); usb.rejectShutter = true;
         engine = connect(usb, false, new Listener());
+        check(usb.transactions.get(0).equals("1002:0"), "Canon also opens at transaction zero");
         set(engine, "latestLiveViewJpeg", JPEG.clone());
         check(engine.isActive() && !engine.isSonyCamera(), "Canon uses its own driver");
         check(engine.capturePhotoWithFlash() == null, "rejected Canon shutter cannot return preview");

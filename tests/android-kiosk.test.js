@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const kioskSource = fs.readFileSync(new URL('../public/js/kiosk.js', import.meta.url), 'utf8');
 const guardSource = fs.readFileSync(new URL('../android-kiosk/assets/usb-capture-guard.js', import.meta.url), 'utf8');
 
-function fixture({ reply, networkError, imageError = false, webcam = false, hasLiveFrame = true } = {}) {
+function fixture({ reply, networkError, imageError = false, webcam = false, hasLiveFrame = true, sessionError = '' } = {}) {
   const calls = { capture: 0, preview: 0, post: 0, server: 0, audio: 0, draw: 0, nativeFrame: 0 };
   const timeouts = new Map();
   const intervals = new Map();
@@ -44,7 +44,7 @@ function fixture({ reply, networkError, imageError = false, webcam = false, hasL
   const window = {
     __pbNotifyInitialized: true, addEventListener() {},
     MafazaAndroidBridge: {
-      getCameraStatus: () => JSON.stringify({ active: true, hasFrame: hasLiveFrame, frames: hasLiveFrame ? 1 : 0 }),
+      getCameraStatus: () => JSON.stringify({ active: !sessionError, connectionError: sessionError, hasFrame: hasLiveFrame, frames: hasLiveFrame ? 1 : 0 }),
       getLiveViewFrame: () => { calls.nativeFrame++; return 'data:image/jpeg;base64,bGl2ZQ=='; },
     },
   };
@@ -70,6 +70,7 @@ function fixture({ reply, networkError, imageError = false, webcam = false, hasL
   Object.assign(k, {
     cameraConfig: { cameraMode: webcam ? 'webcam_only' : 'sony_canon_flash' },
     posesCaptured: [null, null], activePoseIndex: 0, totalPosesRequired: 2,
+    currentScreen: 'screenCapture',
     isCountingDown: false, cameraZoom: 1, rawPosesSyncedForSession: 'old-session',
     clearAllTimers() {}, playShutterSound() {}, triggerShutterFlash() {},
     stopPoseLiveRecording() {}, renderFilmstripDock() {},
@@ -184,4 +185,11 @@ test('Android live preview explains a session with no image instead of showing a
   assert.equal(f.calls.draw, 0);
   assert.equal(f.calls.nativeFrame, 0);
   assert.match(f.elements.get('mafazaLiveViewStatus').innerText, /belum diterima/);
+});
+
+test('Android displays session-opening errors inside the preview area', () => {
+  const f = fixture({ sessionError: 'Membuka sesi kamera gagal' });
+  [...f.intervals.values()].find(timer => timer.ms === 500).fn();
+  assert.equal(f.elements.get('mafazaLiveViewStatus').innerText, 'Membuka sesi kamera gagal');
+  assert.equal(f.calls.draw, 0);
 });

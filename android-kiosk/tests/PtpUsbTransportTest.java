@@ -57,6 +57,7 @@ public class PtpUsbTransportTest {
         check(Arrays.equals(jpeg, result.dataPayload), "fragmented header, data and response");
         result = run(new IO(data));
         check(result.responseCode != 0x2001 && result.dataPayload == null, "JPEG without final response fails");
+        check(result.diagnostic.contains("op=0x1009") && result.diagnostic.contains("USB IN 0/12"), "missing response exposes the failed read stage");
         result = run(new IO(Arrays.copyOf(data, 200)));
         check(result.responseCode != 0x2001 && result.dataPayload == null, "truncated JPEG fails");
         result = run(new IO(data, response(0x2019)));
@@ -66,7 +67,9 @@ public class PtpUsbTransportTest {
         result = run(new IO(packet(12 + jpeg.length, 2, OP + 1, TID, jpeg), response(0x2001)));
         check(result.responseCode != 0x2001, "wrong operation is rejected");
         IO shortIO = new IO(response(0x2001)); shortIO.shortWrite = true;
-        check(run(shortIO).responseCode != 0x2001, "partial command write fails");
+        result = run(shortIO);
+        check(result.responseCode != 0x2001, "partial command write fails");
+        check(result.diagnostic.contains("USB OUT 15/16"), "partial write includes the byte counts");
         result = run(new IO(packet(0x7fffffff, 2, OP, TID, new byte[0])));
         check(result.responseCode != 0x2001, "oversize object fails before allocation");
         result = run(new IO(packet(-1, 2, OP, TID, jpeg), response(0x2001)));
