@@ -1594,13 +1594,30 @@ class KioskEngine {
     if (this.canonAutoDetectInterval) clearInterval(this.canonAutoDetectInterval);
     this.canonAutoDetectInterval = setInterval(async () => {
       const info = await this.checkCanonUsbBridgeStatus();
-      const sel = document.getElementById('kioskQuickCameraSelect');
-      const hasCanonOpt = sel && Array.from(sel.options).some(o => o.value === 'canon_usb_direct');
-      if (info && info.active && !hasCanonOpt) {
-        // Otomatis tambahkan & aktifkan Canon EOS 1300D begitu terdeteksi aktif di Camera Live
+      if (info && info.active && !this.canonUsbStreamActive && !this.__mafazaPreferWebCamera) {
+        // Otomatis aktifkan kamera USB (Canon / Sony / Nikon / PTP) begitu terdeteksi aktif
         await this.onQuickCameraSelectChange('canon_usb_direct');
       }
     }, 2500);
+  }
+
+  async onNativeCameraInventoryChanged() {
+    try {
+      if (!navigator.mediaDevices || typeof navigator.mediaDevices.enumerateDevices !== 'function') return;
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devs.filter(d => d && d.kind === 'videoinput');
+      const activeTrack = this.mediaStream?.getVideoTracks?.()[0];
+      const activeId = this.canonUsbStreamActive ? 'canon_usb_direct' : (activeTrack?.getSettings?.()?.deviceId || '');
+      this.populateQuickCameraSelect(videoInputs, activeId);
+      if (this.canonUsbStreamActive || this.__mafazaPreferWebCamera) return;
+      const extRegex = /osmo|action|dji|gopro|insta360|uvc|usb|hdmi|capture|canon|sony|nikon|fuji|elgato/i;
+      const extCam = videoInputs.find(d => extRegex.test(d.label || ''));
+      const curLabel = activeTrack?.label || '';
+      const onExt = extRegex.test(curLabel);
+      if (!this.isMediaStreamLive() || this.isVirtualFallbackStream || (extCam && !onExt)) {
+        await this.startCamera(null, true);
+      }
+    } catch (e) {}
   }
 
   async startCanonUsbDirectStream(bridgeInfo) {
@@ -1865,19 +1882,23 @@ class KioskEngine {
 
   async onQuickCameraSelectChange(deviceId) {
     if (!deviceId) return;
+    const isAndroidApk = Boolean(typeof window !== 'undefined' && window.MafazaAndroidBridge);
     this.userExplicitPreferredDeviceId = deviceId;
+    this.__mafazaPreferWebCamera = (deviceId !== 'canon_usb_direct');
     if (!this.cameraConfig) this.cameraConfig = {};
-    this.cameraConfig.preferredVideoDeviceId = deviceId;
-    try {
-      localStorage.setItem('pb_preferred_video_device_id', deviceId);
-    } catch (e) {}
-    try {
-      await fetch('/api/camera/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preferredVideoDeviceId: deviceId })
-      });
-    } catch (e) {}
+    if (!isAndroidApk || deviceId !== 'canon_usb_direct') {
+      this.cameraConfig.preferredVideoDeviceId = deviceId;
+      try {
+        localStorage.setItem('pb_preferred_video_device_id', deviceId);
+      } catch (e) {}
+      try {
+        await fetch('/api/camera/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ preferredVideoDeviceId: deviceId })
+        });
+      } catch (e) {}
+    }
     await this.startCamera(null, true);
   }
 
@@ -1956,12 +1977,13 @@ class KioskEngine {
     const sel = document.getElementById('kioskQuickCameraSelect');
     if (!sel) return;
     let optsHtml = '';
+    const isAndroidApk = Boolean(typeof window !== 'undefined' && window.MafazaAndroidBridge);
     const isIpadOs = (navigator.userAgent.includes('Macintosh') && (navigator.maxTouchPoints > 1)) || /iPad/i.test(navigator.userAgent || '');
     const isMobileDevice = /Android|iPhone|iPod/i.test(navigator.userAgent || '') || isIpadOs;
 
-    if (!isMobileDevice) {
+    if (!isMobileDevice || isAndroidApk) {
       const isCanonActive = this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active;
-      const camTitle = isCanonActive ? (this.canonUsbBridgeInfo.camera || 'Canon EOS (Kabel USB)') : 'Canon EOS (Kabel USB)';
+      const camTitle = isCanonActive ? (this.canonUsbBridgeInfo.camera || 'Kamera USB (PTP)') : 'Kamera USB (Sony / Canon / DSLR)';
       const statusIcon = isCanonActive ? '🟢' : '🔌';
       const isCanonSel = activeDeviceId === 'canon_usb_direct' ? 'selected' : '';
       optsHtml += `<option value="canon_usb_direct" ${isCanonSel}>${statusIcon} ${camTitle}</option>`;
@@ -2414,17 +2436,19 @@ class KioskEngine {
     try {
       await this.fetchCameraConfig();
       // Deteksi iPad (Safari di iPadOS mengirim userAgent 'Macintosh' dengan maxTouchPoints > 1)
+      const isAndroidApk = Boolean(typeof window !== 'undefined' && window.MafazaAndroidBridge);
       const isIpadOs = (navigator.userAgent.includes('Macintosh') && (navigator.maxTouchPoints > 1)) || /iPad/i.test(navigator.userAgent || '');
       const isMobileDevice = /Android|iPhone|iPod/i.test(navigator.userAgent || '') || isIpadOs;
 
       const localPrefId = localStorage.getItem('pb_preferred_video_device_id') || '';
-      const globalPrefId = isMobileDevice ? '' : (this.cameraConfig?.preferredVideoDeviceId || '');
-      const savedPrefId = this.userExplicitPreferredDeviceId || (localPrefId === 'canon_usb_direct' && isMobileDevice ? '' : localPrefId) || globalPrefId;
+      const globalPrefId = (isMobileDevice || isAndroidApk) ? '' : (this.cameraConfig?.preferredVideoDeviceId || '');
+      const effectiveLocalPref = (localPrefId === 'canon_usb_direct' && (isMobileDevice || isAndroidApk)) ? '' : localPrefId;
+      const savedPrefId = this.userExplicitPreferredDeviceId || effectiveLocalPref || globalPrefId;
 
       const canonBridge = isMobileDevice ? null : await this.checkCanonUsbBridgeStatus();
 
-      // Jika Canon EOS USB Bridge aktif di komputer desktop (MacBook / PC Windows)
-      if (canonBridge && canonBridge.active && (!savedPrefId || savedPrefId === 'canon_usb_direct')) {
+      // Jika Canon/Sony USB Bridge aktif dan user tidak memilih kamera WebRTC/bawaan
+      if (canonBridge && canonBridge.active && !this.__mafazaPreferWebCamera && (!savedPrefId || savedPrefId === 'canon_usb_direct')) {
         let videoInputs = [];
         try {
           if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
@@ -2438,8 +2462,8 @@ class KioskEngine {
         return;
       }
 
-      // Jika user di laptop desktop SECARA SPESIFIK memilih canon_usb_direct di browser ini
-      if (localPrefId === 'canon_usb_direct' && !isMobileDevice) {
+      // Di desktop (Mac/Windows), jika user spesifik memilih canon_usb_direct, tunggu bridge desktop aktif
+      if (localPrefId === 'canon_usb_direct' && !isMobileDevice && !isAndroidApk) {
         let videoInputs = [];
         try {
           if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {

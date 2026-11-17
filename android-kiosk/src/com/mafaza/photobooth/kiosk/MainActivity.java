@@ -12,6 +12,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.hardware.camera2.CameraManager;
 import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -53,6 +54,8 @@ public class MainActivity extends Activity {
     private TextView usbBadgeView;
     private CanonUsbPtpEngine canonEngine;
     private LocalCanonHttpServer localHttpServer;
+    private CameraManager cameraManager;
+    private CameraManager.AvailabilityCallback cameraAvailabilityCallback;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
@@ -84,7 +87,8 @@ public class MainActivity extends Activity {
             @Override
             public void onCameraDisconnected() {
                 mainHandler.post(() -> {
-                    updateUsbBadge(false, "USB Kamera Terputus");
+                    updateUsbBadge(false, "Kamera Bawaan (Siap USB OTG)");
+                    notifyWebViewCameraInventoryChanged();
                 });
             }
 
@@ -96,11 +100,17 @@ public class MainActivity extends Activity {
                     }
                 });
             }
+
+            @Override
+            public void onUsbUvcChanged(boolean attached, String deviceName) {
+                mainHandler.post(() -> notifyWebViewCameraInventoryChanged());
+            }
         });
 
         localHttpServer = new LocalCanonHttpServer(canonEngine);
         localHttpServer.start();
         canonEngine.start();
+        registerCameraAvailabilityMonitor();
 
         // Build UI Layout
         FrameLayout rootLayout = new FrameLayout(this);
@@ -143,7 +153,7 @@ public class MainActivity extends Activity {
     }
 
     private void showUsbDiagnosticsDialog() {
-        final String report = "MAFAZA 2.5.2\n" + canonEngine.getUsbDiagnosticsReport();
+        final String report = "MAFAZA 2.5.3\n" + canonEngine.getUsbDiagnosticsReport();
         new AlertDialog.Builder(this)
                 .setTitle("Diagnostik Kamera USB")
                 .setMessage(report)
@@ -180,7 +190,7 @@ public class MainActivity extends Activity {
         // Set Desktop User-Agent so public/js/kiosk.js automatically enables Canon USB 127.0.0.1:19898 polling
         // without modifying a single line of public/js/kiosk.js!
         settings.setUserAgentString(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.2");
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.3");
 
         wv.addJavascriptInterface(new MafazaAndroidBridge(), "MafazaAndroidBridge");
 
@@ -242,7 +252,7 @@ public class MainActivity extends Activity {
                 + "  window.fetch = async function(input, init) {\n"
                 + "    try {\n"
                 + "      const urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');\n"
-                + "      const isCanonActive = Boolean((typeof canonUsbActive !== 'undefined' && canonUsbActive) || (window.kiosk && window.kiosk.canonUsbStreamActive));\n"
+                + "      const isCanonActive = Boolean(window.kiosk && window.kiosk.canonUsbStreamActive && !window.kiosk.__mafazaPreferWebCamera);\n"
                 + "      if (urlStr.indexOf('/api/camera/trigger-capture') !== -1 && isCanonActive) {\n"
                 + "        return await origFetch('http://127.0.0.1:19898/capture', { method: 'POST', cache: 'no-store' });\n"
                 + "      }\n"
@@ -358,7 +368,7 @@ public class MainActivity extends Activity {
         input.setText(getSavedKioskUrl());
 
         new AlertDialog.Builder(this)
-                .setTitle("MAFAZA 2.5.2 · Pengaturan USB Sony / Canon")
+                .setTitle("MAFAZA 2.5.3 · Pengaturan Kamera & USB")
                 .setMessage(canonEngine.getUsbDiagnosticsReport() + "\n\nURL Server Kiosk Photobooth:")
                 .setView(input)
                 .setPositiveButton("Simpan & Muat Ulang", (dialog, which) -> {
@@ -406,6 +416,45 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_PERMISSIONS) {
+            notifyWebViewCameraInventoryChanged();
+        }
+    }
+
+    private void registerCameraAvailabilityMonitor() {
+        try {
+            cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            if (cameraManager != null) {
+                cameraAvailabilityCallback = new CameraManager.AvailabilityCallback() {
+                    @Override
+                    public void onCameraAvailable(String cameraId) {
+                        notifyWebViewCameraInventoryChanged();
+                    }
+
+                    @Override
+                    public void onCameraUnavailable(String cameraId) {
+                        // Refresh list only on attach/detach transitions via WebView helper
+                    }
+                };
+                cameraManager.registerAvailabilityCallback(cameraAvailabilityCallback, mainHandler);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private void notifyWebViewCameraInventoryChanged() {
+        mainHandler.post(() -> {
+            if (webView != null) {
+                webView.evaluateJavascript(
+                        "if (window.kiosk && typeof window.kiosk.onNativeCameraInventoryChanged === 'function') { window.kiosk.onNativeCameraInventoryChanged(); } "
+                                + "else if (window.kiosk && typeof window.kiosk.startCamera === 'function') { window.kiosk.startCamera(null, true); }",
+                        null);
+            }
+        });
+    }
+
+    @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
@@ -413,6 +462,7 @@ public class MainActivity extends Activity {
             if (canonEngine != null) {
                 canonEngine.scanAndConnectIfAvailable();
             }
+            notifyWebViewCameraInventoryChanged();
         }
     }
 
@@ -450,6 +500,11 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        try {
+            if (cameraManager != null && cameraAvailabilityCallback != null) {
+                cameraManager.unregisterAvailabilityCallback(cameraAvailabilityCallback);
+            }
+        } catch (Throwable ignored) {}
         if (localHttpServer != null) {
             localHttpServer.stop();
         }

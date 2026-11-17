@@ -114,7 +114,8 @@ final class PtpUsbTransport {
     private static final class Reader {
         final PacketIO io;
         final long deadline;
-        final byte[] buffer = new byte[32768];
+        // Linux usbfs bulk URB limit on many Android kernels is 16 KB (MAX_USBFS_BUFFER_SIZE).
+        final byte[] buffer = new byte[16384];
         int offset;
         int length;
 
@@ -153,7 +154,7 @@ final class PtpUsbTransport {
             do {
                 length = io.read(buffer, remaining(deadline));
             } while (length == 0 && ++emptyPackets < 8);
-            if (length <= 0) throw new IOException("Incomplete USB read");
+            if (length <= 0) throw new IOException("Incomplete USB read (rc=" + length + ")");
         }
     }
 

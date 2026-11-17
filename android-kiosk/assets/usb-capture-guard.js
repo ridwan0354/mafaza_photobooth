@@ -1,11 +1,39 @@
-// Bundled with the APK. Also protects kiosk pages served by an older server.
+// Bundled with the APK. Cooperates seamlessly across Built-in cameras, WebRTC UVC/HDMI cameras, and USB PTP DSLRs.
 (function () {
   'use strict';
   if (!window.MafazaAndroidBridge || window.__mafazaUsbCaptureGuard) return;
   window.__mafazaUsbCaptureGuard = true;
 
-  function requiresStill(kiosk) {
-    return !kiosk.cameraConfig || kiosk.cameraConfig.cameraMode !== 'webcam_only';
+  function readNativeStatus() {
+    try {
+      if (typeof window.MafazaAndroidBridge.getCameraStatus !== 'function') return null;
+      return JSON.parse(window.MafazaAndroidBridge.getCameraStatus());
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function requiresStill(kiosk, status) {
+    if (!kiosk) return false;
+    if (kiosk.cameraConfig && kiosk.cameraConfig.cameraMode === 'webcam_only') return false;
+    if (kiosk.__mafazaPreferWebCamera) return false;
+    const st = status || readNativeStatus();
+    if (!st) return Boolean(kiosk.canonUsbStreamActive);
+    return Boolean(st.active || st.usbAttached || st.connectionError || kiosk.canonUsbStreamActive);
+  }
+
+  function refreshCameraDropdown(kiosk, selectedId) {
+    if (!kiosk || typeof kiosk.populateQuickCameraSelect !== 'function') return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === 'function') {
+        navigator.mediaDevices.enumerateDevices().then(function (devs) {
+          const videoInputs = (devs || []).filter(function (d) { return d && d.kind === 'videoinput'; });
+          kiosk.populateQuickCameraSelect(videoInputs, selectedId);
+        }).catch(function () {});
+      } else {
+        kiosk.populateQuickCameraSelect([], selectedId);
+      }
+    } catch (e) {}
   }
 
   function retryPose(kiosk, index) {
@@ -91,11 +119,76 @@
     hint.style.display = message ? 'flex' : 'none';
   }
 
+  function updateUsbFallbackActions(kiosk, show) {
+    const frame = document.getElementById('cameraRetroFrame');
+    if (!frame) return;
+    let bar = document.getElementById('mafazaLiveViewActions');
+    if (!show) {
+      if (bar) bar.style.display = 'none';
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'mafazaLiveViewActions';
+      bar.style.cssText = 'position:absolute;left:0;right:0;bottom:24px;z-index:4;display:flex;justify-content:center;gap:10px;pointer-events:auto;';
+
+      const rescanBtn = document.createElement('button');
+      rescanBtn.type = 'button';
+      rescanBtn.innerText = '🔄 Scan Ulang USB';
+      rescanBtn.style.cssText = 'padding:8px 14px;border-radius:999px;border:1.5px solid #fff;background:#e6786b;color:#fff;font-size:12px;font-weight:800;cursor:pointer;';
+      rescanBtn.onclick = function (e) {
+        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+        if (window.kiosk) window.kiosk.__mafazaPreferWebCamera = false;
+        if (window.MafazaAndroidBridge && typeof window.MafazaAndroidBridge.rescanCanonUsb === 'function') {
+          window.MafazaAndroidBridge.rescanCanonUsb();
+        }
+      };
+
+      const builtinBtn = document.createElement('button');
+      builtinBtn.type = 'button';
+      builtinBtn.innerText = '📱 Pakai Kamera Bawaan';
+      builtinBtn.style.cssText = 'padding:8px 14px;border-radius:999px;border:1.5px solid #fff;background:rgba(28,22,18,0.88);color:#fff;font-size:12px;font-weight:800;cursor:pointer;';
+      builtinBtn.onclick = function (e) {
+        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+        const k = window.kiosk;
+        if (!k) return;
+        k.__mafazaPreferWebCamera = true;
+        k.canonUsbStreamActive = false;
+        k.__mafazaNativeLiveLoop = false;
+        k.__mafazaLiveGeneration = (k.__mafazaLiveGeneration || 0) + 1;
+        if (k.canonUsbCanvas) k.canonUsbCanvas.style.display = 'none';
+        liveMessage('');
+        updateUsbFallbackActions(k, false);
+        if (typeof k.startCamera === 'function') k.startCamera(null, true);
+      };
+
+      bar.appendChild(rescanBtn);
+      bar.appendChild(builtinBtn);
+      frame.appendChild(bar);
+    }
+    bar.style.display = 'flex';
+  }
+
+  function stopNativeLiveView(kiosk) {
+    if (!kiosk) return;
+    if (kiosk.canonUsbLoopTimer) {
+      clearTimeout(kiosk.canonUsbLoopTimer);
+      kiosk.canonUsbLoopTimer = null;
+    }
+    kiosk.canonUsbStreamActive = false;
+    kiosk.__mafazaNativeLiveLoop = false;
+    kiosk.__mafazaLiveGeneration = (kiosk.__mafazaLiveGeneration || 0) + 1;
+    if (kiosk.canonUsbCanvas) kiosk.canonUsbCanvas.style.display = 'none';
+    liveMessage('');
+    updateUsbFallbackActions(kiosk, false);
+  }
+
   function startNativeLiveView(kiosk, info) {
     if (kiosk.canonUsbLoopTimer) clearTimeout(kiosk.canonUsbLoopTimer);
     if (kiosk.mediaStream) kiosk.mediaStream.getTracks().forEach(function (track) { track.stop(); });
     kiosk.mediaStream = null;
     kiosk.canonUsbBridgeInfo = info;
+    updateUsbFallbackActions(kiosk, false);
     const canvas = kiosk.canonUsbCanvas || document.createElement('canvas');
     kiosk.canonUsbCanvas = canvas;
     canvas.id = 'canonUsbDirectCanvas';
@@ -112,20 +205,28 @@
     kiosk.__mafazaNativeLiveLoop = true;
     let lastFrame = -1;
     let lastDisplayTime = 0;
+
+    if (info && info.supportsLiveView === false) {
+      liveMessage('📷 ' + (info.camera || 'Kamera USB PTP') + ' terhubung (Mode Shutter USB). Sentuh Foto untuk memotret.');
+      return;
+    }
+
     liveMessage('Menunggu gambar dari kamera…');
 
     const draw = async function () {
       if (generation !== kiosk.__mafazaLiveGeneration) return;
-      if (!kiosk.canonUsbStreamActive || !requiresStill(kiosk)) {
+      const status = readNativeStatus();
+      if (!kiosk.canonUsbStreamActive || !requiresStill(kiosk, status)) {
         kiosk.__mafazaNativeLiveLoop = false;
         canvas.style.display = 'none';
         liveMessage('');
+        updateUsbFallbackActions(kiosk, false);
         return;
       }
       try {
-        const status = JSON.parse(window.MafazaAndroidBridge.getCameraStatus());
-        if (!status.active || !status.hasFrame) {
+        if (!status || !status.active || !status.hasFrame) {
           liveMessage(kiosk.__mafazaCaptureBusy ? 'Mengambil foto…' : 'Gambar kamera belum diterima. Periksa PC Remote dan kabel USB-C.');
+          updateUsbFallbackActions(kiosk, Boolean(status && !status.active));
         } else if (status.frames !== lastFrame) {
           const dataUrl = window.MafazaAndroidBridge.getLiveViewFrame();
           if (!dataUrl) throw new Error('Gambar kamera belum siap.');
@@ -139,8 +240,10 @@
           lastFrame = status.frames;
           lastDisplayTime = Date.now();
           liveMessage('');
+          updateUsbFallbackActions(kiosk, false);
         } else if (Date.now() - lastDisplayTime > 5000 && !kiosk.__mafazaCaptureBusy) {
           liveMessage('Gambar kamera terhenti. Periksa koneksi USB lalu scan ulang kamera.');
+          updateUsbFallbackActions(kiosk, true);
         }
       } catch (error) {
         liveMessage('Gambar kamera belum dapat ditampilkan. Ketuk indikator USB untuk melihat diagnostik.');
@@ -148,8 +251,6 @@
       }
       if (generation === kiosk.__mafazaLiveGeneration) kiosk.canonUsbLoopTimer = setTimeout(draw, 65);
     };
-    // Direct image decoding avoids dependence on createImageBitmap and HTTP loopback
-    // permissions in Android WebView. captureStream is optional, for short live clips.
     try { kiosk.mediaStream = canvas.captureStream(15); } catch (error) {}
     const video = document.getElementById('videoFeed');
     if (video && kiosk.mediaStream) video.srcObject = kiosk.mediaStream;
@@ -168,11 +269,27 @@
     const oldCountdown = kiosk.startCountdown;
     const oldAudioFlash = kiosk.triggerAudioJackFlash;
     const oldLiveView = kiosk.startCanonUsbDirectStream;
+    const oldQuickSelect = kiosk.onQuickCameraSelectChange;
 
     kiosk.startCanonUsbDirectStream = async function (info) {
       if (typeof window.MafazaAndroidBridge.getLiveViewFrame !== 'function') return oldLiveView.call(this, info);
       startNativeLiveView(this, info);
     };
+
+    if (typeof oldQuickSelect === 'function') {
+      kiosk.onQuickCameraSelectChange = async function (deviceId) {
+        if (deviceId && deviceId !== 'canon_usb_direct') {
+          this.__mafazaPreferWebCamera = true;
+          stopNativeLiveView(this);
+        } else if (deviceId === 'canon_usb_direct') {
+          this.__mafazaPreferWebCamera = false;
+          if (typeof window.MafazaAndroidBridge.rescanCanonUsb === 'function') {
+            window.MafazaAndroidBridge.rescanCanonUsb();
+          }
+        }
+        return oldQuickSelect.call(this, deviceId);
+      };
+    }
 
     kiosk.captureFrame = function (index) {
       if (requiresStill(this)) return false;
@@ -194,13 +311,13 @@
       return oldCountdown.apply(this, arguments);
     };
     kiosk.triggerAudioJackFlash = function () {
-      // The physical Sony/Canon shutter controls the flash on its hot shoe.
+      // Physical USB DSLR controls its own hotshoe flash; built-in/UVC camera still fires audio jack flash.
       if (requiresStill(this)) return;
       return oldAudioFlash.apply(this, arguments);
     };
 
     kiosk.triggerHardwareCameraAndFlash = async function (index) {
-      if (!requiresStill(this)) return oldHardwareCapture.call(this, index);
+      if (!requiresStill(this)) return false;
       if (this.__mafazaCaptureBusy) return false;
       this.__mafazaCaptureBusy = true;
       this.hardwareCaptureFailedPose = index;
@@ -239,19 +356,65 @@
     };
   }
 
+  let lastUsbAttached = false;
+  let lastUsbActive = false;
+  let lastUvcAttached = false;
+
   install(window.kiosk);
   setInterval(function () {
     const kiosk = window.kiosk;
     install(kiosk);
-    if (!kiosk || !requiresStill(kiosk) || typeof window.MafazaAndroidBridge.getCameraStatus !== 'function') return;
+    if (!kiosk || typeof window.MafazaAndroidBridge.getCameraStatus !== 'function') return;
     try {
       const status = JSON.parse(window.MafazaAndroidBridge.getCameraStatus());
+      const usbAttached = Boolean(status.usbAttached);
+      const usbActive = Boolean(status.active);
+      const uvcAttached = Boolean(status.usbUvcAttached);
+
+      // A newly plugged or reconnected USB camera always takes over automatically unless explicitly overridden later.
+      if ((usbAttached && !lastUsbAttached) || (usbActive && !lastUsbActive)) {
+        kiosk.__mafazaPreferWebCamera = false;
+      }
+      lastUsbAttached = usbAttached;
+      lastUsbActive = usbActive;
+
+      if (uvcAttached !== lastUvcAttached) {
+        lastUvcAttached = uvcAttached;
+        if (!usbActive && !usbAttached && typeof kiosk.onNativeCameraInventoryChanged === 'function') {
+          kiosk.onNativeCameraInventoryChanged();
+        }
+      }
+
+      if (kiosk.cameraConfig && kiosk.cameraConfig.cameraMode === 'webcam_only') {
+        updateUsbFallbackActions(kiosk, false);
+        return;
+      }
+
+      if (kiosk.__mafazaPreferWebCamera) {
+        updateUsbFallbackActions(kiosk, false);
+        return;
+      }
+
       if (status.active && (!kiosk.canonUsbStreamActive || !kiosk.__mafazaNativeLiveLoop)) {
         kiosk.canonUsbBridgeInfo = status;
-        if (typeof kiosk.populateQuickCameraSelect === 'function') kiosk.populateQuickCameraSelect([], 'canon_usb_direct');
+        refreshCameraDropdown(kiosk, 'canon_usb_direct');
         startNativeLiveView(kiosk, status);
-      } else if (!status.active && kiosk.currentScreen === 'screenCapture') {
-        liveMessage(status.connectionError || 'Menunggu koneksi kamera USB. Ketuk indikator USB untuk melihat diagnostik.');
+      } else if (!status.active && !status.usbAttached && !status.connectionError) {
+        // No USB PTP camera is connected: use built-in / WebRTC UVC camera cleanly without blocking overlay.
+        const wasUsbStream = Boolean(kiosk.canonUsbStreamActive);
+        if (wasUsbStream) {
+          stopNativeLiveView(kiosk);
+          kiosk.canonUsbBridgeInfo = null;
+          if ((kiosk.currentScreen === 'screenCapture' || kiosk.currentScreen === 'screenQR') && typeof kiosk.startCamera === 'function') {
+            kiosk.startCamera(null, true);
+          }
+        } else if (kiosk.currentScreen === 'screenCapture') {
+          liveMessage('');
+          updateUsbFallbackActions(kiosk, false);
+        }
+      } else if (!status.active && kiosk.currentScreen === 'screenCapture' && (status.usbAttached || status.connectionError)) {
+        liveMessage(status.connectionError || ('Menghubungkan ' + (status.camera || 'kamera USB') + '… Ketuk indikator USB untuk diagnostik.'));
+        updateUsbFallbackActions(kiosk, Boolean(status.connectionError || status.usbAttached));
       }
     } catch (error) {}
   }, 500);

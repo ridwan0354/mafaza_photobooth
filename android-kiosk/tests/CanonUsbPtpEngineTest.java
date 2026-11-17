@@ -25,12 +25,14 @@ public class CanonUsbPtpEngineTest {
         JPEG[JPEG.length - 2] = (byte) 0xff; JPEG[JPEG.length - 1] = (byte) 0xd9;
     }
     static class Device extends UsbDevice {
-        final boolean sony;
+        final int vid;
+        final String name;
         final int usbClass;
-        Device(boolean sony) { this(sony, 6); }
-        Device(boolean sony, int usbClass) { this.sony = sony; this.usbClass = usbClass; }
-        @Override public int getVendorId() { return sony ? 0x054c : 0x04a9; }
-        @Override public String getProductName() { return sony ? "ILCE-7M3" : "Canon EOS 1300D"; }
+        Device(boolean sony) { this(sony ? 0x054c : 0x04a9, sony ? "ILCE-7M3" : "Canon EOS 1300D", 6); }
+        Device(boolean sony, int usbClass) { this(sony ? 0x054c : 0x04a9, sony ? "ILCE-7M3" : "Canon EOS 1300D", usbClass); }
+        Device(int vid, String name, int usbClass) { this.vid = vid; this.name = name; this.usbClass = usbClass; }
+        @Override public int getVendorId() { return vid; }
+        @Override public String getProductName() { return name; }
         @Override public UsbInterface getInterface(int i) {
             return new UsbInterface() { @Override public int getInterfaceClass() { return usbClass; } };
         }
@@ -54,6 +56,10 @@ public class CanonUsbPtpEngineTest {
         boolean timeoutFirstOpen;
         boolean noOpenResponse;
         boolean alreadyOpenOnce;
+        boolean requireTid1ForOpen;
+        boolean requireResetBeforeOpen;
+        boolean genericShotCaptured;
+        int mtpRejectOp = -1;
         int livePropertySize;
         @Override public int bulkTransfer(UsbEndpoint ep, byte[] bytes, int length, int timeout) {
             if (ep.getDirection() == 128) {
@@ -73,17 +79,31 @@ public class CanonUsbPtpEngineTest {
             }
             operations.add(op);
             transactions.add(Integer.toHexString(op) + ":" + tid);
-            // PTP OpenSession is outside a session and must use transaction 0.
-            // Simulate a camera that ignores the non-compliant opening request.
-            if (op == 0x1002 && tid != 0) return length;
+            if (op == 0x1002 && requireResetBeforeOpen && resetCount == 0) return length;
+            if (op == 0x1002 && requireTid1ForOpen && tid != 1) return length;
+            // PTP OpenSession normally opens on transaction 0.
+            // Simulate a camera that ignores the non-compliant opening request unless requireTid1ForOpen is set.
+            if (op == 0x1002 && !requireTid1ForOpen && tid != 0) return length;
             if (op == 0x1002 && noOpenResponse) return length;
             if (op == 0x1002 && timeoutFirstOpen) { timeoutFirstOpen = false; return length; }
             int param = length >= 16 ? b.getInt(12) : 0;
             pendingProperty = param;
             int rc = op == rejectOp || (rejectShutter && (op == 0x910f || op == 0x9128 || (op == 0x9207 && param == 0xd2c2))) ? 0x2019 : 0x2001;
+            if (op == mtpRejectOp) rc = 0x2005;
             if (op == 0x1002 && alreadyOpenOnce) { rc = 0x201e; alreadyOpenOnce = false; }
             byte[] data = null;
+            if (rc == 0x2001 && op == 0x1001) {
+                ByteBuffer di = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN);
+                di.putShort(8, (short) 100);
+                data = di.array();
+            }
             if (rc == 0x2001 && (op == 0x9202 || op == 0x9209)) data = new byte[16];
+            if (rc == 0x2001 && op == 0x1007) {
+                data = genericShotCaptured
+                        ? ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putInt(1).putInt(777).array()
+                        : ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(0).array();
+            }
+            if (op == 0x100e && rc == 0x2001) genericShotCaptured = true;
             if (rc == 0x2001 && op == 0x1008) {
                 data = new byte[52];
                 ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN).putShort(4, (short) 0x3801).putInt(8, JPEG.length);
@@ -197,6 +217,36 @@ public class CanonUsbPtpEngineTest {
         check(engine.capturePhotoWithFlash() == null, "rejected Canon shutter cannot return preview");
         usb = new USB(); engine = connect(usb, false, new Listener());
         check(Arrays.equals(JPEG, engine.capturePhotoWithFlash()), "Canon event and JPEG download still work");
+
+        // Sony camera expecting TransactionID = 1 on OpenSession (like ILCE-7M3 firmware)
+        usb = new USB(); usb.requireTid1ForOpen = true;
+        engine = connect(usb, true, new Listener());
+        check(engine.isActive() && usb.transactions.contains("1002:1") && usb.transactions.contains("9201:2"),
+                "Sony requiring tid=1 OpenSession falls back cleanly and advances tid to 2");
+
+        // Hung Android MTP pipe recovered by USB PIMA Device Reset (0x21, 0x66)
+        usb = new USB(); usb.requireResetBeforeOpen = true;
+        engine = connect(usb, true, new Listener());
+        check(engine.isActive() && usb.resetCount == 1, "PIMA USB Device Reset recovers stuck OpenSession pipe");
+
+        // Sony in MTP/Auto mode explains switching to PC Remote clearly
+        usb = new USB(); usb.mtpRejectOp = 0x9201;
+        engine = connect(usb, true, new Listener());
+        check(!engine.isActive() && engine.getLastConnectionError().contains("MTP"),
+                "Sony returning 0x2005 on SDIOConnect tells user to switch from MTP to PC Remote");
+
+        // Generic Class 6 PTP camera (e.g. Fujifilm / Standard PTP) connects & captures without failing Canon opcodes
+        usb = new USB();
+        engine = connect(usb, new Device(0x04cb, "X-T4", 6), new Listener());
+        check(engine.isActive() && engine.getDriverTypeName().equals("generic_ptp"),
+                "Generic/Fujifilm Class 6 camera connects with generic_ptp driver");
+        check(Arrays.equals(JPEG, engine.capturePhotoWithFlash()),
+                "Generic PTP InitiateCapture and GetObjectHandles download succeed");
+
+        // UVC Class 14 device is never claimed by PTP engine
+        usb = new USB();
+        engine = connect(usb, new Device(0x1234, "USB Video Capture", 14), new Listener());
+        check(!engine.isActive() && usb.operations.isEmpty(), "UVC Video interface never claimed as PTP");
 
         LocalCanonHttpServer server = new LocalCanonHttpServer(disconnected);
         ByteArrayOutputStream http = new ByteArrayOutputStream();

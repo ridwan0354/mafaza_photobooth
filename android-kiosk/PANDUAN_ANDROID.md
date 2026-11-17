@@ -1,9 +1,7 @@
-# MAFAZA Android Kiosk 2.5.2
+# MAFAZA Android Kiosk 2.5.3
 
-Satu APK menyediakan driver USB untuk Sony A7 III (ILCE-7M3) dan Canon EOS 1300D.
-Perbaikan live view dan pengambilan foto disertakan dalam APK, termasuk saat halaman
-kiosk dari server belum diperbarui. Pengoperasian halaman kiosk tetap memerlukan
-server atau cache halaman yang sudah tersedia.
+Satu APK mendukung **Kamera Bawaan Tablet** (depan/belakang), **kamera UVC/HDMI** yang dikenali Android, dan driver USB PTP untuk **Sony Alpha (ILCE-7M3, dll)**, **Canon EOS**, **Nikon**, serta kamera **PTP standar**.
+Perbaikan live view, OpenSession fallback (`tid=0`/`tid=1`), reset USB PIMA, dan pengambilan foto disertakan dalam APK, termasuk saat halaman kiosk dari server belum diperbarui.
 
 ## Kabel dan kamera
 
@@ -18,9 +16,9 @@ dengan shutter 1/125 detik dan tunggu flash siap sebelum foto berikutnya.
 
 ## Memasang dan mencoba
 
-1. Pasang APK 2.5.2 sebagai pembaruan aplikasi lama. Tanda tangan tetap sama.
-2. Cabut kabel kamera, matikan lalu nyalakan kamera, dan buka aplikasi kembali.
-3. Sambungkan kabel data dan izinkan akses USB jika Android memintanya.
+1. Pasang APK 2.5.3 sebagai pembaruan aplikasi lama. Tanda tangan tetap sama.
+2. Tanpa kabel USB, aplikasi langsung memakai kamera bawaan tablet tanpa terhalang status USB.
+3. Cabut & colok ulang kabel data untuk menghubungkan kamera eksternal secara otomatis, dan izinkan akses USB jika Android memintanya.
 4. Buka kamera di kiosk. Indikator USB menunggu gambar sebelum menampilkan status LIVE.
 5. Coba beberapa pose berulang. Pastikan gambar tampil, shutter bekerja, hasil foto
    benar-benar baru, flash ikut terekam, dan live view kembali setelah memotret.
@@ -51,8 +49,7 @@ bash android-kiosk/build-apk.sh
 Pengujian otomatis memakai simulasi paket USB dan tampilan kiosk. Pengujian ini
 tidak menggantikan uji Redmi Pad 2, kabel, kamera, dan flash fisik.
 
-Versi 2.5.2 membetulkan TransactionID OpenSession menjadi 0, mempertahankan
-pemeriksaan balasan kamera, dan mencegah pembukaan sesi berulang secara bersamaan.
+Versi 2.5.3 menambahkan dukungan penuh kamera bawaan saat tanpa USB, fallback OpenSession `tid=0` lalu `tid=1` beserta reset USB PIMA, dukungan Nikon/Fujifilm/PTP generik, deteksi UVC non-intrusif, dan buffer bulk 16 KB.
 
 Referensi konektor dan pengaturan:
 - [Sony A7 III: USB Connection](https://helpguide.sony.net/ilc/1720/v1/en/contents/TP0001629775.html)

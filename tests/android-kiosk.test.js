@@ -6,15 +6,22 @@ import vm from 'node:vm';
 const kioskSource = fs.readFileSync(new URL('../public/js/kiosk.js', import.meta.url), 'utf8');
 const guardSource = fs.readFileSync(new URL('../android-kiosk/assets/usb-capture-guard.js', import.meta.url), 'utf8');
 
-function fixture({ reply, networkError, imageError = false, webcam = false, hasLiveFrame = true, sessionError = '' } = {}) {
-  const calls = { capture: 0, preview: 0, post: 0, server: 0, audio: 0, draw: 0, nativeFrame: 0 };
+function fixture({ reply, networkError, imageError = false, webcam = false, hasLiveFrame = true, sessionError = '', usbActive, usbAttached = false } = {}) {
+  const calls = { capture: 0, preview: 0, post: 0, server: 0, audio: 0, draw: 0, nativeFrame: 0, startCamera: 0 };
   const timeouts = new Map();
   const intervals = new Map();
   const elements = new Map();
   const images = [];
   const canvases = [];
   let nextTimer = 1;
-  const element = () => ({ style: {}, innerText: '', appendChild(child) { elements.set(child.id, child); child.parentElement = this; }, insertBefore(child) { child.parentElement = this; } });
+  const statusState = {
+    active: usbActive !== undefined ? usbActive : !sessionError,
+    usbAttached,
+    connectionError: sessionError,
+    hasFrame: hasLiveFrame,
+    frames: hasLiveFrame ? 1 : 0,
+  };
+  const element = () => ({ style: {}, innerText: '', appendChild(child) { if (child.id) elements.set(child.id, child); child.parentElement = this; }, insertBefore(child) { if (child.id) elements.set(child.id, child); child.parentElement = this; } });
   for (const id of ['cameraRetroFrame', 'videoFeed', 'smileHintText', 'postCapturePreviewOverlay', 'countdownBox']) elements.set(id, element());
   const document = {
     getElementById: id => elements.get(id) || null,
@@ -44,8 +51,9 @@ function fixture({ reply, networkError, imageError = false, webcam = false, hasL
   const window = {
     __pbNotifyInitialized: true, addEventListener() {},
     MafazaAndroidBridge: {
-      getCameraStatus: () => JSON.stringify({ active: !sessionError, connectionError: sessionError, hasFrame: hasLiveFrame, frames: hasLiveFrame ? 1 : 0 }),
+      getCameraStatus: () => JSON.stringify(statusState),
       getLiveViewFrame: () => { calls.nativeFrame++; return 'data:image/jpeg;base64,bGl2ZQ=='; },
+      rescanCanonUsb() {},
     },
   };
   const context = vm.createContext({
@@ -75,6 +83,9 @@ function fixture({ reply, networkError, imageError = false, webcam = false, hasL
     clearAllTimers() {}, playShutterSound() {}, triggerShutterFlash() {},
     stopPoseLiveRecording() {}, renderFilmstripDock() {},
     applyCameraTransform() {}, applyCameraImageAdjustToLiveVideo() {},
+    startCamera() { calls.startCamera++; return Promise.resolve(); },
+    populateQuickCameraSelect() {},
+    onQuickCameraSelectChange() { return Promise.resolve(); },
     captureFrame(index) { calls.preview++; this.posesCaptured[index] = 'preview'; },
     handlePostCapture() { calls.post++; },
     triggerHardwareCameraAndFlash() { calls.server++; return Promise.resolve(false); },
@@ -83,7 +94,7 @@ function fixture({ reply, networkError, imageError = false, webcam = false, hasL
   });
   window.kiosk = k;
   vm.runInContext(guardSource, context);
-  return { k, calls, timeouts, intervals, elements, images, canvases };
+  return { k, calls, timeouts, intervals, elements, images, canvases, statusState };
 }
 
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -192,4 +203,51 @@ test('Android displays session-opening errors inside the preview area', () => {
   [...f.intervals.values()].find(timer => timer.ms === 500).fn();
   assert.equal(f.elements.get('mafazaLiveViewStatus').innerText, 'Membuka sesi kamera gagal');
   assert.equal(f.calls.draw, 0);
+});
+
+test('Android built-in camera stays unobstructed and captures cleanly when no USB camera is plugged in', async () => {
+  const f = fixture({ usbActive: false, usbAttached: false, sessionError: '' });
+  const tick = [...f.intervals.values()].find(timer => timer.ms === 500).fn;
+  tick();
+  assert.equal(f.elements.get('mafazaLiveViewStatus').style.display, 'none');
+  assert.equal(f.elements.get('mafazaLiveViewStatus').innerText, '');
+  f.k.triggerManualSnap(); await flush();
+  assert.equal(f.calls.capture, 0);
+  assert.equal(f.calls.server, 0);
+  assert.equal(f.calls.preview, 1);
+  assert.equal(f.calls.post, 1);
+  assert.equal(f.calls.audio, 1);
+});
+
+test('Android resumes built-in camera automatically when USB camera disconnects', () => {
+  const f = fixture({ usbActive: true, usbAttached: true });
+  const tick = [...f.intervals.values()].find(timer => timer.ms === 500).fn;
+  tick();
+  assert.equal(f.k.canonUsbStreamActive, true);
+  f.statusState.active = false;
+  f.statusState.usbAttached = false;
+  f.statusState.connectionError = '';
+  tick();
+  assert.equal(f.k.canonUsbStreamActive, false);
+  assert.equal(f.calls.startCamera, 1);
+  assert.equal(f.elements.get('mafazaLiveViewStatus').style.display, 'none');
+});
+
+test('Android allows manual fallback to built-in camera and auto-connects newly plugged USB camera', async () => {
+  const f = fixture({ usbActive: false, usbAttached: true, sessionError: 'Kamera gagal' });
+  const tick = [...f.intervals.values()].find(timer => timer.ms === 500).fn;
+  tick();
+  assert.equal(f.elements.get('mafazaLiveViewStatus').innerText, 'Kamera gagal');
+  await f.k.onQuickCameraSelectChange('builtin-front');
+  assert.equal(f.k.__mafazaPreferWebCamera, true);
+  assert.equal(f.elements.get('mafazaLiveViewStatus').style.display, 'none');
+  f.k.triggerManualSnap(); await flush();
+  assert.equal(f.calls.preview, 1);
+  assert.equal(f.calls.capture, 0);
+  // Newly plugged & connected USB camera clears __mafazaPreferWebCamera and starts Live View
+  f.statusState.active = true;
+  f.statusState.connectionError = '';
+  tick();
+  assert.equal(f.k.__mafazaPreferWebCamera, false);
+  assert.equal(f.k.canonUsbStreamActive, true);
 });

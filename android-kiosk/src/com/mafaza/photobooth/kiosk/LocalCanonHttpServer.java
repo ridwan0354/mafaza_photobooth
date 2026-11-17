@@ -184,7 +184,10 @@ public class LocalCanonHttpServer {
         byte[] capturedJpeg = canonEngine.capturePhotoWithFlash();
         if (capturedJpeg != null && capturedJpeg.length > 1024) {
             lastCapturedPhotoBytes = capturedJpeg;
-            String source = canonEngine.isSonyCamera() ? "sony-usb-ptp-apk" : "canon-usb-ptp-apk";
+            String driver = canonEngine.getDriverTypeName();
+            String source = "sony".equals(driver) ? "sony-usb-ptp-apk"
+                    : ("canon".equals(driver) ? "canon-usb-ptp-apk"
+                    : ("nikon".equals(driver) ? "nikon-usb-ptp-apk" : "generic-usb-ptp-apk"));
             String json = "{\"ok\":true,\"captureKind\":\"still\",\"source\":\"" + source
                     + "\",\"imageUrl\":\"http://127.0.0.1:" + PORT + "/captured_pose.jpg?id=" + lastCaptureId + "\"}";
             sendJson(out, 200, json);
@@ -213,6 +216,11 @@ public class LocalCanonHttpServer {
         return "{"
                 + "\"ok\":true,"
                 + "\"active\":" + active + ","
+                + "\"usbAttached\":" + canonEngine.isUsbPtpAttached() + ","
+                + "\"usbUvcAttached\":" + canonEngine.isUsbUvcAttached() + ","
+                + "\"usbUvcCamera\":\"" + escapeJson(canonEngine.getUsbUvcDeviceName()) + "\","
+                + "\"driverType\":\"" + escapeJson(canonEngine.getDriverTypeName()) + "\","
+                + "\"supportsLiveView\":" + canonEngine.supportsLiveView() + ","
                 + "\"hasFrame\":" + hasFrame + ","
                 + "\"frames\":" + frames + ","
                 + "\"camera\":\"" + camName + "\","
