@@ -2693,19 +2693,21 @@
     </div>
   </div>
 
-  <!-- 5. QUICK PRINT COPIES POPUP MODAL -->
-  <div id="quickPrintModal" style="display: none; position: fixed; inset: 0; z-index: 10002; background: rgba(30, 15, 10, 0.82); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;">
-    <div class="card-pop" style="max-width: 440px; width: 100%; background: #fff; padding: 26px; position: relative; border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.38); text-align: center;">
-      <button onclick="closeQuickPrintModal()" style="position: absolute; top: 18px; right: 18px; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--soft-gray); background: var(--cream-white); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px;">✕</button>
-
-      <div style="font-size: 32px; margin-bottom: 6px;">🖨️</div>
-      <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown); margin: 0 0 4px 0;">Cetak Foto</h3>
-      <p style="color: var(--text-muted); font-size: 13px; margin: 0 0 16px 0;" id="quickPrintEventTitle">Pilih jumlah lembar yang ingin dicetak</p>
+  <!-- 5. QUICK PRINT COPIES & PAPER SIZE POPUP MODAL -->
+  <div id="quickPrintModal" style="display: none; position: fixed; inset: 0; z-index: 10002; background: rgba(30, 15, 10, 0.82); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 18px;" onclick="if(event.target===this) closeQuickPrintModal()">
+    <div class="card-pop" style="max-width: 470px; width: 100%; background: #FFFDF9; border: 2px solid var(--border-soft, #EAD8C7); padding: 22px 24px; position: relative; border-radius: 24px; box-shadow: 0 24px 60px rgba(0,0,0,0.42); text-align: left;" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 14px;">
+        <div>
+          <h3 style="margin: 0; font-size: 19px; font-weight: 800; color: var(--caramel-brown);">🖨️ Atur Cetak Foto</h3>
+          <p style="margin: 2px 0 0; font-size: 12px; color: var(--text-muted);" id="quickPrintEventTitle">Dikirim langsung ke antrean server Laptop Printer studio</p>
+        </div>
+        <button type="button" onclick="closeQuickPrintModal()" style="width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(123,72,46,0.12); color: var(--caramel-brown); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px;">✕</button>
+      </div>
 
       <!-- Thumbnail Preview & Previous History -->
-      <div style="background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 16px; padding: 12px; margin-bottom: 20px; display: flex; align-items: center; gap: 14px; text-align: left;">
-        <img id="quickPrintThumbImg" src="" alt="Foto" style="width: 60px; height: 80px; object-fit: contain; border-radius: 8px; background: #fff; border: 1px solid var(--border-soft);">
-        <div style="flex: 1; font-size: 12.5px; line-height: 1.5;">
+      <div style="background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 16px; padding: 10px 12px; margin-bottom: 14px; display: flex; align-items: center; gap: 12px; text-align: left;">
+        <img id="quickPrintThumbImg" src="" alt="Foto" style="width: 54px; height: 72px; object-fit: contain; border-radius: 8px; background: #fff; border: 1px solid var(--border-soft);">
+        <div style="flex: 1; font-size: 12.5px; line-height: 1.45;">
           <div style="font-weight: 800; color: var(--caramel-brown);" id="quickPrintSessionLabel">Sesi Foto</div>
           <div style="font-size: 11.5px; color: var(--text-muted);" id="quickPrintTimeLabel">-</div>
           <div style="margin-top: 4px;" id="quickPrintHistoryBadge">
@@ -2714,39 +2716,58 @@
         </div>
       </div>
 
-      <!-- Copies Selector -->
-      <div style="margin-bottom: 22px; text-align: left;">
-        <label style="display: block; font-size: 13.5px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">
-          Mau cetak berapa lembar?
-        </label>
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;" id="quickPrintCopyButtons">
-          <button type="button" class="btn-copy-option" data-copies="1" onclick="selectQuickPrintCopies(1)">1x</button>
-          <button type="button" class="btn-copy-option active" data-copies="2" onclick="selectQuickPrintCopies(2)">2x</button>
-          <button type="button" class="btn-copy-option" data-copies="3" onclick="selectQuickPrintCopies(3)">3x</button>
-          <button type="button" class="btn-copy-option" data-copies="4" onclick="selectQuickPrintCopies(4)">4x</button>
+      <!-- Jumlah Cetak -->
+      <div style="background: #FFF6EB; border: 1.5px solid var(--border-soft, #EAD8C7); border-radius: 16px; padding: 12px 14px; margin-bottom: 14px;">
+        <div style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">📄 Mau cetak berapa lembar?</div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+          <div style="display: inline-flex; align-items: center; gap: 10px;">
+            <button type="button" class="btn btn-secondary" style="width: 38px; height: 38px; padding: 0; font-size: 18px; font-weight: 800;" onclick="adjustQuickPrintCopies(-1)">−</button>
+            <strong id="quickPrintQtyDisplay" style="font-size: 22px; min-width: 32px; text-align: center; color: #381E11;">1</strong>
+            <button type="button" class="btn btn-secondary" style="width: 38px; height: 38px; padding: 0; font-size: 18px; font-weight: 800;" onclick="adjustQuickPrintCopies(1)">+</button>
+          </div>
+          <div style="display: flex; gap: 6px;" id="quickPrintCopyButtons">
+            <button type="button" class="btn btn-secondary btn-copy-option" data-copies="1" onclick="selectQuickPrintCopies(1)" style="padding: 6px 11px; font-size: 12px; font-weight: 800;">1×</button>
+            <button type="button" class="btn btn-secondary btn-copy-option" data-copies="2" onclick="selectQuickPrintCopies(2)" style="padding: 6px 11px; font-size: 12px; font-weight: 800;">2×</button>
+            <button type="button" class="btn btn-secondary btn-copy-option" data-copies="3" onclick="selectQuickPrintCopies(3)" style="padding: 6px 11px; font-size: 12px; font-weight: 800;">3×</button>
+            <button type="button" class="btn btn-secondary btn-copy-option" data-copies="4" onclick="selectQuickPrintCopies(4)" style="padding: 6px 11px; font-size: 12px; font-weight: 800;">4×</button>
+          </div>
         </div>
-        <select id="quickPrintCopiesSelect" onchange="syncQuickPrintCopiesFromSelect()" style="width: 100%; padding: 10px 14px; background: var(--cream-white); border: 2px solid var(--soft-gray); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
-          <option value="1">1 Lembar Cetak</option>
-          <option value="2" selected>2 Lembar Cetak (Standard Photostrip)</option>
-          <option value="3">3 Lembar Cetak</option>
-          <option value="4">4 Lembar Cetak</option>
-          <option value="5">5 Lembar Cetak</option>
-          <option value="6">6 Lembar Cetak</option>
-          <option value="8">8 Lembar Cetak</option>
-          <option value="10">10 Lembar Cetak</option>
-        </select>
+        <input type="hidden" id="quickPrintCopiesSelect" value="1">
+      </div>
+
+      <!-- Pilihan Kertas 4R vs 5R -->
+      <div style="margin-bottom: 14px;">
+        <div style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">📐 Pilih Ukuran Kertas Cetak:</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <button type="button" id="quickPrintPaperOpt4R" onclick="setQuickPrintPaper('4R')" style="text-align: left; padding: 12px; border-radius: 14px; border: 2px solid var(--coral, #E6786B); background: rgba(230,120,107,0.1); cursor: pointer;">
+            <div style="font-size: 15px; font-weight: 800; color: #381E11;">📄 4R (10×15 cm)</div>
+            <div style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-top: 2px;">Otomatis langsung cetak di printer</div>
+          </button>
+          <button type="button" id="quickPrintPaperOpt5R" onclick="setQuickPrintPaper('5R')" style="text-align: left; padding: 12px; border-radius: 14px; border: 2px solid var(--border-soft, #EAD8C7); background: #fff; cursor: pointer;">
+            <div style="font-size: 15px; font-weight: 800; color: #381E11;">📄 5R (13×18 cm)</div>
+            <div style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-top: 2px;">Minta konfirmasi ganti kertas 5R</div>
+          </button>
+        </div>
+      </div>
+
+      <div id="quickPrint5rNotice" style="display: none; background: #FFF8E6; border: 1.5px solid #D4A754; border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; font-size: 11.5px; color: #5a3e1b; line-height: 1.45;">
+        <div><strong>⚠️ Konfirmasi Kertas 5R:</strong> Laptop Printer / Admin akan memunculkan popup konfirmasi penggantian kertas 5R terlebih dahulu sebelum mencetak.</div>
+        <label style="display: flex; align-items: center; gap: 7px; margin-top: 8px; font-weight: 700; cursor: pointer;">
+          <input type="checkbox" id="quickPrintPaperAlreadyReadyCheck" style="accent-color: var(--coral, #E6786B);">
+          <span>Kertas 5R sudah terpasang di printer (langsung cetak tanpa konfirmasi)</span>
+        </label>
       </div>
 
       <!-- Action Buttons -->
       <div style="display: flex; flex-direction: column; gap: 8px;">
         <button id="btnConfirmQuickPrint" type="button" class="btn btn-coral" style="width: 100%; padding: 13px; font-size: 14.5px; font-weight: 800;" onclick="executeQuickPrint()">
-          🖨️ Cetak <span id="quickPrintCopiesLabel">2</span> Lembar Sekarang
+          🚀 Kirim Cetak ke Antrean Server (<span id="quickPrintCopiesLabel">1</span>×)
         </button>
         <div style="display: flex; gap: 8px;">
-          <button type="button" class="btn btn-secondary" style="flex: 1; padding: 10px; font-size: 12.5px; font-weight: 700; background: var(--cream-bg); color: var(--caramel-brown);" onclick="executeQuickPrintBrowser()">
-            🖨️ Dialog Browser (Cadangan)
+          <button type="button" class="btn btn-secondary" style="flex: 1; padding: 9px 12px; font-size: 12px; font-weight: 700; background: var(--cream-bg); color: var(--caramel-brown);" onclick="executeQuickPrintBrowser()">
+            🖨️ Cetak Perangkat Ini
           </button>
-          <button type="button" class="btn btn-secondary" style="padding: 10px 18px; font-size: 12.5px; font-weight: 700; background: #fff;" onclick="closeQuickPrintModal()">
+          <button type="button" class="btn btn-secondary" style="padding: 9px 16px; font-size: 12px; font-weight: 700; background: #fff;" onclick="closeQuickPrintModal()">
             Batal
           </button>
         </div>
@@ -2795,7 +2816,7 @@
 
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
-  <script src="/js/print-client.js?v=1.4"></script>
-  <script src="/js/admin.js?v=responsive-v6.8"></script>
+  <script src="/js/print-client.js?v=1.5"></script>
+  <script src="/js/admin.js?v=responsive-v6.9"></script>
 </body>
 </html>

@@ -3998,6 +3998,35 @@ async function executeModalReprint() {
 }
 
 let pendingQuickPrintPhoto = null;
+let quickPrintPaperChoice = '4R';
+
+function setQuickPrintPaper(size) {
+  quickPrintPaperChoice = size === '5R' ? '5R' : '4R';
+  const opt4 = document.getElementById('quickPrintPaperOpt4R');
+  const opt5 = document.getElementById('quickPrintPaperOpt5R');
+  const notice5r = document.getElementById('quickPrint5rNotice');
+
+  if (opt4) {
+    const a = quickPrintPaperChoice === '4R';
+    opt4.style.border = a ? '2px solid var(--coral, #E6786B)' : '2px solid var(--border-soft, #EAD8C7)';
+    opt4.style.background = a ? 'rgba(230,120,107,0.1)' : '#fff';
+  }
+  if (opt5) {
+    const a = quickPrintPaperChoice === '5R';
+    opt5.style.border = a ? '2px solid #D4A754' : '2px solid var(--border-soft, #EAD8C7)';
+    opt5.style.background = a ? '#FFF8E6' : '#fff';
+  }
+  if (notice5r) {
+    notice5r.style.display = quickPrintPaperChoice === '5R' ? 'block' : 'none';
+  }
+}
+window.setQuickPrintPaper = setQuickPrintPaper;
+
+function adjustQuickPrintCopies(delta) {
+  const cur = parseInt(document.getElementById('quickPrintCopiesSelect')?.value) || 1;
+  selectQuickPrintCopies(Math.max(1, Math.min(10, cur + delta)));
+}
+window.adjustQuickPrintCopies = adjustQuickPrintCopies;
 
 function promptQuickPrint(index) {
   const photo = cachedRecentPhotos[index];
@@ -4014,7 +4043,7 @@ function promptQuickPrint(index) {
   const eventTitle = document.getElementById('quickPrintEventTitle');
 
   if (thumbImg) thumbImg.src = photo.file_path || '/assets/templates/strip-green-template.svg';
-  if (eventTitle) eventTitle.textContent = `${photo.event_name || 'Event Mafaza'} • Pilih jumlah lembar cetak`;
+  if (eventTitle) eventTitle.textContent = `${photo.event_name || 'Event Mafaza'} • Dikirim ke antrean server Laptop Printer`;
   if (sessLabel) sessLabel.textContent = photo.session_id ? `Sesi: ${photo.session_id}` : 'Foto Kiosk';
   if (timeLabel) timeLabel.textContent = photo.created_at ? new Date(photo.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-';
 
@@ -4030,21 +4059,30 @@ function promptQuickPrint(index) {
   const defaultCopies = (photo.session_mode === 'strip') ? 2 : 1;
   selectQuickPrintCopies(defaultCopies);
 
+  // Deteksi ukuran kertas default (5R jika template / riwayat cetak sebelumnya 5R)
+  const is5rPhoto = /5r|5x7|1500x2100|2100x1500/i.test(`${photo.template_name || ''} ${photo.paper_size || ''}`);
+  setQuickPrintPaper(is5rPhoto ? '5R' : '4R');
+  const readyCheck = document.getElementById('quickPrintPaperAlreadyReadyCheck');
+  if (readyCheck) readyCheck.checked = false;
+
   modal.style.display = 'flex';
 }
 
 function selectQuickPrintCopies(copies) {
-  const num = parseInt(copies) || 1;
+  const num = Math.max(1, Math.min(10, parseInt(copies) || 1));
   const select = document.getElementById('quickPrintCopiesSelect');
   if (select) select.value = num;
 
-  const btns = document.querySelectorAll('.btn-copy-option');
+  const qtyDisplay = document.getElementById('quickPrintQtyDisplay');
+  if (qtyDisplay) qtyDisplay.textContent = num;
+
+  const btns = document.querySelectorAll('#quickPrintCopyButtons .btn-copy-option');
   btns.forEach(b => {
-    if (parseInt(b.dataset.copies) === num) {
-      b.classList.add('active');
-    } else {
-      b.classList.remove('active');
-    }
+    const active = parseInt(b.dataset.copies) === num;
+    b.classList.toggle('active', active);
+    b.style.background = active ? 'var(--coral, #E6786B)' : '#fff';
+    b.style.color = active ? '#fff' : '#381E11';
+    b.style.borderColor = active ? 'var(--coral, #E6786B)' : 'var(--border-soft, #EAD8C7)';
   });
 
   const label = document.getElementById('quickPrintCopiesLabel');
@@ -4065,13 +4103,19 @@ function closeQuickPrintModal() {
 async function executeQuickPrint() {
   if (!pendingQuickPrintPhoto) return;
   const copies = parseInt(document.getElementById('quickPrintCopiesSelect')?.value) || 1;
+  const paperSize = quickPrintPaperChoice === '5R' ? '5x7' : '4x6';
+  const paperConfirmed = quickPrintPaperChoice === '5R'
+    ? Boolean(document.getElementById('quickPrintPaperAlreadyReadyCheck')?.checked)
+    : true;
+
   const btn = document.getElementById('btnConfirmQuickPrint');
   if (btn) {
     btn.disabled = true;
-    btn.textContent = `⏳ Mengirim ${copies} Lembar...`;
+    btn.textContent = `⏳ Mengirim ${copies} Lembar ${quickPrintPaperChoice}...`;
   }
 
   const photo = pendingQuickPrintPhoto;
+  const paperLabel = quickPrintPaperChoice;
   closeQuickPrintModal();
 
   try {
@@ -4080,7 +4124,7 @@ async function executeQuickPrint() {
       const res = await fetch(`/api/print-jobs/${photo.print_job_id}/reprint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ copies })
+        body: JSON.stringify({ copies, paperSize, paperConfirmed })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal mengirim cetak');
@@ -4089,7 +4133,7 @@ async function executeQuickPrint() {
       const res = await fetch(`/api/photos/${photo.asset_id}/print`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ copies })
+        body: JSON.stringify({ copies, paperSize, paperConfirmed })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal mencetak');
@@ -4097,8 +4141,12 @@ async function executeQuickPrint() {
     }
 
     if (printJob) {
-      await window.pbSmartPrint(printJob, photo.file_path, copies);
-      window.pbToast(`✅ Sukses mengirim ${copies} lembar cetak ke spooler!`, 'ok');
+      if (printJob.requiresPaperConfirm || printJob.state === 'awaiting_paper') {
+        window.pbToast(`📄 Antrean 5R (${copies}×) dikirim! Menunggu konfirmasi ganti kertas 5R.`, 'warn', 4200);
+      } else {
+        await window.pbSmartPrint(printJob, photo.file_path, copies);
+        window.pbToast(`✅ Sukses mengirim ${copies} lembar ${paperLabel} ke antrean cetak!`, 'ok');
+      }
       await loadPrintJobs();
       await loadRecentPhotos();
     }
@@ -4107,7 +4155,7 @@ async function executeQuickPrint() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = `🖨️ Cetak <span id="quickPrintCopiesLabel">${copies}</span> Lembar Sekarang`;
+      btn.innerHTML = `🚀 Kirim Cetak ke Antrean Server (<span id="quickPrintCopiesLabel">${copies}</span>×)`;
     }
   }
 }
@@ -4115,9 +4163,23 @@ async function executeQuickPrint() {
 async function executeQuickPrintBrowser() {
   if (!pendingQuickPrintPhoto) return;
   const photo = pendingQuickPrintPhoto;
+  const copies = parseInt(document.getElementById('quickPrintCopiesSelect')?.value) || 1;
+  const is5r = quickPrintPaperChoice === '5R';
   closeQuickPrintModal();
-  openPhotoPreviewModal(photo);
-  printModalPhotoViaDevice();
+
+  const imgSrc = photo.file_path || photo.media_url;
+  if (!imgSrc) {
+    window.pbToast('File gambar tidak ditemukan untuk dicetak.', 'error');
+    return;
+  }
+  const job = {
+    ...(photo.print_job_id ? { sheetUrl: `/api/print-jobs/${photo.print_job_id}/sheet` } : {}),
+    paperSize: is5r ? '5x7' : '4x6',
+    paperWidthIn: is5r ? 5 : 4,
+    paperHeightIn: is5r ? 7 : 6,
+    borderless: true
+  };
+  await window.pbPrintViaBrowser({ imageUrl: imgSrc, copies, job });
 }
 
 async function quickPrintPhoto(assetId, existingJobId) {
