@@ -1350,18 +1350,20 @@ class KioskEngine {
       if (this.cameraAspectRatio === '2/3' || this.cameraAspectRatio === '3/4' || !this.cameraAspectRatio) {
         this.setCameraAspectRatio('3/2');
       } else {
-        this.syncCameraAdjustments();
+        this.applyCameraTransform();
       }
     } else if (tpl.orientation !== 'strip' && slotIsPortrait) {
       // Single Frame Potret dengan slot tegak
       if (this.cameraAspectRatio === '16/9' || this.cameraAspectRatio === '3/2' || this.cameraAspectRatio === '4/3') {
         this.setCameraAspectRatio('2/3');
       } else {
-        this.syncCameraAdjustments();
+        this.applyCameraTransform();
       }
     } else if (this.cameraAspectRatio === '2/3' || this.cameraAspectRatio === '3/4') {
       // Strip 2x6 biasanya punya slot foto mendatar (3:2 / 4:3)
       this.setCameraAspectRatio('3/2');
+    } else {
+      this.applyCameraTransform();
     }
   }
 
