@@ -3714,12 +3714,12 @@ class KioskEngine {
     }
   }
 
-  handlePostCapture(justCapturedIndex) {
+  async handlePostCapture(justCapturedIndex) {
     const nextEmptyIndex = this.posesCaptured.findIndex(p => p === null);
     this.lastCapturedPoseIndex = justCapturedIndex;
     this.pendingNextPoseIndex = nextEmptyIndex;
 
-    this.applyRotationToCapturedPose(justCapturedIndex);
+    await this.applyRotationToCapturedPose(justCapturedIndex);
 
     const capturedSrc = this.posesCaptured[justCapturedIndex];
     const holdOverlay = document.getElementById('postCapturePreviewOverlay');
@@ -5578,11 +5578,34 @@ function closeOperatorPinModal() {
   document.getElementById('operatorPinModal').style.display = 'none';
 }
 
-function verifyOperatorPin() {
-  const pin = document.getElementById('operatorPinInput').value;
-  if (pin === '1234' || pin === '0000') {
-    window.location.href = '/admin?tab=photos';
-  } else {
-    alert('PIN Operator salah! (Default PIN: 1234)');
+async function verifyOperatorPin() {
+  const input = document.getElementById('operatorPinInput');
+  const pin = String((input && input.value) || '').trim();
+  if (!pin) {
+    alert('Masukkan PIN Operator terlebih dahulu!');
+    return;
+  }
+
+  try {
+    const eventId = (window.kiosk && window.kiosk.eventId) || localStorage.getItem('pb_active_event_id') || '';
+    const res = await fetch('/api/kiosk/verify-operator-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventId, pin })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.valid) {
+      window.location.href = '/admin?tab=photos';
+      return;
+    }
+    alert(data.error || 'PIN Operator salah!');
+  } catch (e) {
+    // Fallback offline jika server tidak terjangkau
+    const localPin = (window.kiosk && window.kiosk.eventConfig && window.kiosk.eventConfig.pinLock) || '1234';
+    if (pin === String(localPin)) {
+      window.location.href = '/admin?tab=photos';
+    } else {
+      alert('PIN Operator salah! (Default PIN: 1234)');
+    }
   }
 }

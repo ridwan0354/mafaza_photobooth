@@ -78,29 +78,60 @@
     });
   }
 
-  function renderPhoto(kiosk, img) {
+  function renderPhoto(kiosk, img, poseIndex) {
+    const rawRot = [0, 90, 180, 270].includes(kiosk.cameraRotation) ? kiosk.cameraRotation : 0;
+    const effectiveRot = ((rawRot === 90 || rawRot === 270) && img.naturalHeight > img.naturalWidth) ? 0 : rawRot;
+
+    let srcDrawable = img;
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+
+    if (effectiveRot !== 0) {
+      const swap = (effectiveRot === 90 || effectiveRot === 270);
+      const rotCanvas = document.createElement('canvas');
+      rotCanvas.width = swap ? h : w;
+      rotCanvas.height = swap ? w : h;
+      const rCtx = rotCanvas.getContext('2d');
+      if (rCtx && typeof rCtx.translate === 'function' && typeof rCtx.rotate === 'function') {
+        rCtx.translate(rotCanvas.width / 2, rotCanvas.height / 2);
+        rCtx.rotate((effectiveRot * Math.PI) / 180);
+        rCtx.drawImage(img, -w / 2, -h / 2, w, h);
+        srcDrawable = rotCanvas;
+        w = rotCanvas.width;
+        h = rotCanvas.height;
+        if (poseIndex !== undefined && poseIndex !== null) {
+          kiosk.__captureFrameRotatedFlags = kiosk.__captureFrameRotatedFlags || {};
+          kiosk.__captureFrameRotatedFlags[poseIndex] = true;
+        }
+      }
+    }
+
     const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Layar tidak dapat memproses foto kamera.');
+
+    try {
+      const cssFilter = (typeof kiosk.getCameraCssFilterString === 'function') ? kiosk.getCameraCssFilterString() : '';
+      if (cssFilter && 'filter' in ctx) ctx.filter = cssFilter;
+    } catch (e) {}
+
     const zoom = Math.max(0.5, Math.min(3, kiosk.cameraZoom || 1));
     const panX = Math.max(-1, Math.min(1, kiosk.cameraPanX || 0));
     const panY = Math.max(-1, Math.min(1, kiosk.cameraPanY || 0));
-    const w = canvas.width;
-    const h = canvas.height;
     if (zoom < 1) {
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, w, h);
       const dw = w * zoom;
       const dh = h * zoom;
-      ctx.drawImage(img, 0, 0, w, h, (w - dw) / 2 * (1 + panX), (h - dh) / 2 * (1 - panY), dw, dh);
+      ctx.drawImage(srcDrawable, 0, 0, w, h, (w - dw) / 2 * (1 + panX), (h - dh) / 2 * (1 - panY), dw, dh);
     } else {
       const cropW = w / zoom;
       const cropH = h / zoom;
       const x = Math.max(0, Math.min(w - cropW, (w - cropW) / 2 * (1 - panX)));
       const y = Math.max(0, Math.min(h - cropH, (h - cropH) / 2 * (1 + panY)));
-      ctx.drawImage(img, x, y, cropW, cropH, 0, 0, w, h);
+      ctx.drawImage(srcDrawable, x, y, cropW, cropH, 0, 0, w, h);
     }
     return canvas.toDataURL('image/jpeg', 0.9);
   }
@@ -235,6 +266,7 @@
           if (canvas.width !== image.naturalWidth || canvas.height !== image.naturalHeight) {
             canvas.width = image.naturalWidth;
             canvas.height = image.naturalHeight;
+            if (typeof kiosk.applyCameraTransform === 'function') kiosk.applyCameraTransform();
           }
           ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
           lastFrame = status.frames;
@@ -338,7 +370,7 @@
           throw new Error('Alamat foto kamera tidak valid.');
         }
         const img = await loadPhoto(photoUrl.href);
-        this.posesCaptured[index] = renderPhoto(this, img);
+        this.posesCaptured[index] = renderPhoto(this, img, index);
         this.rawPosesSyncedForSession = null;
         this.hardwareCaptureFailedPose = null;
         this.renderFilmstripDock();

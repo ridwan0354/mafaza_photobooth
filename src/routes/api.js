@@ -314,16 +314,52 @@ apiRouter.post('/events', authMiddleware(), (req, res) => {
   }
 });
 
-apiRouter.get('/events/:id', (req, res) => {
+function resolveOptionalAuth(req) {
   let tenantId = 'tenant_studiokeren_01';
+  let isAuthed = false;
   const authHeader = req.headers.authorization;
+  let token = null;
   if (authHeader && authHeader.startsWith('Bearer ')) {
-    const payload = verifyToken(authHeader.substring(7));
-    if (payload && payload.tenantId) tenantId = payload.tenantId;
+    token = authHeader.substring(7);
+  } else if (req.cookies && (req.cookies.pb_admin_auth || req.cookies.pb_token)) {
+    token = req.cookies.pb_admin_auth || req.cookies.pb_token;
   }
+  if (token) {
+    const payload = verifyToken(token);
+    if (payload) {
+      isAuthed = true;
+      if (payload.tenantId) tenantId = payload.tenantId;
+    }
+  }
+  return { tenantId, isAuthed };
+}
+
+function sanitizeEventForPublic(event, isAuthed) {
+  if (!event || isAuthed) return event;
+  const safeCfg = (event.config && typeof event.config === 'object') ? { ...event.config } : undefined;
+  if (safeCfg) delete safeCfg.pinLock;
+  let safeConfigJson = event.config_json;
+  if (typeof safeConfigJson === 'string') {
+    try {
+      const parsedJson = JSON.parse(safeConfigJson);
+      if (parsedJson && typeof parsedJson === 'object') {
+        delete parsedJson.pinLock;
+        safeConfigJson = JSON.stringify(parsedJson);
+      }
+    } catch (e) {}
+  }
+  return {
+    ...event,
+    ...(safeCfg ? { config: safeCfg } : {}),
+    config_json: safeConfigJson
+  };
+}
+
+apiRouter.get('/events/:id', (req, res) => {
+  const { tenantId, isAuthed } = resolveOptionalAuth(req);
   const event = eventService.getEventById(req.params.id, tenantId);
   if (!event) return res.status(404).json({ error: 'Event tidak ditemukan' });
-  res.json(event);
+  res.json(sanitizeEventForPublic(event, isAuthed));
 });
 
 // Endpoint untuk mendapatkan QR code galeri lengkap sebuah Event (memuat seluruh foto tamu)
@@ -626,12 +662,7 @@ apiRouter.post('/events/cleanup-expired', authMiddleware(), (req, res) => {
 
 // Active Event State for Tenant (accessible by both Admin & Kiosk)
 apiRouter.get('/events/active/current', (req, res) => {
-  let tenantId = 'tenant_studiokeren_01';
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const payload = verifyToken(authHeader.substring(7));
-    if (payload && payload.tenantId) tenantId = payload.tenantId;
-  }
+  const { tenantId, isAuthed } = resolveOptionalAuth(req);
 
   const tenant = db.prepare('SELECT brand_config_json FROM tenants WHERE id = ?').get(tenantId);
   let activeEventId = null;
@@ -651,7 +682,52 @@ apiRouter.get('/events/active/current', (req, res) => {
     event = events[0] || null;
   }
 
+  event = sanitizeEventForPublic(event, isAuthed);
   res.json({ event, activeEventId: event ? event.id : null });
+});
+
+// Verify Operator PIN securely on server (supports OPERATOR_PIN env var or event config pinLock)
+const operatorPinAttempts = new Map();
+apiRouter.post('/kiosk/verify-operator-pin', (req, res) => {
+  try {
+    const clientIp = getClientIp(req);
+    const now = Date.now();
+    const attemptInfo = operatorPinAttempts.get(clientIp) || { count: 0, lockedUntil: 0 };
+    if (attemptInfo.lockedUntil > now) {
+      const remainingSeconds = Math.ceil((attemptInfo.lockedUntil - now) / 1000);
+      return res.status(429).json({ valid: false, error: `Terlalu banyak percobaan PIN. Coba lagi dalam ${remainingSeconds} detik.` });
+    }
+
+    const inputPin = String((req.body && req.body.pin) || '').trim();
+    const eventId = req.body && req.body.eventId ? String(req.body.eventId) : null;
+    let expectedPin = (process.env.OPERATOR_PIN || '').trim();
+    if (!expectedPin && eventId) {
+      const ev = db.prepare('SELECT config_json FROM events WHERE id = ?').get(eventId);
+      if (ev && ev.config_json) {
+        try {
+          const cfg = JSON.parse(ev.config_json);
+          if (cfg && cfg.pinLock) expectedPin = String(cfg.pinLock).trim();
+        } catch (e) {}
+      }
+    }
+    if (!expectedPin) expectedPin = '1234';
+
+    const bufIn = Buffer.from(inputPin, 'utf8');
+    const bufExp = Buffer.from(expectedPin, 'utf8');
+    const isValid = bufIn.length > 0 && bufIn.length === bufExp.length && crypto.timingSafeEqual(bufIn, bufExp);
+
+    if (!isValid) {
+      const count = (attemptInfo.lockedUntil > 0 && attemptInfo.lockedUntil <= now) ? 1 : attemptInfo.count + 1;
+      const lockedUntil = count >= 8 ? (now + 5 * 60 * 1000) : 0;
+      operatorPinAttempts.set(clientIp, { count, lockedUntil });
+      return res.status(401).json({ valid: false, error: 'PIN Operator salah!' });
+    }
+
+    operatorPinAttempts.delete(clientIp);
+    return res.json({ valid: true });
+  } catch (err) {
+    return res.status(400).json({ valid: false, error: err.message });
+  }
 });
 
 apiRouter.post('/events/active/set', authMiddleware(), (req, res) => {
@@ -1171,7 +1247,8 @@ apiRouter.post('/printers/test-print', authMiddleware(), (req, res) => {
       VALUES (?, ?, ?, ?, 'final_photo', 'print_hires', '/uploads/test_print.png')
     `).run(testAssetId, tenantId, activeEvent.id, testSessionId);
 
-    const printJob = printService.createPrintJob(tenantId, activeEvent.id, null, testSessionId, testAssetId, 1);
+    const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+    const printJob = printService.createPrintJob(tenantId, activeEvent.id, null, testSessionId, testAssetId, 1, { baseUrl });
     res.json({
       success: true,
       message: 'Test print berhasil dikirim ke antrean spooler!',
@@ -1240,10 +1317,10 @@ apiRouter.post('/print-agent/jobs/:id/result', agentAuth, (req, res) => {
   }
 });
 
-apiRouter.get('/print-agent/download/:os', async (req, res) => {
+apiRouter.get('/print-agent/download/:os', authMiddleware(), async (req, res) => {
   try {
     const os = req.params.os === 'windows' ? 'windows' : 'macos';
-    const tenantId = req.query.token ? (verifyToken(String(req.query.token))?.tenantId || 'tenant_studiokeren_01') : 'tenant_studiokeren_01';
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
     const serverUrl = (req.query.serverUrl && String(req.query.serverUrl).trim())
       || `${req.headers['x-forwarded-proto'] || req.protocol}://${req.headers.host}`;
     const key = printService.getOrCreateAgentKey(tenantId);
@@ -1279,7 +1356,8 @@ apiRouter.post('/print-jobs/:id/reprint', authMiddleware(), (req, res) => {
     const copies = parseInt(req.body?.copies) || null;
     const paperSize = req.body?.paperSize || null;
     const paperConfirmed = req.body?.paperConfirmed === true || req.body?.paperConfirmed === 'true';
-    const result = printService.reprintJob(req.params.id, req.user.tenantId, req.user.userId, copies, { paperSize, paperConfirmed });
+    const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+    const result = printService.reprintJob(req.params.id, req.user.tenantId, req.user.userId, copies, { paperSize, paperConfirmed, baseUrl });
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });

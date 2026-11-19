@@ -94,8 +94,14 @@ fi
 echo "📦 Menginstall dependencies Node.js..."
 npm install --omit=dev
 
-# 7. Setup Environment Port
-echo "PORT=$APP_PORT" > "$APP_DIR/.env"
+# 7. Setup Environment Port (jaga variabel .env kustom seperti ADMIN_PASSWORD, OPERATOR_PIN, JWT_SECRET)
+if [ ! -f "$APP_DIR/.env" ]; then
+  echo "PORT=$APP_PORT" > "$APP_DIR/.env"
+elif grep -q "^PORT=" "$APP_DIR/.env"; then
+  sed -i "s/^PORT=.*/PORT=$APP_PORT/" "$APP_DIR/.env"
+else
+  echo "PORT=$APP_PORT" >> "$APP_DIR/.env"
+fi
 
 # 8. Start / Restart Process via PM2
 echo "⚡ Menjalankan server aplikasi via PM2..."

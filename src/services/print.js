@@ -682,10 +682,6 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
           const pass = db.prepare('SELECT token_plain FROM guest_passes WHERE id = ?').get(session.guest_pass_id);
           if (pass) token = pass.token_plain;
         }
-        if (!token && (session.event_id || eventId)) {
-          const pass = db.prepare('SELECT token_plain FROM guest_passes WHERE event_id = ? ORDER BY created_at DESC LIMIT 1').get(session.event_id || eventId);
-          if (pass) token = pass.token_plain;
-        }
         if (token) {
           const baseUrl = extraOptions.baseUrl || process.env.BASE_URL || 'https://mafaza.galipatsistem.com';
           qrUrl = `${baseUrl.replace(/\/+$/, '')}/gallery/g/${token}`;
@@ -694,6 +690,9 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
     }
   }
 
+  if (extraOptions.baseUrl) {
+    options.baseUrl = extraOptions.baseUrl;
+  }
   options.qrUrl = qrUrl;
   options.qrPosition = qrPosition || 'bottom-right';
   if (qrCoords && qrCoords.length > 0) {
@@ -887,6 +886,21 @@ export function reprintJob(printJobId, tenantId, operatorId, copies = null, extr
 
   const origOpts = parseJson(original.options_json || '{}', {});
   const finalCopies = parseInt(copies) || original.copies || 1;
+  const resolvedBaseUrl = extraOptions.baseUrl || origOpts.baseUrl || null;
+  let resolvedQrUrl = null;
+  if (origOpts.qrUrl) {
+    if (resolvedBaseUrl) {
+      try {
+        const parsedOrig = new URL(origOpts.qrUrl);
+        resolvedQrUrl = `${resolvedBaseUrl.replace(/\/+$/, '')}${parsedOrig.pathname}${parsedOrig.search}`;
+      } catch (e) {
+        resolvedQrUrl = origOpts.qrUrl;
+      }
+    } else {
+      resolvedQrUrl = origOpts.qrUrl;
+    }
+  }
+
   const newJob = createPrintJob(
     tenantId,
     original.event_id,
@@ -896,7 +910,11 @@ export function reprintJob(printJobId, tenantId, operatorId, copies = null, extr
     finalCopies,
     {
       paperSize: extraOptions.paperSize || origOpts.paperSize || null,
-      paperConfirmed: !!extraOptions.paperConfirmed
+      paperConfirmed: !!extraOptions.paperConfirmed,
+      baseUrl: resolvedBaseUrl,
+      qrUrl: resolvedQrUrl,
+      qrPosition: origOpts.qrPosition || null,
+      qrCoords: Array.isArray(origOpts.qrCoords) ? origOpts.qrCoords : null
     }
   );
 

@@ -55,25 +55,10 @@ app.use((req, res, next) => {
 
 const publicDir = path.join(__dirname, '../public');
 
-// Protected Admin Dashboard Route (Gate Password: 313354)
+// Protected Admin Dashboard Route (konfigurasi password lewat ADMIN_PASSWORD di .env, default dev: 313354)
 // Ditempatkan SEBELUM express.static agar /admin.html tidak bisa diakses langsung tanpa autentikasi
 app.get(['/admin', '/admin.html'], (req, res) => {
-  let token = req.cookies?.pb_admin_auth || req.cookies?.pb_token || req.query?.auth || req.query?.token;
-
-  // Direct password fallback via query (?password=313354 atau ?pass=313354)
-  const targetPass = (process.env.ADMIN_PASSWORD || '313354').trim();
-  const queryPass = (req.query?.password || req.query?.pass || '').trim();
-  if (!token && queryPass && queryPass === targetPass) {
-    const adminUser = db.prepare("SELECT id, email, full_name, role FROM users WHERE role IN ('business_admin', 'super_admin') LIMIT 1").get();
-    const activeTenant = db.prepare('SELECT id FROM tenants LIMIT 1').get() || { id: 'tenant_studiokeren_01' };
-    token = createToken({
-      userId: adminUser?.id || 'user_business_owner_01',
-      email: adminUser?.email || 'owner@studiokeren.id',
-      name: adminUser?.full_name || 'Admin Mafaza',
-      role: 'super_admin',
-      tenantId: activeTenant.id
-    });
-  }
+  const token = req.cookies?.pb_admin_auth || req.cookies?.pb_token || req.query?.auth || req.query?.token;
 
   const verified = token ? verifyToken(token) : null;
   if (!verified) {

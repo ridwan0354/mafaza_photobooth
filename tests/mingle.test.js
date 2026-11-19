@@ -400,3 +400,111 @@ test('Server print queue dispatches 4R immediately and holds 5R for Admin paper 
     db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(sessId);
   }
 });
+
+test('Audit security & parity fixes: no guest QR cross-leak, reprint baseUrl, auth-guarded print-agent, no admin query bypass, operator PIN verify, APK sync', async () => {
+  const printService = await import('../src/services/print.js');
+  const tenantId = 'tenant_studiokeren_01';
+  const eventId = 'event_wedding_dimas_sarah';
+  const suffix = Date.now() + '_' + Math.floor(Math.random() * 10000);
+  const otherPassId = 'gp_other_' + suffix;
+  const ownPassId = 'gp_own_' + suffix;
+  const sessNoPassId = 'sess_nopass_' + suffix;
+  const sessOwnPassId = 'sess_ownpass_' + suffix;
+  const assetNoPassId = 'asset_nopass_' + suffix;
+  const assetOwnPassId = 'asset_ownpass_' + suffix;
+  const ownToken = 'own_tok_' + suffix;
+
+  db.prepare(`
+    INSERT INTO guest_passes (id, tenant_id, event_id, opaque_token_hash, token_plain, status, issued_via, expires_at)
+    VALUES (?, ?, ?, ?, ?, 'active', 'test', datetime('now', '+1 day'))
+  `).run(otherPassId, tenantId, eventId, 'hash_other_' + suffix, 'other_tok_' + suffix);
+
+  db.prepare(`
+    INSERT INTO guest_passes (id, tenant_id, event_id, opaque_token_hash, token_plain, status, issued_via, expires_at)
+    VALUES (?, ?, ?, ?, ?, 'active', 'test', datetime('now', '+1 day'))
+  `).run(ownPassId, tenantId, eventId, 'hash_own_' + suffix, ownToken);
+
+  db.prepare(`
+    INSERT INTO photo_sessions (id, tenant_id, event_id, guest_pass_id, device_id, mode, status)
+    VALUES (?, ?, ?, NULL, NULL, 'kiosk', 'completed')
+  `).run(sessNoPassId, tenantId, eventId);
+
+  db.prepare(`
+    INSERT INTO photo_sessions (id, tenant_id, event_id, guest_pass_id, device_id, mode, status)
+    VALUES (?, ?, ?, ?, NULL, 'kiosk', 'completed')
+  `).run(sessOwnPassId, tenantId, eventId, ownPassId);
+
+  db.prepare(`
+    INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
+    VALUES (?, ?, ?, ?, 'final_photo', 'print_hires', '/uploads/test_no_qr.png', 'ready')
+  `).run(assetNoPassId, tenantId, eventId, sessNoPassId);
+
+  db.prepare(`
+    INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
+    VALUES (?, ?, ?, ?, 'final_photo', 'print_hires', '/uploads/test_own_qr.png', 'ready')
+  `).run(assetOwnPassId, tenantId, eventId, sessOwnPassId);
+
+  try {
+    // 1a. Session without guest_pass_id must NOT fall back to another guest's guest_pass in the same event
+    const noPassJob = printService.createPrintJob(tenantId, eventId, null, sessNoPassId, assetNoPassId, 1, {
+      paperSize: '4x6',
+      baseUrl: 'https://mafaza.example.com'
+    });
+    const noPassRow = db.prepare('SELECT options_json FROM print_jobs WHERE id = ?').get(noPassJob.printJobId);
+    const noPassOpts = JSON.parse(noPassRow.options_json);
+    assert.equal(noPassOpts.qrUrl, null, 'session without guest_pass_id must keep qrUrl null');
+
+    // 1b. Session WITH guest_pass_id keeps its own QR and reprintJob() preserves/rewrites baseUrl cleanly
+    const ownPassJob = printService.createPrintJob(tenantId, eventId, null, sessOwnPassId, assetOwnPassId, 1, {
+      paperSize: '4x6',
+      baseUrl: 'https://old.studio.test',
+      qrPosition: 'bottom-right'
+    });
+    const ownRow = db.prepare('SELECT options_json FROM print_jobs WHERE id = ?').get(ownPassJob.printJobId);
+    const ownOpts = JSON.parse(ownRow.options_json);
+    assert.equal(ownOpts.qrUrl, `https://old.studio.test/gallery/g/${ownToken}`);
+
+    const reprinted = printService.reprintJob(ownPassJob.printJobId, tenantId, 'user_operator_01', 1, {
+      baseUrl: 'https://new.custom.domain'
+    });
+    const repRow = db.prepare('SELECT options_json FROM print_jobs WHERE id = ?').get(reprinted.printJobId);
+    const repOpts = JSON.parse(repRow.options_json);
+    assert.equal(repOpts.qrUrl, `https://new.custom.domain/gallery/g/${ownToken}`);
+    assert.equal(repOpts.qrPosition, 'bottom-right');
+
+    // 2. Print agent secret download must require authMiddleware & derive tenant from req.user
+    const root = process.cwd();
+    const apiJs = fs.readFileSync(path.join(root, 'src/routes/api.js'), 'utf8');
+    const serverJs = fs.readFileSync(path.join(root, 'src/server.js'), 'utf8');
+    const kioskJs = fs.readFileSync(path.join(root, 'public/js/kiosk.js'), 'utf8');
+    const guardJs = fs.readFileSync(path.join(root, 'android-kiosk/assets/usb-capture-guard.js'), 'utf8');
+    const mainJava = fs.readFileSync(path.join(root, 'android-kiosk/src/com/mafaza/photobooth/kiosk/MainActivity.java'), 'utf8');
+    const deploySh = fs.readFileSync(path.join(root, 'deploy.sh'), 'utf8');
+
+    assert.match(apiJs, /apiRouter\.get\('\/print-agent\/download\/:os',\s*authMiddleware\(\)/);
+    assert.match(apiJs, /\/print-jobs\/:id\/reprint[\s\S]*reprintJob\([\s\S]*baseUrl/);
+    assert.match(apiJs, /\/printers\/test-print[\s\S]*createPrintJob\([\s\S]*baseUrl/);
+
+    // 3. No /admin?password= bypass; server-side timing-safe operator PIN verification & .env preservation
+    assert.doesNotMatch(serverJs, /req\.query\.password|req\.query\.pass/);
+    assert.match(apiJs, /apiRouter\.post\('\/kiosk\/verify-operator-pin'/);
+    assert.match(apiJs, /timingSafeEqual/);
+    assert.match(kioskJs, /\/api\/kiosk\/verify-operator-pin/);
+    assert.doesNotMatch(kioskJs, /val === '0000'/);
+    assert.match(deploySh, /OPERATOR_PIN/);
+
+    // 4. Android APK guard syncs cameraRotation + live CSS filter, awaits rotation before hold preview, and MainActivity handles 4R/5R/A4
+    assert.match(kioskJs, /async handlePostCapture\s*\(/);
+    assert.match(kioskJs, /await this\.applyRotationToCapturedPose\(justCapturedIndex\)/);
+    assert.match(guardJs, /getCameraCssFilterString/);
+    assert.match(guardJs, /__captureFrameRotatedFlags/);
+    assert.match(mainJava, /NA_INDEX_4X6/);
+    assert.match(mainJava, /MAFAZA_5R_5X7/);
+    assert.match(mainJava, /Margins\.NO_MARGINS/);
+  } finally {
+    db.prepare('DELETE FROM print_jobs WHERE photo_session_id IN (?, ?)').run(sessNoPassId, sessOwnPassId);
+    db.prepare('DELETE FROM media_assets WHERE photo_session_id IN (?, ?)').run(sessNoPassId, sessOwnPassId);
+    db.prepare('DELETE FROM photo_sessions WHERE id IN (?, ?)').run(sessNoPassId, sessOwnPassId);
+    db.prepare('DELETE FROM guest_passes WHERE id IN (?, ?)').run(otherPassId, ownPassId);
+  }
+});

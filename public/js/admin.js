@@ -3428,8 +3428,13 @@ async function loadPrintAgentStatus(isUserTriggered = false) {
   const macLink = document.getElementById('agentDownloadMac');
   const winLink = document.getElementById('agentDownloadWin');
   const origin = encodeURIComponent(window.location.origin);
-  if (macLink) macLink.href = `/api/print-agent/download/macos?serverUrl=${origin}`;
-  if (winLink) winLink.href = `/api/print-agent/download/windows?serverUrl=${origin}`;
+  let tokenSuffix = '';
+  try {
+    const t = localStorage.getItem('pb_admin_token');
+    if (t) tokenSuffix = `&token=${encodeURIComponent(t)}`;
+  } catch (e) {}
+  if (macLink) macLink.href = `/api/print-agent/download/macos?serverUrl=${origin}${tokenSuffix}`;
+  if (winLink) winLink.href = `/api/print-agent/download/windows?serverUrl=${origin}${tokenSuffix}`;
 
   try {
     const res = await fetch('/api/print-agent/status');

@@ -188,7 +188,7 @@ public class MainActivity extends Activity {
     }
 
     private void showUsbDiagnosticsDialog() {
-        final String report = "MAFAZA 2.5.6\n" + canonEngine.getUsbDiagnosticsReport();
+        final String report = "MAFAZA 2.5.7\n" + canonEngine.getUsbDiagnosticsReport();
         new AlertDialog.Builder(this)
                 .setTitle("Diagnostik Kamera USB")
                 .setMessage(report)
@@ -226,7 +226,7 @@ public class MainActivity extends Activity {
         // Set Desktop User-Agent so public/js/kiosk.js automatically enables Canon USB 127.0.0.1:19898 polling
         // without modifying a single line of public/js/kiosk.js!
         settings.setUserAgentString(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.6");
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.7");
 
         wv.addJavascriptInterface(new MafazaAndroidBridge(), "MafazaAndroidBridge");
 
@@ -367,6 +367,11 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void printPage() {
+            printPageWithOptions("4x6", false);
+        }
+
+        @JavascriptInterface
+        public void printPageWithOptions(String paperSize, boolean landscape) {
             mainHandler.post(() -> {
                 if (webView == null) return;
                 PrintManager printManager = (PrintManager) getSystemService(Context.PRINT_SERVICE);
@@ -374,7 +379,15 @@ public class MainActivity extends Activity {
                     String jobName = "Mafaza_Photobooth_" + System.currentTimeMillis();
                     PrintDocumentAdapter printAdapter = webView.createPrintDocumentAdapter(jobName);
                     PrintAttributes.Builder builder = new PrintAttributes.Builder();
-                    builder.setMediaSize(PrintAttributes.MediaSize.ISO_A4);
+                    String key = paperSize == null ? "4x6" : paperSize.trim().toLowerCase();
+                    PrintAttributes.MediaSize mediaSize = PrintAttributes.MediaSize.NA_INDEX_4X6;
+                    if (key.contains("5r") || key.contains("5x7")) {
+                        mediaSize = new PrintAttributes.MediaSize("MAFAZA_5R_5X7", "5R (5x7 in)", 5000, 7000);
+                    } else if (key.contains("a4")) {
+                        mediaSize = PrintAttributes.MediaSize.ISO_A4;
+                    }
+                    builder.setMediaSize(landscape ? mediaSize.asLandscape() : mediaSize.asPortrait());
+                    builder.setMinMargins(PrintAttributes.Margins.NO_MARGINS);
                     printManager.print(jobName, printAdapter, builder.build());
                 }
             });
@@ -443,7 +456,7 @@ public class MainActivity extends Activity {
         input.setText(getSavedKioskUrl());
 
         new AlertDialog.Builder(this)
-                .setTitle("MAFAZA 2.5.6 · Pengaturan Kamera & USB")
+                .setTitle("MAFAZA 2.5.7 · Pengaturan Kamera & USB")
                 .setMessage(canonEngine.getUsbDiagnosticsReport() + "\n\nURL Server Kiosk Photobooth:")
                 .setView(input)
                 .setPositiveButton("Simpan & Muat Ulang", (dialog, which) -> {
