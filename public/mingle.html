@@ -188,10 +188,11 @@
       grid-template-columns: minmax(400px, 1.55fr) minmax(270px, 0.85fr);
     }
 
-    /* Mode Full Live View di Atas (aktif otomatis saat ?fullscreen=1 atau tombol Live Besar) */
+    /* Mode Full Live View Kiri + Kontrol Rapi Kanan (aktif otomatis saat ?fullscreen=1 atau tombol Live Besar) */
     body.mingle-top-live .mingle-shell {
       max-width: 100%;
-      padding: 8px 14px 62px;
+      width: 100%;
+      padding: 8px 12px 52px;
       gap: 10px;
     }
 
@@ -202,35 +203,45 @@
 
     body.mingle-top-live .mingle-ready-grid,
     body.mingle-top-live .mingle-ready-grid.is-landscape {
-      grid-template-columns: minmax(0, 1fr) !important;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 340px) !important;
       gap: 12px;
+      align-items: stretch;
+    }
+
+    body.mingle-top-live .mingle-ready-grid > .mingle-card:first-child {
+      padding: 12px 14px;
+      gap: 10px;
     }
 
     body.mingle-top-live .mingle-viewfinder {
-      min-height: 260px;
-      height: min(66dvh, 62vw);
-      max-height: 74dvh;
+      min-height: 360px;
+      height: calc(100dvh - 168px);
+      max-height: 82dvh;
+      width: 100%;
+      margin: 0;
     }
 
     body.mingle-top-live .mingle-viewfinder.is-landscape {
-      max-height: 74dvh;
+      aspect-ratio: auto;
+      max-height: 82dvh;
       width: 100%;
       max-width: 100%;
     }
 
     body.mingle-top-live .mingle-viewfinder.is-portrait {
-      height: min(70dvh, 88vw);
-      max-height: 76dvh;
+      height: calc(100dvh - 168px);
+      max-height: 82dvh;
       width: auto;
       max-width: 100%;
+      margin: 0 auto;
     }
 
     body.mingle-top-live .mingle-ready-controls-card {
-      display: grid !important;
-      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-      gap: 12px;
-      align-items: center;
-      padding: 12px 16px;
+      display: flex !important;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px;
     }
 
     @media (max-width: 860px) {
@@ -238,8 +249,19 @@
       .mingle-result-grid,
       .mingle-ready-grid.is-landscape,
       .mingle-result-grid.is-landscape,
-      body.mingle-top-live .mingle-ready-controls-card {
+      body.mingle-top-live .mingle-ready-grid,
+      body.mingle-top-live .mingle-ready-grid.is-landscape {
         grid-template-columns: minmax(0, 1fr) !important;
+      }
+      body.mingle-top-live .mingle-viewfinder,
+      body.mingle-top-live .mingle-viewfinder.is-landscape {
+        min-height: 260px;
+        height: min(62dvh, 62vw);
+        max-height: 70dvh;
+      }
+      body.mingle-top-live .mingle-viewfinder.is-portrait {
+        height: min(68dvh, 88vw);
+        max-height: 74dvh;
       }
     }
 
