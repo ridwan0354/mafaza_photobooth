@@ -44,7 +44,7 @@ class MingleBoothEngine {
     // USB PTP bridge state (127.0.0.1:19898)
     this.usbStatus = null;
     this.baselinePhysicalSeq = 0;
-    this.canonLiveViewInMingle = false;
+    this.canonLiveViewInMingle = true;
     this.liveViewTimerId = null;
     this.statusTimerId = null;
     this.webcamStream = null;
@@ -548,11 +548,14 @@ class MingleBoothEngine {
       pill.className = 'mingle-status-pill';
       pill.innerText = `🟢 ${label} · Shutter Siap`;
       if (readyLbl) readyLbl.innerText = `🟢 ${label} Terhubung (Tekan Shutter Kamera)`;
-      if (toggleLvBtn) toggleLvBtn.style.display = driver === 'canon' ? '' : 'none';
+      if (toggleLvBtn) {
+        toggleLvBtn.style.display = driver === 'canon' ? '' : 'none';
+        toggleLvBtn.innerText = this.canonLiveViewInMingle ? '📺 Live View ON (Klik utk OVF)' : '👁️ Mode OVF (Klik utk Live View)';
+      }
       if (waitDesc) {
         waitDesc.innerText = driver === 'canon' && !this.canonLiveViewInMingle
           ? 'Bidik langsung lewat viewfinder Canon & tekan shutter fisik (Godox flash aktif).'
-          : 'Arahkan kamera & tekan langsung tombol shutter fisik di bodi kamera.';
+          : 'Live View aktif di layar agar tamu ikut melihat — jepret via kamera atau tombol layar.';
       }
     } else {
       pill.className = 'mingle-status-pill offline';
@@ -579,15 +582,20 @@ class MingleBoothEngine {
       this.stopWebcam();
       if (video) video.style.display = 'none';
       const isCanonOvf = st.driverType === 'canon' && !this.canonLiveViewInMingle;
-      if (isCanonOvf || !st.hasFrame) {
+      const hasBridgeLv = Boolean(window.MafazaAndroidBridge && typeof window.MafazaAndroidBridge.getLiveViewFrame === 'function' && st.hasFrame);
+      if (isCanonOvf || (!st.hasFrame && !hasBridgeLv)) {
         this.stopLiveViewLoop();
         if (canvas) canvas.style.display = 'none';
         if (ovf) ovf.style.display = 'block';
-        if (heading) heading.innerText = isCanonOvf ? 'Mode Viewfinder Optik Canon Siap!' : 'Kamera Terhubung · Tekan Shutter!';
+        if (heading) {
+          heading.innerText = isCanonOvf
+            ? 'Mode Viewfinder Optik Canon Siap!'
+            : (this.canonLiveViewInMingle ? 'Menyiapkan Live View Kamera...' : 'Kamera Terhubung · Tekan Shutter!');
+        }
         if (desc) {
           desc.innerText = isCanonOvf
             ? 'Bidik langsung lewat jendela bidik Canon EOS agar flash hotshoe menyala, lalu tekan tombol shutter.'
-            : 'Tanpa hitungan mundur: tekan tombol shutter di kamera Sony / Canon Anda kapan saja.';
+            : 'Menunggu gambar Live View dari kamera... Anda tetap bisa langsung menekan shutter.';
         }
       } else {
         if (ovf) ovf.style.display = 'none';
@@ -624,6 +632,15 @@ class MingleBoothEngine {
       if (busy || this.currentScreen !== 'screenMingleReady' || this.isProcessingCapture) return;
       if (!this.usbStatus || !this.usbStatus.active || !this.usbStatus.hasFrame) return;
       busy = true;
+      let frameSrc = '';
+      if (window.MafazaAndroidBridge && typeof window.MafazaAndroidBridge.getLiveViewFrame === 'function') {
+        try {
+          frameSrc = window.MafazaAndroidBridge.getLiveViewFrame() || '';
+        } catch (e) {}
+      }
+      if (!frameSrc) {
+        frameSrc = `http://127.0.0.1:19898/frame.jpg?t=${Date.now()}`;
+      }
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
@@ -633,8 +650,8 @@ class MingleBoothEngine {
         busy = false;
       };
       img.onerror = () => { busy = false; };
-      img.src = `http://127.0.0.1:19898/frame.jpg?t=${Date.now()}`;
-    }, 90);
+      img.src = frameSrc;
+    }, 75);
   }
 
   stopLiveViewLoop() {
@@ -850,11 +867,20 @@ class MingleBoothEngine {
 
     const dbW = this.selectedTemplate.width || tplW;
     const dbH = this.selectedTemplate.height || tplH;
-    const sx = dbW > 0 ? tplW / dbW : 1;
-    const sy = dbH > 0 ? tplH / dbH : 1;
+    const rawSlots = Array.isArray(this.selectedTemplate.slots) ? this.selectedTemplate.slots : [];
+    const isSvgTpl = String(this.selectedTemplate.image_storage_key || '').toLowerCase().includes('.svg');
+    const fitsNatural = rawSlots.length > 0 && rawSlots.every(s =>
+      (Number(s.x) || 0) >= -4 &&
+      (Number(s.y) || 0) >= -4 &&
+      ((Number(s.x) || 0) + (Number(s.width) || 0)) <= tplW + 4 &&
+      ((Number(s.y) || 0) + (Number(s.height) || 0)) <= tplH + 4
+    );
+    const shouldScale = (dbW > 0 && dbH > 0) && (dbW !== tplW || dbH !== tplH) && (isSvgTpl || !fitsNatural);
+    const sx = shouldScale ? (tplW / dbW) : 1;
+    const sy = shouldScale ? (tplH / dbH) : 1;
 
-    let slots = (this.selectedTemplate.slots && this.selectedTemplate.slots.length > 0)
-      ? this.selectedTemplate.slots.map(s => ({
+    let slots = rawSlots.length > 0
+      ? rawSlots.map(s => ({
           ...s,
           x: Math.round(s.x * sx),
           y: Math.round(s.y * sy),
@@ -993,8 +1019,8 @@ class MingleBoothEngine {
         const baseScale = Math.max(clipW / Math.max(1, pImg.width), clipH / Math.max(1, pImg.height));
         const drawW = pImg.width * baseScale * zoom;
         const drawH = pImg.height * baseScale * zoom;
-        const maxPanX = Math.max((drawW - clipW) / 2, clipW * 0.35);
-        const maxPanY = Math.max((drawH - clipH) / 2, clipH * 0.35);
+        const maxPanX = Math.max(0, (drawW - clipW) / 2);
+        const maxPanY = Math.max(0, (drawH - clipH) / 2);
         this.panX = Math.max(-maxPanX, Math.min(maxPanX, this.panX));
         this.panY = Math.max(-maxPanY, Math.min(maxPanY, this.panY));
 
@@ -1078,6 +1104,7 @@ class MingleBoothEngine {
   setupCanvasPanAndZoom() {
     const canvas = document.getElementById('mingleFinalCanvas');
     if (!canvas) return;
+    canvas.style.touchAction = 'none';
     let dragging = false;
     let lastX = 0;
     let lastY = 0;

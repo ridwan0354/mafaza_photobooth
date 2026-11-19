@@ -10,8 +10,34 @@ function detectImageDimensions(storageKey) {
     const absPath = path.resolve(process.cwd(), 'public', cleanPath);
     if (!fs.existsSync(absPath)) return null;
     const buf = fs.readFileSync(absPath);
+    // PNG
     if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) {
       return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+    }
+    // JPEG SOF0..SOF3
+    if (buf.length >= 4 && buf[0] === 0xFF && buf[1] === 0xD8) {
+      let off = 2;
+      while (off + 9 < buf.length) {
+        if (buf[off] !== 0xFF) break;
+        const marker = buf[off + 1];
+        if (marker === 0xD9 || marker === 0xDA) break;
+        const segLen = buf.readUInt16BE(off + 2);
+        if (segLen < 2) break;
+        if ((marker >= 0xC0 && marker <= 0xC3) || (marker >= 0xC5 && marker <= 0xC7)) {
+          return { width: buf.readUInt16BE(off + 7), height: buf.readUInt16BE(off + 5) };
+        }
+        off += 2 + segLen;
+      }
+    }
+    // SVG viewBox
+    if (absPath.toLowerCase().endsWith('.svg')) {
+      const text = buf.toString('utf8', 0, Math.min(buf.length, 4096));
+      const vb = text.match(/viewBox\s*=\s*["']\s*[\d.-]+\s+[\d.-]+\s+([\d.]+)\s+([\d.]+)/i);
+      if (vb) {
+        const w = Math.round(parseFloat(vb[1]));
+        const h = Math.round(parseFloat(vb[2]));
+        if (w > 0 && h > 0) return { width: w, height: h };
+      }
     }
   } catch (e) {}
   return null;

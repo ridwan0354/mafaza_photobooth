@@ -3971,11 +3971,22 @@ class KioskEngine {
 
     const dbW = this.selectedTemplate.width || tplWidth;
     const dbH = this.selectedTemplate.height || tplHeight;
-    const scaleX = dbW > 0 ? tplWidth / dbW : 1;
-    const scaleY = dbH > 0 ? tplHeight / dbH : 1;
+    const rawSlots = Array.isArray(this.selectedTemplate.slots) ? this.selectedTemplate.slots : [];
+    const isSvgTemplate = String(this.selectedTemplate.image_storage_key || '').toLowerCase().includes('.svg');
+    const fitsNaturalImage = rawSlots.length > 0 && rawSlots.every(s =>
+      (Number(s.x) || 0) >= -4 &&
+      (Number(s.y) || 0) >= -4 &&
+      ((Number(s.x) || 0) + (Number(s.width) || 0)) <= tplWidth + 4 &&
+      ((Number(s.y) || 0) + (Number(s.height) || 0)) <= tplHeight + 4
+    );
+    // Admin Editor defines raster slot coordinates directly in natural PNG pixels (not preset dbW/dbH),
+    // so keep 1:1 unless scaling an SVG or slots stored in a larger preset coordinate space.
+    const shouldScale = (dbW > 0 && dbH > 0) && (dbW !== tplWidth || dbH !== tplHeight) && (isSvgTemplate || !fitsNaturalImage);
+    const scaleX = shouldScale ? (tplWidth / dbW) : 1;
+    const scaleY = shouldScale ? (tplHeight / dbH) : 1;
 
-    let slots = (this.selectedTemplate.slots && this.selectedTemplate.slots.length > 0)
-      ? this.selectedTemplate.slots.map(s => ({
+    let slots = rawSlots.length > 0
+      ? rawSlots.map(s => ({
           ...s,
           x: Math.round(s.x * scaleX),
           y: Math.round(s.y * scaleY),
@@ -4260,9 +4271,9 @@ class KioskEngine {
         const drawW = pImg.width * finalScale;
         const drawH = pImg.height * finalScale;
 
-        // Batas pan dinamis: memungkinkan geser bebas dalam batas slot yang terisi penuh
-        const maxPanX = Math.max((drawW - clipW) / 2, clipW * 0.35);
-        const maxPanY = Math.max((drawH - clipH) / 2, clipH * 0.35);
+        // Batas pan ketat: foto selalu menutupi 100% area slot tanpa pernah menyisakan celah putih
+        const maxPanX = Math.max(0, (drawW - clipW) / 2);
+        const maxPanY = Math.max(0, (drawH - clipH) / 2);
 
         transform.panX = Math.max(-maxPanX, Math.min(maxPanX, transform.panX || 0));
         transform.panY = Math.max(-maxPanY, Math.min(maxPanY, transform.panY || 0));
@@ -4270,7 +4281,9 @@ class KioskEngine {
         const slotCenterX = clipX + (clipW / 2);
         const slotCenterY = clipY + (clipH / 2);
 
-        const drawX = slotCenterX - (drawW / 2) + transform.panX;
+        // Jika slot di-mirror horizontal, balikkan arah panX secara internal agar arah geser jari tetap sesuai layar
+        const effectivePanX = this.mirrorAllSlots ? -transform.panX : transform.panX;
+        const drawX = slotCenterX - (drawW / 2) + effectivePanX;
         const drawY = slotCenterY - (drawH / 2) + transform.panY;
 
         if (this.mirrorAllSlots) {
@@ -4303,8 +4316,9 @@ class KioskEngine {
     const canvas = document.getElementById('finalCanvas');
     if (!canvas || this.canvasListenersAttached) return;
     this.canvasListenersAttached = true;
+    canvas.style.touchAction = 'none';
 
-    // Deteksi slot mana yang disentuh / diklik dengan toleransi sentuhan
+    // Deteksi slot mana yang disentuh / diklik (prioritaskan area tepat di dalam slot dulu)
     const findSlotAt = (canvasX, canvasY) => {
       const slots = (this.selectedTemplate && this.selectedTemplate.slots && this.selectedTemplate.slots.length > 0)
         ? this.selectedTemplate.slots
@@ -4316,7 +4330,15 @@ class KioskEngine {
 
       if (slots.length === 1) return 0; // Frame 1-foto: seluruh area frame mengontrol slot 0
 
-      const margin = 28; // Toleransi area sentuh jari (28px)
+      const exactIdx = slots.findIndex(s =>
+        canvasX >= s.x &&
+        canvasX <= (s.x + s.width) &&
+        canvasY >= s.y &&
+        canvasY <= (s.y + s.height)
+      );
+      if (exactIdx !== -1) return exactIdx;
+
+      const margin = Math.max(24, Math.round(canvas.width * 0.03));
       const idx = slots.findIndex(s =>
         canvasX >= (s.x - margin) &&
         canvasX <= (s.x + s.width + margin) &&
@@ -4538,10 +4560,10 @@ class KioskEngine {
     window.addEventListener('touchend', stopTouch);
     window.addEventListener('touchcancel', stopTouch);
 
-    // 4. POINTER EVENTS MULTI-TOUCH PINCH & DRAG (Khusus Monitor Sentuh USB Windows / macOS)
+    // 4. POINTER EVENTS MULTI-TOUCH PINCH & DRAG (Stylus / Pen; touch sudah ditangani touchstart/touchmove)
     const activePointers = new Map();
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.pointerType === 'mouse') return; // Mouse sudah ditangani oleh mousedown
+      if (e.pointerType === 'mouse' || e.pointerType === 'touch') return;
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
 
@@ -4583,7 +4605,7 @@ class KioskEngine {
     });
 
     canvas.addEventListener('pointermove', (e) => {
-      if (e.pointerType === 'mouse' || !activePointers.has(e.pointerId)) return;
+      if (e.pointerType === 'mouse' || e.pointerType === 'touch' || !activePointers.has(e.pointerId)) return;
       activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
       const idx = this.selectedPreviewSlotIndex;
@@ -4615,7 +4637,7 @@ class KioskEngine {
     });
 
     const endPointer = (e) => {
-      if (e.pointerType === 'mouse') return;
+      if (e.pointerType === 'mouse' || e.pointerType === 'touch') return;
       activePointers.delete(e.pointerId);
       if (activePointers.size === 0) {
         if (this.isDraggingPhoto || this.isPinching) {

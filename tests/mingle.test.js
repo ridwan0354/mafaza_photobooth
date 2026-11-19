@@ -229,10 +229,19 @@ test('Mingle supports unlimited / multi-shot digital-files mode and numeric pose
     const root = process.cwd();
     const mingleHtml = fs.readFileSync(path.join(root, 'public/mingle.html'), 'utf8');
     const mingleJs = fs.readFileSync(path.join(root, 'public/js/mingle.js'), 'utf8');
+    const kioskJs = fs.readFileSync(path.join(root, 'public/js/kiosk.js'), 'utf8');
     assert.match(mingleHtml, /startFilesOnlyMode/);
     assert.match(mingleHtml, /addMorePhotos/);
     assert.match(mingleJs, /captureStartIndex/);
     assert.match(mingleJs, /finishCaptureSession/);
+    assert.match(mingleJs, /this\.canonLiveViewInMingle = true/);
+    assert.match(mingleJs, /MafazaAndroidBridge\.getLiveViewFrame/);
+    assert.match(mingleJs, /Math\.max\(0, \(drawW - clipW\) \/ 2\)/);
+    assert.match(kioskJs, /Math\.max\(0, \(drawW - clipW\) \/ 2\)/);
+    assert.match(kioskJs, /fitsNaturalImage/);
+    assert.match(kioskJs, /e\.pointerType === 'touch'/);
+    assert.doesNotMatch(kioskJs, /clipW \* 0\.35/);
+    assert.doesNotMatch(mingleJs, /clipW \* 0\.35/);
   } finally {
     db.prepare('DELETE FROM media_assets WHERE photo_session_id = ?').run(sessId);
     db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(sessId);
