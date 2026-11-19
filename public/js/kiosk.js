@@ -40,7 +40,7 @@ class KioskEngine {
     }
     this.cameraPanX = 0;
     this.cameraPanY = 0;
-    this.cameraFitMode = localStorage.getItem('pb_camera_fit_mode') || 'contain';
+    this.cameraFitMode = localStorage.getItem('pb_camera_fit_mode') || 'cover';
     this.cameraAspectRatio = localStorage.getItem('pb_camera_aspect_ratio') || '16/9';
     const savedRot = parseInt(localStorage.getItem('pb_camera_rotation') || '0', 10);
     this.cameraRotation = [0, 90, 180, 270].includes(savedRot) ? savedRot : 0;
@@ -3340,7 +3340,7 @@ class KioskEngine {
   updateCameraFitButtonsUI() {
     const btnContain = document.getElementById('btnFitModeContain');
     const btnCover = document.getElementById('btnFitModeCover');
-    const mode = this.cameraFitMode || 'contain';
+    const mode = this.cameraFitMode || 'cover';
     if (btnContain) {
       btnContain.style.background = mode === 'contain' ? 'var(--coral)' : '#fff';
       btnContain.style.color = mode === 'contain' ? '#fff' : 'var(--caramel-brown)';
@@ -3370,7 +3370,7 @@ class KioskEngine {
     }
 
     const video = document.getElementById('videoFeed');
-    const fitMode = this.cameraFitMode || 'contain';
+    const fitMode = this.cameraFitMode || 'cover';
     const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
     const frame = document.getElementById('cameraRetroFrame');
     if (frame) {
@@ -3397,9 +3397,11 @@ class KioskEngine {
       ? `scaleX(-1) rotate(${rot}deg) scale(${totalScale}) translate(${tx}%, ${ty}%)`
       : `scaleX(-1) scale(${totalScale}) translate(${tx}%, ${ty}%)`;
     const cssFilter = this.getCameraCssFilterString();
+    // When rotated 90/270 degrees, keep base element uncropped ('contain') so CSS scale(rotScale) handles full cover cleanly
+    const appliedObjectFit = (rot === 90 || rot === 270) ? 'contain' : fitMode;
     [video, this.canonUsbCanvas].forEach(el => {
       if (!el) return;
-      el.style.objectFit = fitMode;
+      el.style.objectFit = appliedObjectFit;
       el.style.transform = transformStr;
       if (cssFilter) {
         el.style.filter = cssFilter;

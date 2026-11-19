@@ -535,8 +535,9 @@ class MingleBoothEngine {
       const s0 = Math.min(W / vw, H / vh);
       const pw = vw * s0;
       const ph = vh * s0;
-      if (ph > 0 && pw > 0) rotScale = Math.min(W / ph, H / pw);
+      if (ph > 0 && pw > 0) rotScale = Math.max(W / ph, H / pw);
     }
+    video.style.objectFit = (rot === 90 || rot === 270) ? 'contain' : 'cover';
     video.style.transform = rot ? `rotate(${rot}deg) scale(${rotScale.toFixed(3)})` : '';
   }
 
