@@ -45,6 +45,8 @@ class MingleBoothEngine {
     this.usbStatus = null;
     this.baselinePhysicalSeq = 0;
     this.canonLiveViewInMingle = true;
+    const savedRot = parseInt(localStorage.getItem('pb_camera_rotation') || '0', 10);
+    this.cameraRotation = [0, 90, 180, 270].includes(savedRot) ? savedRot : 0;
     this.liveViewTimerId = null;
     this.statusTimerId = null;
     this.webcamStream = null;
@@ -64,6 +66,7 @@ class MingleBoothEngine {
     ]);
 
     this.renderFramesGrid();
+    this.updateCameraRotationUI();
     this.startStatusPolling();
     this.setUsbMingleListen(false);
   }
@@ -489,6 +492,76 @@ class MingleBoothEngine {
     } catch (e) {}
   }
 
+  setCameraRotation(deg) {
+    const val = ((parseInt(deg, 10) || 0) % 360 + 360) % 360;
+    const clean = [0, 90, 180, 270].includes(val) ? val : 0;
+    this.cameraRotation = clean;
+    try {
+      localStorage.setItem('pb_camera_rotation', String(clean));
+    } catch (e) {}
+    this.updateCameraRotationUI();
+    this.applyMingleVideoTransform();
+    this.showToast(`🔁 Rotasi Kamera Mingle: ${clean}°`, '📷', 1600);
+  }
+
+  cycleCameraRotation() {
+    const order = [0, 90, 270, 180];
+    const idx = order.indexOf(this.cameraRotation || 0);
+    const next = order[(idx + 1) % order.length];
+    this.setCameraRotation(next);
+  }
+
+  updateCameraRotationUI() {
+    const cur = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
+    const btn = document.getElementById('btnMingleRotate');
+    if (btn) {
+      btn.innerText = `🔁 Putar: ${cur}°`;
+      btn.classList.toggle('btn-coral', cur !== 0);
+      btn.classList.toggle('btn-secondary', cur === 0);
+    }
+  }
+
+  applyMingleVideoTransform() {
+    const video = document.getElementById('mingleVideoFeed');
+    const vf = document.getElementById('mingleViewfinder');
+    if (!video) return;
+    const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
+    let rotScale = 1.0;
+    if ((rot === 90 || rot === 270) && vf && vf.clientWidth > 0 && vf.clientHeight > 0) {
+      const W = vf.clientWidth;
+      const H = vf.clientHeight;
+      const vw = video.videoWidth || 1280;
+      const vh = video.videoHeight || 720;
+      const s0 = Math.min(W / vw, H / vh);
+      const pw = vw * s0;
+      const ph = vh * s0;
+      if (ph > 0 && pw > 0) rotScale = Math.min(W / ph, H / pw);
+    }
+    video.style.transform = rot ? `rotate(${rot}deg) scale(${rotScale.toFixed(3)})` : '';
+  }
+
+  async rotateDataUrlIfNeeded(dataUrl, checkPortraitExifGuard = true) {
+    const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
+    if (!rot || !dataUrl) return dataUrl;
+    const img = new Image();
+    img.src = dataUrl;
+    await new Promise(res => { img.onload = res; img.onerror = res; });
+    if (!img.naturalWidth || !img.naturalHeight) return dataUrl;
+    if (checkPortraitExifGuard && (rot === 90 || rot === 270) && img.naturalHeight > img.naturalWidth) {
+      return dataUrl;
+    }
+    const swap = (rot === 90 || rot === 270);
+    const c = document.createElement('canvas');
+    c.width = swap ? img.naturalHeight : img.naturalWidth;
+    c.height = swap ? img.naturalWidth : img.naturalHeight;
+    const ctx = c.getContext('2d');
+    if (!ctx) return dataUrl;
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate((rot * Math.PI) / 180);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+
   async toggleCanonLiveView() {
     this.canonLiveViewInMingle = !this.canonLiveViewInMingle;
     await this.setUsbMingleListen(true);
@@ -644,9 +717,22 @@ class MingleBoothEngine {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
-        if (canvas.width !== img.naturalWidth) canvas.width = img.naturalWidth;
-        if (canvas.height !== img.naturalHeight) canvas.height = img.naturalHeight;
-        ctx.drawImage(img, 0, 0);
+        const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
+        const swap = (rot === 90 || rot === 270);
+        const targetW = swap ? img.naturalHeight : img.naturalWidth;
+        const targetH = swap ? img.naturalWidth : img.naturalHeight;
+        if (canvas.width !== targetW) canvas.width = targetW;
+        if (canvas.height !== targetH) canvas.height = targetH;
+        if (rot === 0) {
+          ctx.drawImage(img, 0, 0);
+        } else {
+          ctx.save();
+          ctx.clearRect(0, 0, targetW, targetH);
+          ctx.translate(targetW / 2, targetH / 2);
+          ctx.rotate((rot * Math.PI) / 180);
+          ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+          ctx.restore();
+        }
         busy = false;
       };
       img.onerror = () => { busy = false; };
@@ -672,6 +758,7 @@ class MingleBoothEngine {
       });
       video.srcObject = this.webcamStream;
       await video.play().catch(() => {});
+      this.applyMingleVideoTransform();
     } catch (e) {
       console.warn('Mingle built-in camera fallback unavailable:', e);
     }
@@ -713,10 +800,19 @@ class MingleBoothEngine {
     }
     this.playShutterSound();
     this.setProcessingOverlay(true, 'Mengambil foto & memasang bingkai...');
+    const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
+    const swap = (rot === 90 || rot === 270);
     const c = document.createElement('canvas');
-    c.width = video.videoWidth;
-    c.height = video.videoHeight;
-    c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+    c.width = swap ? video.videoHeight : video.videoWidth;
+    c.height = swap ? video.videoWidth : video.videoHeight;
+    const vCtx = c.getContext('2d');
+    if (rot === 0) {
+      vCtx.drawImage(video, 0, 0, c.width, c.height);
+    } else {
+      vCtx.translate(c.width / 2, c.height / 2);
+      vCtx.rotate((rot * Math.PI) / 180);
+      vCtx.drawImage(video, -video.videoWidth / 2, -video.videoHeight / 2, video.videoWidth, video.videoHeight);
+    }
     await this.finalizeCapturedDataUrl(c.toDataURL('image/jpeg', 0.92));
   }
 
@@ -738,7 +834,8 @@ class MingleBoothEngine {
         reader.onerror = () => reject(new Error('Gagal membaca data JPEG.'));
         reader.readAsDataURL(blob);
       });
-      await this.finalizeCapturedDataUrl(dataUrl);
+      const rotatedUrl = await this.rotateDataUrlIfNeeded(dataUrl, true);
+      await this.finalizeCapturedDataUrl(rotatedUrl);
     } catch (e) {
       console.error('Physical shutter load error:', e);
       this.setProcessingOverlay(false);

@@ -630,14 +630,18 @@
       <div id="cameraRetroFrame" class="camera-retro-frame" onclick="kiosk && kiosk.handleCameraViewportClick(event)" style="aspect-ratio: 16 / 9; margin: 2px auto 4px;">
         <video id="videoFeed" autoplay playsinline webkit-playsinline muted poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" style="width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1) scale(1); transform-origin: center center; display: block;"></video>
 
-        <!-- Live Viewfinder Indicator Top Left + 1-Tap Reconnect UVC Button -->
-        <div style="position: absolute; top: 12px; left: 14px; z-index: 26; display: flex; align-items: center; gap: 6px;">
+        <!-- Live Viewfinder Indicator Top Left + 1-Tap Reconnect UVC + Rotate Button -->
+        <div style="position: absolute; top: 12px; left: 14px; z-index: 26; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
           <div style="display: flex; align-items: center; gap: 6px; background: rgba(0, 0, 0, 0.72); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); pointer-events: none;">
             <span style="width: 7px; height: 7px; border-radius: 50%; background: #ff4757; box-shadow: 0 0 8px #ff4757; animation: dotBlink 1.2s infinite ease-in-out;"></span>
             <span id="liveCameraNameBadge" style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 0.4px;">LIVE</span>
           </div>
           <button type="button" onclick="event.stopPropagation(); kiosk.forceReconnectCamera();" title="Segarkan / Hubungkan Ulang Kamera USB / DJI Action" style="display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(0, 0, 0, 0.72); padding: 4px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.28); color: #ffffff; font-size: 10.5px; font-weight: 800; cursor: pointer;">
             <span>🔄</span>
+          </button>
+          <button type="button" id="btnCycleCamRotate" onclick="event.stopPropagation(); kiosk.cycleCameraRotation();" title="Putar Live Kamera (0° / 90° / 270° / 180°) untuk Kamera Potret" style="display: flex; align-items: center; gap: 4px; background: rgba(0, 0, 0, 0.72); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.28); color: #ffffff; font-size: 11px; font-weight: 800; cursor: pointer; transition: all 0.2s;">
+            <span>🔁</span>
+            <span id="retroFrameRotateBadge">0°</span>
           </button>
         </div>
 
@@ -752,6 +756,17 @@
             <button type="button" id="btnRatio4_3" onclick="kiosk.setCameraAspectRatio('4/3')" style="padding: 4px 7px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 4:3 Klasik">4:3</button>
             <button type="button" id="btnRatio2_3" onclick="kiosk.setCameraAspectRatio('2/3')" style="padding: 4px 7px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 2:3 Potret (4R Tegak)">2:3</button>
             <button type="button" id="btnRatio3_4" onclick="kiosk.setCameraAspectRatio('3/4')" style="padding: 4px 7px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 3:4 Potret (Tegak)">3:4</button>
+          </div>
+        </div>
+
+        <!-- 1b. Rotasi Kamera Fisik (Untuk DSLR / Webcam yang Dipasang Tegak/Potret) -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; border-top: 1px dashed var(--border-soft); padding-top: 5px;">
+          <span style="font-size: 10px; font-weight: 800; color: var(--caramel-brown); flex-shrink: 0;">🔁 Putar:</span>
+          <div style="display: flex; gap: 4px; flex: 1; justify-content: flex-end;">
+            <button type="button" id="btnRotate0" onclick="kiosk.setCameraRotation(0)" style="flex: 1; padding: 4px 5px; border-radius: 7px; border: 1.5px solid var(--coral); background: var(--coral); color: #fff; font-size: 10px; font-weight: 800; cursor: pointer;">0°</button>
+            <button type="button" id="btnRotate90" onclick="kiosk.setCameraRotation(90)" style="flex: 1; padding: 4px 5px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;">90°</button>
+            <button type="button" id="btnRotate180" onclick="kiosk.setCameraRotation(180)" style="flex: 1; padding: 4px 5px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;">180°</button>
+            <button type="button" id="btnRotate270" onclick="kiosk.setCameraRotation(270)" style="flex: 1; padding: 4px 5px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;">270°</button>
           </div>
         </div>
 
@@ -1347,6 +1362,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v9.10"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v9.11"></script>
 </body>
 </html>

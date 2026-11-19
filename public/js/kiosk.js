@@ -42,6 +42,8 @@ class KioskEngine {
     this.cameraPanY = 0;
     this.cameraFitMode = localStorage.getItem('pb_camera_fit_mode') || 'contain';
     this.cameraAspectRatio = localStorage.getItem('pb_camera_aspect_ratio') || '16/9';
+    const savedRot = parseInt(localStorage.getItem('pb_camera_rotation') || '0', 10);
+    this.cameraRotation = [0, 90, 180, 270].includes(savedRot) ? savedRot : 0;
 
     // Interactive Photo Selection & Panning State in Preview
     this.slotAssignments = [];
@@ -88,6 +90,7 @@ class KioskEngine {
     this.setupMediaDeviceChangeListener();
     this.updateCameraFitButtonsUI();
     this.updateCameraAspectRatioButtonsUI();
+    this.updateCameraRotationButtonsUI();
     this.applyCameraTransform();
     this.startCanonUsbAutoDetector();
 
@@ -3368,7 +3371,31 @@ class KioskEngine {
 
     const video = document.getElementById('videoFeed');
     const fitMode = this.cameraFitMode || 'contain';
-    const transformStr = `scaleX(-1) scale(${zoom}) translate(${tx}%, ${ty}%)`;
+    const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
+    const frame = document.getElementById('cameraRetroFrame');
+    if (frame) {
+      frame.style.aspectRatio = (this.cameraAspectRatio || '16/9').replace('/', ' / ');
+    }
+
+    let rotScale = 1.0;
+    const activeSrcEl = (this.canonUsbStreamActive && this.canonUsbCanvas && this.canonUsbCanvas.width > 0) ? this.canonUsbCanvas : video;
+    if ((rot === 90 || rot === 270) && frame && frame.clientWidth > 0 && frame.clientHeight > 0) {
+      const W = frame.clientWidth;
+      const H = frame.clientHeight;
+      const sw = (activeSrcEl && (activeSrcEl.naturalWidth || activeSrcEl.videoWidth || activeSrcEl.width)) || 1056;
+      const sh = (activeSrcEl && (activeSrcEl.naturalHeight || activeSrcEl.videoHeight || activeSrcEl.height)) || 704;
+      const s0 = Math.min(W / Math.max(1, sw), H / Math.max(1, sh));
+      const pw = sw * s0;
+      const ph = sh * s0;
+      if (ph > 0 && pw > 0) {
+        rotScale = (fitMode === 'cover') ? Math.max(W / ph, H / pw) : Math.min(W / ph, H / pw);
+      }
+    }
+
+    const totalScale = (zoom * rotScale).toFixed(3);
+    const transformStr = rot
+      ? `scaleX(-1) rotate(${rot}deg) scale(${totalScale}) translate(${tx}%, ${ty}%)`
+      : `scaleX(-1) scale(${totalScale}) translate(${tx}%, ${ty}%)`;
     const cssFilter = this.getCameraCssFilterString();
     [video, this.canonUsbCanvas].forEach(el => {
       if (!el) return;
@@ -3388,12 +3415,46 @@ class KioskEngine {
     if (quickBadge) {
       quickBadge.innerText = `${zoom.toFixed(1)}x`;
     }
-    const frame = document.getElementById('cameraRetroFrame');
-    if (frame) {
-      frame.style.aspectRatio = (this.cameraAspectRatio || '16/9').replace('/', ' / ');
-    }
     this.updateCameraFitButtonsUI();
     this.updateCameraAspectRatioButtonsUI();
+    this.updateCameraRotationButtonsUI();
+  }
+
+  setCameraRotation(deg) {
+    const val = ((parseInt(deg, 10) || 0) % 360 + 360) % 360;
+    const clean = [0, 90, 180, 270].includes(val) ? val : 0;
+    this.cameraRotation = clean;
+    try {
+      localStorage.setItem('pb_camera_rotation', String(clean));
+    } catch (e) {}
+    this.applyCameraTransform();
+    if (window.pbNotify) {
+      window.pbNotify.info(`🔁 Rotasi Kamera: ${clean}°`, { duration: 1500 });
+    }
+  }
+
+  cycleCameraRotation() {
+    const order = [0, 90, 270, 180];
+    const idx = order.indexOf(this.cameraRotation || 0);
+    const next = order[(idx + 1) % order.length];
+    this.setCameraRotation(next);
+  }
+
+  updateCameraRotationButtonsUI() {
+    const cur = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
+    [0, 90, 180, 270].forEach(d => {
+      const btn = document.getElementById(`btnRotate${d}`);
+      if (btn) {
+        const active = (d === cur);
+        btn.style.background = active ? 'var(--coral)' : '#ffffff';
+        btn.style.color = active ? '#ffffff' : 'var(--caramel-brown)';
+        btn.style.borderColor = active ? 'var(--coral)' : 'var(--border-soft)';
+      }
+    });
+    const badge = document.getElementById('retroFrameRotateBadge');
+    if (badge) {
+      badge.innerText = `${cur}°`;
+    }
   }
 
   setCameraAspectRatio(ratio) {
@@ -3409,6 +3470,7 @@ class KioskEngine {
       frame.style.aspectRatio = ratio.replace('/', ' / ');
     }
     this.updateCameraAspectRatioButtonsUI();
+    requestAnimationFrame(() => this.applyCameraTransform());
     if (window.pbNotify) {
       window.pbNotify.info(`📐 Rasio Bingkai Kamera: ${ratio}`, { duration: 1600 });
     }
@@ -3478,13 +3540,31 @@ class KioskEngine {
     // Jangan di-mirror pada hasil tangkapan agar tulisan/teks terbaca normal (tidak terbalik) saat dicetak
     const useCanonCanvas = Boolean(this.canonUsbStreamActive && this.canonUsbCanvas && this.canonUsbCanvas.width > 0);
     const sourceEl = useCanonCanvas ? this.canonUsbCanvas : video;
+    const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
     if (sourceEl) {
+      let drawSource = sourceEl;
+      let vw = (useCanonCanvas ? this.canonUsbCanvas.width : video.videoWidth) || canvas.width;
+      let vh = (useCanonCanvas ? this.canonUsbCanvas.height : video.videoHeight) || canvas.height;
+      if (rot !== 0 && vw > 0 && vh > 0) {
+        const swap = (rot === 90 || rot === 270);
+        const rotBuf = document.createElement('canvas');
+        rotBuf.width = swap ? vh : vw;
+        rotBuf.height = swap ? vw : vh;
+        const rCtx = rotBuf.getContext('2d');
+        if (rCtx) {
+          rCtx.translate(rotBuf.width / 2, rotBuf.height / 2);
+          rCtx.rotate((rot * Math.PI) / 180);
+          rCtx.drawImage(sourceEl, -vw / 2, -vh / 2, vw, vh);
+          drawSource = rotBuf;
+          vw = rotBuf.width;
+          vh = rotBuf.height;
+        }
+      }
+
       ctx.filter = this.getCameraCssFilterString() || 'none';
       const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
       const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
       const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
-      const vw = (useCanonCanvas ? this.canonUsbCanvas.width : video.videoWidth) || canvas.width;
-      const vh = (useCanonCanvas ? this.canonUsbCanvas.height : video.videoHeight) || canvas.height;
 
       // Aspect-cover base source rectangle matching canvas target ratio without stretching
       const targetAspect = canvas.width / canvas.height;
@@ -3506,7 +3586,7 @@ class KioskEngine {
         const dy = (canvas.height - dh) / 2 - (panY * (canvas.height - dh) / 2);
         const sx = (vw - baseSrcW) / 2;
         const sy = (vh - baseSrcH) / 2;
-        ctx.drawImage(sourceEl, sx, sy, baseSrcW, baseSrcH, dx, dy, dw, dh);
+        ctx.drawImage(drawSource, sx, sy, baseSrcW, baseSrcH, dx, dy, dw, dh);
       } else {
         const cropW = baseSrcW / zoom;
         const cropH = baseSrcH / zoom;
@@ -3514,13 +3594,15 @@ class KioskEngine {
         const maxOffY = (vh - cropH) / 2;
         const cropX = Math.max(0, Math.min(vw - cropW, maxOffX - (panX * maxOffX)));
         const cropY = Math.max(0, Math.min(vh - cropH, maxOffY + (panY * maxOffY)));
-        ctx.drawImage(sourceEl, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(drawSource, cropX, cropY, cropW, cropH, 0, 0, canvas.width, canvas.height);
       }
       ctx.filter = 'none';
     }
 
     const photoDataUrl = canvas.toDataURL('image/jpeg', 0.88);
     this.posesCaptured[poseIndex] = photoDataUrl;
+    if (!this.__captureFrameRotatedFlags) this.__captureFrameRotatedFlags = {};
+    this.__captureFrameRotatedFlags[poseIndex] = true;
     this.rawPosesSyncedForSession = null;
     this.renderFilmstripDock();
   }
@@ -3562,10 +3644,48 @@ class KioskEngine {
     }
   }
 
+  async applyRotationToCapturedPose(poseIndex) {
+    const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
+    const src = this.posesCaptured[poseIndex];
+    if (!rot || !src) return;
+    if (this.__captureFrameRotatedFlags && this.__captureFrameRotatedFlags[poseIndex]) {
+      delete this.__captureFrameRotatedFlags[poseIndex];
+      return;
+    }
+    const img = new Image();
+    img.src = src;
+    await new Promise(res => { img.onload = res; img.onerror = res; });
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    // Smart EXIF guard: if rotated 90/270 for portrait tripod mount and DSLR EXIF Auto-Rotate
+    // already made the still photo upright portrait (height > width), avoid double-rotating sideways.
+    if ((rot === 90 || rot === 270) && img.naturalHeight > img.naturalWidth) return;
+
+    const swap = (rot === 90 || rot === 270);
+    const c = document.createElement('canvas');
+    c.width = swap ? img.naturalHeight : img.naturalWidth;
+    c.height = swap ? img.naturalWidth : img.naturalHeight;
+    const ctx = c.getContext('2d');
+    if (!ctx) return;
+    ctx.translate(c.width / 2, c.height / 2);
+    ctx.rotate((rot * Math.PI) / 180);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+
+    this.posesCaptured[poseIndex] = c.toDataURL('image/jpeg', 0.92);
+    if (this.cachedPhotoImages) delete this.cachedPhotoImages[poseIndex];
+    this.rawPosesSyncedForSession = null;
+    this.renderFilmstripDock();
+    const holdImg = document.getElementById('postCapturePreviewImg');
+    if (holdImg && this.lastCapturedPoseIndex === poseIndex) {
+      holdImg.src = this.posesCaptured[poseIndex];
+    }
+  }
+
   handlePostCapture(justCapturedIndex) {
     const nextEmptyIndex = this.posesCaptured.findIndex(p => p === null);
     this.lastCapturedPoseIndex = justCapturedIndex;
     this.pendingNextPoseIndex = nextEmptyIndex;
+
+    this.applyRotationToCapturedPose(justCapturedIndex);
 
     const capturedSrc = this.posesCaptured[justCapturedIndex];
     const holdOverlay = document.getElementById('postCapturePreviewOverlay');

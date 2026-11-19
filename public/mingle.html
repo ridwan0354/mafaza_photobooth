@@ -631,7 +631,8 @@
         <div class="mingle-card">
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
             <strong id="mingleReadyCamLabel" style="font-size: 15px; color: var(--caramel-brown);">📷 Siap Memotret Tamu</strong>
-            <div style="display: flex; gap: 6px; align-items: center;">
+            <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+              <button type="button" id="btnMingleRotate" class="btn btn-secondary" style="font-size: 11.5px; padding: 5px 10px;" onclick="mingle.cycleCameraRotation()" title="Putar Kamera Live & Hasil Foto (0° / 90° / 270° / 180°)">🔁 Putar: 0°</button>
               <button type="button" id="btnToggleCanonLv" class="btn btn-secondary" style="display: none; font-size: 11.5px; padding: 5px 10px;" onclick="mingle.toggleCanonLiveView()">👁️ LiveView / OVF Flash</button>
               <button type="button" class="btn btn-secondary" style="font-size: 11.5px; padding: 5px 10px;" onclick="mingle.openSelectScreen()">← Kembali / Ganti Mode</button>
             </div>
@@ -786,6 +787,6 @@
 
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
-  <script src="/js/mingle.js?v=1.4"></script>
+  <script src="/js/mingle.js?v=1.5"></script>
 </body>
 </html>
