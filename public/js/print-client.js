@@ -158,6 +158,11 @@
       `).join('');
       document.body.classList.add('pb-printing');
 
+      const is5rDialog = Math.min(page.w, page.h) >= 4.9 && Math.max(page.w, page.h) >= 6.9 && Math.max(page.w, page.h) <= 7.2;
+      if (is5rDialog) {
+        toast('📄 Cetak 5R: Pastikan di dialog Print → More Settings → Paper Size dipilih 5x7 / 13x18cm!', 'warn', 5500);
+      }
+
       setTimeout(() => {
         window.focus();
         window.print();

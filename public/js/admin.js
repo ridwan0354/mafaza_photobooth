@@ -4597,6 +4597,25 @@ function isAdminBrowserStationEnabled() {
   }
 }
 
+function printJobViaAdminBrowser(job, toastMsg) {
+  if (!job || !window.pbPrintViaBrowser) return;
+  const paperInfo = getPrintJobPaperBadge(job);
+  if (toastMsg && window.pbToast) window.pbToast(toastMsg, 'ok', 3500);
+  return window.pbPrintViaBrowser({
+    imageUrl: job.media_url || `/api/print-jobs/${job.id}/sheet`,
+    copies: job.copies || 1,
+    job: {
+      printJobId: job.id,
+      sheetUrl: `/api/print-jobs/${job.id}/sheet`,
+      paperWidthIn: paperInfo.opts.paperWidthIn || (paperInfo.is5r ? 5 : 4),
+      paperHeightIn: paperInfo.opts.paperHeightIn || (paperInfo.is5r ? 7 : 6),
+      borderless: paperInfo.opts.borderless !== false
+    }
+  }).finally(() => {
+    setTimeout(() => { try { loadPrintJobs(); } catch (e) {} }, 900);
+  });
+}
+
 function toggleAdminBrowserPrintStation(enabled) {
   try {
     localStorage.setItem('pb_admin_browser_station', enabled ? '1' : '0');
@@ -4604,10 +4623,19 @@ function toggleAdminBrowserPrintStation(enabled) {
   if (window.pbToast) {
     window.pbToast(
       enabled
-        ? '💻 Mode Stasiun Cetak Browser AKTIF — antrean 4R baru otomatis dicetak bila Print Agent mati.'
+        ? '💻 Mode Stasiun Cetak Browser AKTIF — antrean 4R otomatis dicetak bila Print Agent mati.'
         : '⚪ Mode Stasiun Cetak Browser dimatikan (memakai Mafaza Print Agent / spooler OS).',
       enabled ? 'ok' : 'warn'
     );
+  }
+  if (enabled && (!cachedPrintAgentStatus || !cachedPrintAgentStatus.online)) {
+    const queuedJobs = (cachedPrintJobs || []).filter(j => j.state === 'queued');
+    if (queuedJobs.length > 0) {
+      const nextJob = queuedJobs[0];
+      adminSeenJobIds.add(nextJob.id);
+      const paperInfo = getPrintJobPaperBadge(nextJob);
+      printJobViaAdminBrowser(nextJob, `🖨️ Mencetak antrean ${paperInfo.label} (${nextJob.copies || 1} lbr) yang menunggu di server...`);
+    }
   }
 }
 window.toggleAdminBrowserPrintStation = toggleAdminBrowserPrintStation;
@@ -4765,18 +4793,7 @@ async function pollGlobalPrintStation() {
         if (agentOnline) {
           window.pbToast(`🖨️ Pesanan Cetak ${paperInfo.label} (${j.copies || 1} lbr) masuk — otomatis mencetak di Epson!`, 'ok', 4200);
         } else if (isAdminBrowserStationEnabled() && j.state === 'queued' && window.pbPrintViaBrowser) {
-          window.pbToast(`🖨️ Pesanan ${paperInfo.label} (${j.copies || 1} lbr) masuk — mencetak via browser laptop ini!`, 'ok', 3500);
-          window.pbPrintViaBrowser({
-            imageUrl: j.media_url || `/api/print-jobs/${j.id}/sheet`,
-            copies: j.copies || 1,
-            job: {
-              printJobId: j.id,
-              sheetUrl: `/api/print-jobs/${j.id}/sheet`,
-              paperWidthIn: paperInfo.opts.paperWidthIn || (paperInfo.is5r ? 5 : 4),
-              paperHeightIn: paperInfo.opts.paperHeightIn || (paperInfo.is5r ? 7 : 6),
-              borderless: paperInfo.opts.borderless !== false
-            }
-          });
+          printJobViaAdminBrowser(j, `🖨️ Pesanan ${paperInfo.label} (${j.copies || 1} lbr) masuk — mencetak via browser laptop ini!`);
         } else {
           window.pbToast(`🔔 Antrean Cetak ${paperInfo.label} Baru (${j.copies || 1} lbr) dari ${j.event_name || 'Booth'}!`, 'warn', 4500);
         }

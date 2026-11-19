@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { execSync, execFile } from 'node:child_process';
+import { execSync, execFile, execFileSync } from 'node:child_process';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -505,6 +505,33 @@ export function getPrintSheetForJob(jobId) {
   return { path: buildPrintSheetFile(abs, options, job.id), options };
 }
 
+function resolveCupsPageSizeOption(cupsQueueId, options) {
+  const wi = Math.round(Number(options.paperWidthIn) || 4);
+  const hi = Math.round(Number(options.paperHeightIn) || 6);
+  const fallback = wi === 5 && hi === 7 ? '5x7' : (String(options.paperSize || '').toUpperCase() === 'A4' ? 'A4' : '4x6');
+  try {
+    const out = execFileSync('lpoptions', ['-p', cupsQueueId, '-l'], { encoding: 'utf8', timeout: 2500 });
+    const pageLine = out.split('\n').find(l => /^(PageSize|media)\//i.test(l.trim()));
+    if (!pageLine) return { optKey: 'media', choice: fallback };
+    const optKey = pageLine.split('/')[0].trim();
+    const choices = (pageLine.split(':')[1] || '').trim().split(/\s+/).map(c => c.replace(/^\*/, ''));
+    const matchers = [new RegExp(`(^|[^0-9])${wi}\\s*x\\s*${hi}(?![0-9.])`, 'i')];
+    if (wi === 4 && hi === 6) matchers.push(/10\s*x\s*15|100\s*x\s*150|102\s*x\s*152|4r\b/i);
+    if (wi === 5 && hi === 7) matchers.push(/13\s*x\s*18|127\s*x\s*178|5\s*x\s*7|5r\b|2l\b/i);
+    if (fallback === 'A4') matchers.push(/^a4(\.|$)/i);
+    const candidates = choices.filter(c => !/manucdr|disc|id\s*card|envelope|roll/i.test(c) && matchers.some(re => re.test(c)));
+    if (candidates.length > 0) {
+      const borderlessRe = /borderless|nmgn|fullbleed|\.fb\b/i;
+      const wantBorderless = options.borderless !== false;
+      const best = candidates.find(c => borderlessRe.test(c) === wantBorderless) || candidates[0];
+      return { optKey, choice: best };
+    }
+    return { optKey: 'media', choice: fallback };
+  } catch (e) {
+    return { optKey: 'media', choice: fallback };
+  }
+}
+
 export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, options, copies = 1, sheetOrientation = 'portrait') {
   const platform = os.platform();
   const printerName = options.printerName;
@@ -527,9 +554,11 @@ export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, opt
           resolvedPrinterName = printerObj.name;
         }
         dispatchedToOs = true;
+        const pageOpt = resolveCupsPageSizeOption(cupsQueueId, options);
         const lpArgs = [
           '-d', cupsQueueId,
           '-n', String(copies),
+          '-o', `${pageOpt.optKey}=${pageOpt.choice}`,
           '-o', 'fit-to-page',
           '-o', sheetOrientation === 'landscape' ? 'orientation-requested=4' : 'orientation-requested=3'
         ];
@@ -599,6 +628,21 @@ export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, opt
         $doc.PrinterSettings.Copies = [int]$env:PB_COPIES;
         $doc.OriginAtMargins = $false;
         $doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0,0,0,0);
+        $wIn = [double]$env:PB_PAPER_W; $hIn = [double]$env:PB_PAPER_H;
+        $targetW = [int][Math]::Round($wIn * 100); $targetH = [int][Math]::Round($hIn * 100);
+        $matching = @();
+        foreach ($ps in $doc.PrinterSettings.PaperSizes) {
+          $okNorm = ([Math]::Abs($ps.Width - $targetW) -le 18 -and [Math]::Abs($ps.Height - $targetH) -le 18);
+          $okSwap = ([Math]::Abs($ps.Width - $targetH) -le 18 -and [Math]::Abs($ps.Height - $targetW) -le 18);
+          $ok5r = ($wIn -eq 5 -and ($ps.PaperName -match '5\\s*x\\s*7|13\\s*x\\s*18|127\\s*x\\s*178|5r\\b|2l\\b'));
+          $ok4r = ($wIn -eq 4 -and ($ps.PaperName -match '4\\s*x\\s*6|10\\s*x\\s*15|100\\s*x\\s*150|4r\\b|kg\\b'));
+          if ($okNorm -or $okSwap -or $ok5r -or $ok4r) { $matching += $ps }
+        }
+        if ($matching.Count -gt 0) {
+          $chosen = $matching | Where-Object { $_.PaperName -match 'borderless|tanpa\\s*tepi|full|nmgn' } | Select-Object -First 1;
+          if (-not $chosen) { $chosen = $matching | Select-Object -First 1 };
+          $doc.DefaultPageSettings.PaperSize = $chosen;
+        }
         if ($img.Width -gt $img.Height) { $doc.DefaultPageSettings.Landscape = $true } else { $doc.DefaultPageSettings.Landscape = $false };
         $doc.add_PrintPage({
           param($sender, $e)
@@ -623,7 +667,9 @@ export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, opt
           ...process.env,
           PB_FILE: printFilePath,
           PB_PRINTER: targetWinPrinter || '',
-          PB_COPIES: String(copies || 1)
+          PB_COPIES: String(copies || 1),
+          PB_PAPER_W: String(options.paperWidthIn || 4),
+          PB_PAPER_H: String(options.paperHeightIn || 6)
         }
       }, () => {
         try {
