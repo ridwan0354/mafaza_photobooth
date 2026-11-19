@@ -3516,7 +3516,8 @@ async function testPrintFromAdmin() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Gagal mengirim test print');
 
-    // Dicetak sesuai pengaturan tersimpan (ukuran kertas, borderless, kualitas) tanpa popup bila Print Agent aktif
+    // Tandai ID job agar poller Stasiun Cetak Browser tidak mencetak ulang job yang baru dipicu langsung
+    markPrintJobSeen(data.printJob);
     await window.pbSmartPrint(data.printJob, '/uploads/test_print.png');
     await loadPrintJobs();
   } catch (err) {
@@ -3987,6 +3988,7 @@ async function executeModalReprint() {
     }
 
     closePhotoPreviewModal();
+    markPrintJobSeen(printJob);
     await window.pbSmartPrint(printJob, imgSrc, copies);
     await loadPrintJobs();
     await loadRecentPhotos();
@@ -4141,6 +4143,7 @@ async function executeQuickPrint() {
     }
 
     if (printJob) {
+      markPrintJobSeen(printJob);
       if (printJob.requiresPaperConfirm || printJob.state === 'awaiting_paper') {
         window.pbToast(`📄 Antrean 5R (${copies}×) dikirim! Menunggu konfirmasi ganti kertas 5R.`, 'warn', 4200);
       } else {
@@ -4201,6 +4204,7 @@ async function quickPrintPhoto(assetId, existingJobId) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal mencetak');
+      markPrintJobSeen(data.printJob);
       await window.pbSmartPrint(data.printJob, null);
       await loadPrintJobs();
       await loadRecentPhotos();
@@ -4628,6 +4632,7 @@ async function directPrintJob(jobId, imageUrl, copies = 1) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Gagal mencetak ulang');
+    markPrintJobSeen(data);
     await window.pbSmartPrint(data, imageUrl, copies);
     await loadPrintJobs();
   } catch (err) {
@@ -4650,6 +4655,12 @@ const adminSeenJobIds = new Set();
 const adminPromptedPaperJobIds = new Set();
 let adminInitialScanDone = false;
 let activePaperConfirmJobId = null;
+let adminBrowserPrintBusy = false;
+
+function markPrintJobSeen(printJob) {
+  const jid = printJob && (printJob.printJobId || printJob.id);
+  if (jid) adminSeenJobIds.add(jid);
+}
 
 function isAdminBrowserStationEnabled() {
   try {
@@ -4660,10 +4671,12 @@ function isAdminBrowserStationEnabled() {
 }
 
 function printJobViaAdminBrowser(job, toastMsg) {
-  if (!job || !window.pbPrintViaBrowser) return;
+  if (!job || !window.pbPrintViaBrowser || adminBrowserPrintBusy) return Promise.resolve();
+  adminBrowserPrintBusy = true;
+  markPrintJobSeen(job);
   const paperInfo = getPrintJobPaperBadge(job);
   if (toastMsg && window.pbToast) window.pbToast(toastMsg, 'ok', 3500);
-  return window.pbPrintViaBrowser({
+  return Promise.resolve(window.pbPrintViaBrowser({
     imageUrl: job.media_url || `/api/print-jobs/${job.id}/sheet`,
     copies: job.copies || 1,
     job: {
@@ -4673,8 +4686,9 @@ function printJobViaAdminBrowser(job, toastMsg) {
       paperHeightIn: paperInfo.opts.paperHeightIn || (paperInfo.is5r ? 7 : 6),
       borderless: paperInfo.opts.borderless !== false
     }
-  }).finally(() => {
-    setTimeout(() => { try { loadPrintJobs(); } catch (e) {} }, 900);
+  })).finally(() => {
+    adminBrowserPrintBusy = false;
+    setTimeout(() => { try { loadPrintJobs(); } catch (e) {} }, 600);
   });
 }
 
@@ -4779,6 +4793,7 @@ async function confirmAdminPaper5R() {
     const modal = document.getElementById('adminPaperConfirmModal');
     if (modal) modal.style.display = 'none';
     activePaperConfirmJobId = null;
+    adminSeenJobIds.add(jobId);
 
     if (data.dispatchedToOs || data.awaitingAgent) {
       window.pbToast(`✅ Kertas 5R dikonfirmasi! Mencetak ${data.copies || 1} lembar 5R otomatis di printer.`, 'ok', 4000);

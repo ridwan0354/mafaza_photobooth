@@ -151,11 +151,14 @@
       const fit = page.borderless ? 'cover' : 'contain';
       const imgStyle = 'display: block; width: 100%; height: 100%; object-fit: ' + fit + '; image-rendering: -webkit-optimize-contrast; image-rendering: high-quality;';
 
-      portal.innerHTML = Array.from({ length: total }).map(() => `
-        <div style="width: ${page.w}in; height: ${page.h}in; max-width: ${page.w}in; max-height: ${page.h}in; page-break-after: always; break-after: page; overflow: hidden; margin: 0; padding: 0; display: block; background: #fff;">
+      portal.innerHTML = Array.from({ length: total }).map((_, idx) => {
+        const breakRule = idx < total - 1 ? 'page-break-after: always; break-after: page;' : 'page-break-after: auto; break-after: auto;';
+        return `
+        <div style="width: ${page.w}in; height: ${page.h}in; max-width: ${page.w}in; max-height: ${page.h}in; ${breakRule} overflow: hidden; margin: 0; padding: 0; display: block; background: #fff;">
           <img src="${src}" style="${imgStyle}" />
         </div>
-      `).join('');
+      `;
+      }).join('');
       document.body.classList.add('pb-printing');
 
       const is5rDialog = Math.min(page.w, page.h) >= 4.9 && Math.max(page.w, page.h) >= 6.9 && Math.max(page.w, page.h) <= 7.2;
@@ -163,28 +166,43 @@
         toast('📄 Cetak 5R: Pastikan di dialog Print → More Settings → Paper Size dipilih 5x7 / 13x18cm!', 'warn', 5500);
       }
 
-      setTimeout(() => {
-        window.focus();
-        window.print();
-        if (job && job.printJobId) {
-          fetch(`/api/print-jobs/${job.printJobId}/browser-printed`, { method: 'POST' }).catch(() => {});
-        }
-        setTimeout(cleanup, 1200);
-      }, 200);
+      return new Promise((resolve) => {
+        setTimeout(async () => {
+          try {
+            window.focus();
+            window.print();
+            if (job && job.printJobId) {
+              await fetch(`/api/print-jobs/${job.printJobId}/browser-printed`, { method: 'POST' }).catch(() => {});
+            }
+          } finally {
+            setTimeout(cleanup, 1200);
+            resolve();
+          }
+        }, 200);
+      });
     };
 
-    const probe = new Image();
-    probe.onload = () => runWithDimensions(probe.naturalWidth, probe.naturalHeight);
-    probe.onerror = () => {
-      cleanup();
-      toast('Gagal memuat gambar untuk dicetak.', 'error');
-    };
-    probe.src = src;
-    if (probe.complete && probe.naturalWidth > 0) {
-      probe.onload = null;
-      probe.onerror = null;
-      runWithDimensions(probe.naturalWidth, probe.naturalHeight);
-    }
+    return new Promise((resolve) => {
+      let started = false;
+      const startOnce = (w, h) => {
+        if (started) return;
+        started = true;
+        Promise.resolve(runWithDimensions(w, h)).then(resolve, resolve);
+      };
+      const probe = new Image();
+      probe.onload = () => startOnce(probe.naturalWidth, probe.naturalHeight);
+      probe.onerror = () => {
+        if (started) return;
+        started = true;
+        cleanup();
+        toast('Gagal memuat gambar untuk dicetak.', 'error');
+        resolve();
+      };
+      probe.src = src;
+      if (probe.complete && probe.naturalWidth > 0) {
+        startOnce(probe.naturalWidth, probe.naturalHeight);
+      }
+    });
   }
 
   // Titik masuk utama setelah job cetak dibuat di server.
