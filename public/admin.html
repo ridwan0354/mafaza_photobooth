@@ -17,6 +17,7 @@
     }
     .admin-sidebar {
       width: 270px;
+      flex-shrink: 0;
       background: #381E11;
       color: #fff;
       padding: 28px 20px;
@@ -25,6 +26,18 @@
       gap: 8px;
       box-shadow: 4px 0 20px rgba(56, 30, 17, 0.15);
       border-right: 2px solid var(--border-soft);
+      transition: width 0.24s ease, padding 0.24s ease, opacity 0.2s ease;
+    }
+    body.admin-sidebar-hidden .admin-sidebar {
+      width: 0;
+      min-width: 0;
+      padding-left: 0;
+      padding-right: 0;
+      border-right: none;
+      box-shadow: none;
+      opacity: 0;
+      overflow: hidden;
+      pointer-events: none;
     }
     .sidebar-brand {
       display: flex;
@@ -60,6 +73,7 @@
     }
     .admin-main {
       flex: 1;
+      min-width: 0;
       padding: 36px 40px;
       overflow-y: auto;
     }
@@ -229,10 +243,46 @@
       opacity: 1;
     }
     .mobile-nav-toggle {
-      display: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: #381E11;
+      color: #fff;
+      font-size: 20px;
+      border: 1.5px solid rgba(212, 167, 84, 0.45);
+      cursor: pointer;
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px rgba(56, 30, 17, 0.22);
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    .mobile-nav-toggle:hover {
+      background: #522d1a;
+    }
+    .mobile-nav-toggle:active {
+      transform: scale(0.94);
+      background: var(--coral);
     }
     .sidebar-close-btn {
-      display: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      color: #fff;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.2s ease;
+    }
+    .sidebar-close-btn:hover {
+      background: rgba(255, 255, 255, 0.24);
     }
     .table-responsive {
       width: 100%;
@@ -378,8 +428,18 @@
         -webkit-overflow-scrolling: touch;
         padding: 24px 18px;
       }
-      .admin-sidebar.open {
+      .admin-sidebar.open,
+      body.admin-sidebar-hidden .admin-sidebar.open {
         transform: translateX(0);
+      }
+      body.admin-sidebar-hidden .admin-sidebar {
+        width: 290px;
+        max-width: 85vw;
+        padding: 24px 18px;
+        opacity: 1;
+        overflow-y: auto;
+        pointer-events: auto;
+        box-shadow: 10px 0 35px rgba(0, 0, 0, 0.45);
       }
       .sidebar-close-btn {
         display: inline-flex !important;
@@ -573,7 +633,7 @@
               <span style="font-size: 10.5px; color: var(--muted-mustard); font-weight: 600; display: block; line-height: 1.3;">Setiap Momen Punya Cerita</span>
             </div>
           </div>
-          <button type="button" class="sidebar-close-btn" onclick="toggleMobileSidebar(false)" aria-label="Tutup Menu" title="Tutup Menu">✕</button>
+          <button type="button" class="sidebar-close-btn" onclick="toggleAdminSidebar(false)" aria-label="Sembunyikan Menu" title="Sembunyikan Menu Sidebar">✕</button>
         </div>
         <div style="display: flex; align-items: center; gap: 6px; background: rgba(95, 143, 138, 0.25); border: 1px solid var(--dusty-teal); border-radius: var(--radius-pill); padding: 4px 12px; width: fit-content; margin-top: 6px;">
           <span style="width: 7px; height: 7px; border-radius: 50%; background: #48bb78;"></span>
@@ -630,7 +690,7 @@
       <div class="topbar-container">
         <div class="topbar-row-header">
           <div style="display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1;">
-            <button type="button" class="mobile-nav-toggle" onclick="toggleMobileSidebar(true)" aria-label="Buka Menu Navigasi" title="Buka Menu">
+            <button type="button" id="btnAdminSidebarToggle" class="mobile-nav-toggle" onclick="toggleAdminSidebar()" aria-label="Tampilkan / Sembunyikan Menu" title="Tampilkan / Sembunyikan Menu Sidebar">
               ☰
             </button>
             <div style="min-width: 0;">
@@ -2681,7 +2741,7 @@
 
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
-  <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/admin.js?v=responsive-v6.5"></script>
+  <script src="/js/print-client.js?v=1.4"></script>
+  <script src="/js/admin.js?v=responsive-v6.6"></script>
 </body>
 </html>

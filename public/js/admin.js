@@ -247,6 +247,42 @@ function toggleMobileSidebar(force) {
 }
 window.toggleMobileSidebar = toggleMobileSidebar;
 
+function updateSidebarToggleButtonUI() {
+  const btn = document.getElementById('btnAdminSidebarToggle');
+  if (!btn) return;
+  const isHidden = document.body.classList.contains('admin-sidebar-hidden');
+  btn.title = isHidden ? 'Tampilkan Menu Sidebar' : 'Sembunyikan Menu Sidebar';
+  btn.setAttribute('aria-expanded', String(!isHidden));
+}
+
+function toggleAdminSidebar(forceShow) {
+  if (window.innerWidth <= 992) {
+    toggleMobileSidebar(forceShow);
+    return;
+  }
+  const currentlyHidden = document.body.classList.contains('admin-sidebar-hidden');
+  const shouldShow = (forceShow !== undefined) ? !!forceShow : currentlyHidden;
+  document.body.classList.toggle('admin-sidebar-hidden', !shouldShow);
+  try {
+    localStorage.setItem('pb_admin_sidebar_hidden', shouldShow ? '0' : '1');
+  } catch (e) {}
+  updateSidebarToggleButtonUI();
+}
+window.toggleAdminSidebar = toggleAdminSidebar;
+
+(function initAdminSidebarState() {
+  try {
+    if (localStorage.getItem('pb_admin_sidebar_hidden') === '1') {
+      document.body.classList.add('admin-sidebar-hidden');
+    }
+  } catch (e) {}
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', updateSidebarToggleButtonUI);
+  } else {
+    updateSidebarToggleButtonUI();
+  }
+})();
+
 window.addEventListener('resize', () => {
   if (window.innerWidth > 992) {
     const sidebar = document.querySelector('.admin-sidebar');
