@@ -249,6 +249,16 @@ test('Mingle supports unlimited / multi-shot digital-files mode and numeric pose
     assert.match(kioskJs, /e\.pointerType === 'touch'/);
     assert.doesNotMatch(kioskJs, /clipW \* 0\.35/);
     assert.doesNotMatch(mingleJs, /clipW \* 0\.35/);
+    assert.match(mingleHtml, /mingle-top-live/);
+    assert.match(mingleHtml, /mingleChangeFrameModal/);
+    assert.match(mingleHtml, /mingleQrZoomModal/);
+    assert.match(mingleJs, /fullscreen/);
+    assert.match(mingleJs, /slotTransforms/);
+    assert.match(mingleJs, /findResultSlotAt/);
+    assert.match(mingleJs, /openChangeFrameModal/);
+    assert.match(mingleJs, /openQrZoomModal/);
+    assert.match(kioskHtml, /kioskQrZoomModal/);
+    assert.match(kioskJs, /openQrZoomModal/);
   } finally {
     db.prepare('DELETE FROM media_assets WHERE photo_session_id = ?').run(sessId);
     db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(sessId);

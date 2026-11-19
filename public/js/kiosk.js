@@ -1074,6 +1074,7 @@ class KioskEngine {
   renderGuestQrOnPreview() {
     const qrImg = document.getElementById('guestQrCodeImg');
     const qrFallback = document.getElementById('guestQrFallback');
+    const qrHint = document.getElementById('kioskQrTapHint');
     const directLink = document.getElementById('guestGalleryDirectLink');
     const infoText = document.getElementById('guestPassInfoText');
 
@@ -1086,8 +1087,10 @@ class KioskEngine {
       qrImg.src = this.guestPass.qrDataUrl;
       qrImg.style.display = 'block';
       if (qrFallback) qrFallback.style.display = 'none';
-    } else if (qrFallback) {
-      qrFallback.innerText = 'QR Siap';
+      if (qrHint) qrHint.style.display = 'block';
+    } else {
+      if (qrFallback) qrFallback.innerText = 'QR Siap';
+      if (qrHint) qrHint.style.display = 'none';
     }
 
     if (directLink && galleryUrl) {
@@ -1097,6 +1100,35 @@ class KioskEngine {
     if (infoText && token) {
       infoText.innerHTML = `✨ Terhubung ke Galeri Digital • <strong>Foto + Live + Boomerang</strong>`;
     }
+  }
+
+  openQrZoomModal() {
+    const qrImg = document.getElementById('guestQrCodeImg');
+    const modal = document.getElementById('kioskQrZoomModal');
+    const zoomImg = document.getElementById('kioskQrZoomImg');
+    const zoomLink = document.getElementById('kioskQrZoomLink');
+    const directLink = document.getElementById('guestGalleryDirectLink');
+    if (!modal || !zoomImg || !qrImg || !qrImg.src || qrImg.style.display === 'none') return;
+
+    zoomImg.src = qrImg.src;
+    if (zoomLink) {
+      const href = directLink && directLink.style.display !== 'none' ? directLink.getAttribute('href') : '';
+      if (href && href !== '#') {
+        zoomLink.href = href;
+        zoomLink.style.display = 'inline-flex';
+      } else {
+        zoomLink.style.display = 'none';
+      }
+    }
+    modal.style.display = 'flex';
+  }
+
+  closeQrZoomModal(event) {
+    if (event && event.target && event.target.closest('.photo-modal-card') && !event.target.classList.contains('photo-modal-close') && event.target.tagName !== 'BUTTON') {
+      return;
+    }
+    const modal = document.getElementById('kioskQrZoomModal');
+    if (modal) modal.style.display = 'none';
   }
 
   returnToCameraFromPreview() {
@@ -5412,6 +5444,8 @@ class KioskEngine {
       qrFallback.innerText = '⏳ Memuat QR...';
       qrFallback.style.display = 'block';
     }
+    const qrHint = document.getElementById('kioskQrTapHint');
+    if (qrHint) qrHint.style.display = 'none';
     const directLink = document.getElementById('guestGalleryDirectLink');
     if (directLink) directLink.style.display = 'none';
 

@@ -188,16 +188,64 @@
       grid-template-columns: minmax(400px, 1.55fr) minmax(270px, 0.85fr);
     }
 
+    /* Mode Full Live View di Atas (aktif otomatis saat ?fullscreen=1 atau tombol Live Besar) */
+    body.mingle-top-live .mingle-shell {
+      max-width: 100%;
+      padding: 8px 14px 62px;
+      gap: 10px;
+    }
+
+    body.mingle-top-live .mingle-topbar {
+      padding: 6px 12px;
+      border-radius: 14px;
+    }
+
+    body.mingle-top-live .mingle-ready-grid,
+    body.mingle-top-live .mingle-ready-grid.is-landscape {
+      grid-template-columns: minmax(0, 1fr) !important;
+      gap: 12px;
+    }
+
+    body.mingle-top-live .mingle-viewfinder {
+      min-height: 260px;
+      height: min(66dvh, 62vw);
+      max-height: 74dvh;
+    }
+
+    body.mingle-top-live .mingle-viewfinder.is-landscape {
+      max-height: 74dvh;
+      width: 100%;
+      max-width: 100%;
+    }
+
+    body.mingle-top-live .mingle-viewfinder.is-portrait {
+      height: min(70dvh, 88vw);
+      max-height: 76dvh;
+      width: auto;
+      max-width: 100%;
+    }
+
+    body.mingle-top-live .mingle-ready-controls-card {
+      display: grid !important;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      gap: 12px;
+      align-items: center;
+      padding: 12px 16px;
+    }
+
     @media (max-width: 860px) {
       .mingle-ready-grid,
       .mingle-result-grid,
       .mingle-ready-grid.is-landscape,
-      .mingle-result-grid.is-landscape {
-        grid-template-columns: 1fr !important;
+      .mingle-result-grid.is-landscape,
+      body.mingle-top-live .mingle-ready-controls-card {
+        grid-template-columns: minmax(0, 1fr) !important;
       }
     }
 
     .mingle-card {
+      min-width: 0;
+      max-width: 100%;
       background: var(--cream-card, #FFFDF9);
       border: 2px solid var(--border-soft, #EAD8C7);
       border-radius: 24px;
@@ -294,6 +342,7 @@
     }
 
     .mingle-canvas-stage {
+      position: relative;
       flex: 1;
       min-height: 360px;
       background: #221D1A;
@@ -394,6 +443,44 @@
       background: #FFF;
       padding: 6px;
       border: 1.5px solid #F0E4D7;
+      cursor: zoom-in;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .mingle-qr-box img:hover {
+      transform: scale(1.03);
+      box-shadow: 0 8px 20px rgba(123, 72, 46, 0.16);
+    }
+
+    .mingle-slot-zoom-bar {
+      position: absolute;
+      bottom: 12px;
+      right: 12px;
+      z-index: 5;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 251, 245, 0.95);
+      border: 1.5px solid var(--coral, #E6786B);
+      border-radius: 999px;
+      padding: 5px 9px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+    }
+
+    .mingle-slot-zoom-bar button {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border-soft, #EAD8C7);
+      background: #FFF;
+      color: var(--caramel-brown, #7B482E);
+      font-weight: 800;
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .mingle-toast {
@@ -632,6 +719,7 @@
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
             <strong id="mingleReadyCamLabel" style="font-size: 15px; color: var(--caramel-brown);">📷 Siap Memotret Tamu</strong>
             <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+              <button type="button" id="btnMingleTopLiveToggle" class="btn btn-secondary" style="font-size: 11.5px; padding: 5px 10px;" onclick="mingle.toggleTopLiveLayout()" title="Tampilkan Live View Kamera Besar di Atas">🖥️ Live Besar</button>
               <button type="button" id="btnMingleRotate" class="btn btn-secondary" style="font-size: 11.5px; padding: 5px 10px;" onclick="mingle.cycleCameraRotation()" title="Putar Kamera Live & Hasil Foto (0° / 90° / 270° / 180°)">🔁 Putar: 0°</button>
               <button type="button" id="btnToggleCanonLv" class="btn btn-secondary" style="display: none; font-size: 11.5px; padding: 5px 10px;" onclick="mingle.toggleCanonLiveView()">👁️ LiveView / OVF Flash</button>
               <button type="button" class="btn btn-secondary" style="font-size: 11.5px; padding: 5px 10px;" onclick="mingle.openSelectScreen()">← Kembali / Ganti Mode</button>
@@ -662,7 +750,7 @@
           </div>
         </div>
 
-        <div class="mingle-card" style="justify-content: space-between;">
+        <div class="mingle-card mingle-ready-controls-card" style="justify-content: space-between;">
           <div style="display: flex; flex-direction: column; gap: 10px;">
             <div style="font-size: 12px; font-weight: 800; color: var(--text-muted);">MODE &amp; BINGKAI TERPILIH</div>
             <div style="display: flex; gap: 12px; align-items: center; background: #FFF; border: 1.5px solid var(--border-soft); border-radius: 16px; padding: 10px;">
@@ -718,11 +806,19 @@
         <div class="mingle-card">
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
             <strong id="mingleResultTitle" style="font-size: 15px; color: var(--caramel-brown);">✨ Hasil Foto Tamu</strong>
-            <span id="mingleResultHint" style="font-size: 11.5px; color: var(--text-muted);">Geser foto untuk atur posisi</span>
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <button type="button" id="btnMingleChangeFrame" class="btn btn-coral" style="font-size: 11.5px; padding: 5px 11px;" onclick="mingle.openChangeFrameModal()">🎨 Ganti Frame</button>
+              <span id="mingleActiveSlotBadge" class="sticker-badge sticker-teal" style="font-size: 11px; padding: 3px 9px;">Slot #1 Aktif</span>
+            </div>
           </div>
 
           <div id="mingleCanvasStage" class="mingle-canvas-stage">
             <canvas id="mingleFinalCanvas"></canvas>
+            <div class="mingle-slot-zoom-bar" id="mingleSlotZoomBar" onclick="event.stopPropagation()">
+              <button type="button" onclick="mingle.adjustActiveSlotZoom(-0.12)" title="Perkecil foto di slot aktif">−</button>
+              <span id="mingleSlotZoomLabel" style="font-size: 11.5px; font-weight: 800; color: var(--caramel-brown); min-width: 48px; text-align: center;">🔍 1.0x</span>
+              <button type="button" onclick="mingle.adjustActiveSlotZoom(0.12)" title="Perbesar foto di slot aktif">+</button>
+            </div>
           </div>
 
           <!-- Tampilan Mode Jual File Tanpa Bingkai -->
@@ -756,7 +852,8 @@
         <div class="mingle-card" style="justify-content: space-between;">
           <div class="mingle-qr-box">
             <div id="mingleQrHeaderText" style="font-size: 13px; font-weight: 800; color: var(--caramel-brown);">📲 Scan QR di HP Tamu untuk Download</div>
-            <img id="mingleQrImg" src="" alt="QR Download Foto" style="display: none;">
+            <img id="mingleQrImg" src="" alt="QR Download Foto" style="display: none;" onclick="mingle.openQrZoomModal()" title="Ketuk untuk perbesar QR Code">
+            <div id="mingleQrTapHint" style="display: none; font-size: 11px; color: var(--text-muted); font-weight: 700; cursor: pointer;" onclick="mingle.openQrZoomModal()">🔍 Ketuk QR untuk perbesar layar</div>
             <div id="mingleQrPlaceholder" style="padding: 40px 12px; font-size: 13px; color: var(--text-muted); font-weight: 700;">Menyiapkan QR Code...</div>
             <a id="mingleGalleryLink" href="#" target="_blank" style="display: none; font-size: 12px; font-weight: 700; color: var(--coral); text-decoration: underline;">
               🔗 Buka Galeri Foto Tamu
@@ -785,8 +882,44 @@
     </section>
   </div>
 
+  <!-- Modal Ganti Frame di Layar Hasil Mingle -->
+  <div id="mingleChangeFrameModal" class="photo-modal-overlay" style="display: none;" onclick="mingle.closeChangeFrameModal(event)">
+    <div class="photo-modal-card" style="max-width: 780px; width: 92vw; padding: 24px;" onclick="event.stopPropagation()">
+      <div class="photo-modal-header" style="margin-bottom: 12px;">
+        <div>
+          <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown); margin: 0;">🎨 Pilih / Ganti Frame Foto</h3>
+          <p style="font-size: 12.5px; color: var(--text-muted); margin-top: 2px;">Foto yang sudah diambil tetap aman dan langsung terpasang ke bingkai pilihan baru!</p>
+        </div>
+        <button class="photo-modal-close" onclick="mingle.closeChangeFrameModal()">✕</button>
+      </div>
+      <div id="mingleChangeFrameGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; max-height: 56vh; overflow-y: auto; padding: 6px 4px; margin-bottom: 16px;">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button type="button" class="btn btn-secondary" style="padding: 8px 20px; font-size: 13px;" onclick="mingle.closeChangeFrameModal()">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Perbesar QR Galeri Mingle -->
+  <div id="mingleQrZoomModal" style="display: none; position: fixed; inset: 0; z-index: 9998; background: rgba(24, 14, 9, 0.86); backdrop-filter: blur(6px); align-items: center; justify-content: center; padding: 20px;" onclick="mingle.closeQrZoomModal(event)">
+    <div style="background: #FFFDF9; border: 3px solid var(--coral, #E6786B); border-radius: 28px; padding: 24px 26px; max-width: 440px; width: 92vw; text-align: center; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45); display: flex; flex-direction: column; align-items: center; gap: 12px;" onclick="event.stopPropagation()">
+      <div style="display: flex; width: 100%; justify-content: space-between; align-items: center;">
+        <strong style="font-size: 17px; color: var(--caramel-brown);">📲 Scan QR Galeri Foto</strong>
+        <button type="button" onclick="mingle.closeQrZoomModal()" style="width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(123,72,46,0.12); color: var(--caramel-brown); font-size: 16px; font-weight: 800; cursor: pointer;">✕</button>
+      </div>
+      <div style="background: #FFFFFF; padding: 12px; border-radius: 20px; border: 2px solid #F0E4D7;">
+        <img id="mingleQrZoomImg" src="" alt="QR Code Besar" style="width: min(72vw, 340px); height: min(72vw, 340px); display: block; object-fit: contain; image-rendering: pixelated;">
+      </div>
+      <p style="margin: 0; font-size: 12.5px; color: var(--text-muted); font-weight: 600;">Arahkan kamera HP tamu untuk mengunduh semua foto HD</p>
+      <div style="display: flex; gap: 10px; width: 100%;">
+        <a id="mingleQrZoomLink" href="#" target="_blank" class="btn btn-secondary" style="flex: 1; padding: 10px; font-size: 13px; text-decoration: none; text-align: center;">🔗 Buka Link</a>
+        <button type="button" class="btn btn-coral" style="flex: 1; padding: 10px; font-size: 13px;" onclick="mingle.closeQrZoomModal()">Tutup</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
-  <script src="/js/mingle.js?v=1.6"></script>
+  <script src="/js/mingle.js?v=1.7"></script>
 </body>
 </html>

@@ -28,15 +28,14 @@ class MingleBoothEngine {
     this.capturedPhotos = [];
     this.syncedCaptureCount = 0;
     this.slotAssignments = [];
+    this.slotTransforms = [];
     this.selectedSlotIdx = 0;
     this.selectedFileIdx = 0;
     this.rawPhotoDataUrl = null;
     this.cachedPhotoImg = null;
     this.cachedPhotoMap = {};
-    this.panX = 0;
-    this.panY = 0;
-    this.zoom = 1.0;
     this.activeFilter = 'normal';
+    this.isTopLiveLayout = urlParams.get('fullscreen') === '1' || localStorage.getItem('pb_mingle_top_live') === 'true';
 
     this.guestPass = null;
     this.sessionId = null;
@@ -67,6 +66,7 @@ class MingleBoothEngine {
 
     this.renderFramesGrid();
     this.updateCameraRotationUI();
+    this.applyTopLiveLayout();
     this.startStatusPolling();
     this.setUsbMingleListen(false);
   }
@@ -359,17 +359,17 @@ class MingleBoothEngine {
     this.capturedPhotos = [];
     this.syncedCaptureCount = 0;
     this.slotAssignments = [];
+    this.slotTransforms = [];
     this.selectedSlotIdx = 0;
     this.selectedFileIdx = 0;
     this.rawPhotoDataUrl = null;
     this.cachedPhotoImg = null;
     this.cachedPhotoMap = {};
-    this.panX = 0;
-    this.panY = 0;
-    this.zoom = 1.0;
     this.activeFilter = 'normal';
     this.guestPass = null;
     this.sessionId = null;
+    const qrHint = document.getElementById('mingleQrTapHint');
+    if (qrHint) qrHint.style.display = 'none';
   }
 
   async startFilesOnlyMode() {
@@ -490,6 +490,25 @@ class MingleBoothEngine {
         cache: 'no-store'
       });
     } catch (e) {}
+  }
+
+  applyTopLiveLayout() {
+    document.body.classList.toggle('mingle-top-live', Boolean(this.isTopLiveLayout));
+    const btn = document.getElementById('btnMingleTopLiveToggle');
+    if (btn) {
+      btn.classList.toggle('btn-coral', Boolean(this.isTopLiveLayout));
+      btn.classList.toggle('btn-secondary', !this.isTopLiveLayout);
+      btn.innerText = this.isTopLiveLayout ? '🖥️ Live Besar ON' : '🖥️ Live Besar';
+    }
+    requestAnimationFrame(() => this.applyMingleVideoTransform());
+  }
+
+  toggleTopLiveLayout() {
+    this.isTopLiveLayout = !this.isTopLiveLayout;
+    try {
+      localStorage.setItem('pb_mingle_top_live', this.isTopLiveLayout ? 'true' : 'false');
+    } catch (e) {}
+    this.applyTopLiveLayout();
   }
 
   setCameraRotation(deg) {
@@ -896,8 +915,12 @@ class MingleBoothEngine {
       const resHint = document.getElementById('mingleResultHint');
       const resultGrid = document.getElementById('mingleResultGrid');
 
+      const slotZoomBar = document.getElementById('mingleSlotZoomBar');
+      const slotBadge = document.getElementById('mingleActiveSlotBadge');
       if (this.filesOnlyMode) {
         if (canvasStage) canvasStage.style.display = 'none';
+        if (slotZoomBar) slotZoomBar.style.display = 'none';
+        if (slotBadge) slotBadge.style.display = 'none';
         if (filterRow) filterRow.style.display = 'none';
         if (slotBar) slotBar.style.display = 'none';
         if (filesBox) filesBox.style.display = 'flex';
@@ -910,14 +933,13 @@ class MingleBoothEngine {
       } else {
         if (filesBox) filesBox.style.display = 'none';
         if (canvasStage) canvasStage.style.display = 'flex';
+        if (slotZoomBar) slotZoomBar.style.display = 'inline-flex';
+        if (slotBadge) slotBadge.style.display = '';
         if (filterRow) filterRow.style.display = 'flex';
         if (printBtn) printBtn.style.display = '';
         if (resTitle) resTitle.innerText = '✨ Hasil Foto Tamu';
         if (resHint) resHint.innerText = 'Geser foto untuk atur posisi';
 
-        this.panX = 0;
-        this.panY = 0;
-        this.zoom = 1.0;
         await this.loadAndKeySelectedTemplate();
         const slotsCount = (this.activeSlots && this.activeSlots.length) || 1;
         if (!this.slotAssignments || this.slotAssignments.length !== slotsCount) {
@@ -925,9 +947,11 @@ class MingleBoothEngine {
         } else {
           this.slotAssignments = this.slotAssignments.map(idx => idx % this.capturedPhotos.length);
         }
+        this.slotTransforms = Array.from({ length: slotsCount }, () => ({ panX: 0, panY: 0, zoom: 1.0 }));
         this.selectedSlotIdx = 0;
         await this.renderResultCanvas();
         this.renderResultSlotBar();
+        this.updateSlotZoomBadge();
       }
 
       this.showScreen('screenMingleResult');
@@ -1074,6 +1098,33 @@ class MingleBoothEngine {
     return pImg;
   }
 
+  getSlotTransform(idx) {
+    if (!Array.isArray(this.slotTransforms)) this.slotTransforms = [];
+    if (!this.slotTransforms[idx]) {
+      this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
+    }
+    return this.slotTransforms[idx];
+  }
+
+  updateSlotZoomBadge() {
+    const idx = typeof this.selectedSlotIdx === 'number' ? this.selectedSlotIdx : 0;
+    const tr = this.getSlotTransform(idx);
+    const z = Math.max(1.0, Math.min(3.5, tr.zoom || 1.0));
+    const zoomLbl = document.getElementById('mingleSlotZoomLabel');
+    if (zoomLbl) zoomLbl.innerText = `🔍 ${z.toFixed(1)}x`;
+    const slotBadge = document.getElementById('mingleActiveSlotBadge');
+    if (slotBadge) slotBadge.innerText = `Slot #${idx + 1} Aktif`;
+  }
+
+  async adjustActiveSlotZoom(delta) {
+    const idx = typeof this.selectedSlotIdx === 'number' ? this.selectedSlotIdx : 0;
+    const tr = this.getSlotTransform(idx);
+    tr.zoom = Math.max(1.0, Math.min(3.5, Number(((tr.zoom || 1.0) + delta).toFixed(2))));
+    this.updateSlotZoomBadge();
+    await this.renderResultCanvas();
+    this.syncFinalImageOnly();
+  }
+
   async renderResultCanvas() {
     const canvas = document.getElementById('mingleFinalCanvas');
     if (!canvas || !this.selectedTemplate) return;
@@ -1092,7 +1143,6 @@ class MingleBoothEngine {
         ? this.activeSlots
         : [this.activeSlot || { x: 60, y: 60, width: w - 120, height: h - 180 }];
       const filterStr = this.getFilterCss(this.activeFilter);
-      const zoom = Math.max(1.0, Math.min(3.5, this.zoom));
 
       for (let i = 0; i < slotsToRender.length; i++) {
         const slot = slotsToRender[i];
@@ -1114,16 +1164,18 @@ class MingleBoothEngine {
         ctx.clip();
         if (filterStr !== 'none') ctx.filter = filterStr;
 
+        const tr = this.getSlotTransform(i);
+        const zoom = Math.max(1.0, Math.min(3.5, tr.zoom || 1.0));
         const baseScale = Math.max(clipW / Math.max(1, pImg.width), clipH / Math.max(1, pImg.height));
         const drawW = pImg.width * baseScale * zoom;
         const drawH = pImg.height * baseScale * zoom;
         const maxPanX = Math.max(0, (drawW - clipW) / 2);
         const maxPanY = Math.max(0, (drawH - clipH) / 2);
-        this.panX = Math.max(-maxPanX, Math.min(maxPanX, this.panX));
-        this.panY = Math.max(-maxPanY, Math.min(maxPanY, this.panY));
+        tr.panX = Math.max(-maxPanX, Math.min(maxPanX, tr.panX || 0));
+        tr.panY = Math.max(-maxPanY, Math.min(maxPanY, tr.panY || 0));
 
-        const drawX = (clipX + clipW / 2) - (drawW / 2) + this.panX;
-        const drawY = (clipY + clipH / 2) - (drawH / 2) + this.panY;
+        const drawX = (clipX + clipW / 2) - (drawW / 2) + tr.panX;
+        const drawY = (clipY + clipH / 2) - (drawH / 2) + tr.panY;
         ctx.drawImage(pImg, drawX, drawY, drawW, drawH);
         ctx.restore();
       }
@@ -1132,6 +1184,7 @@ class MingleBoothEngine {
     if (this.cachedKeyedFrame) {
       ctx.drawImage(this.cachedKeyedFrame, 0, 0, w, h);
     }
+    this.updateSlotZoomBadge();
   }
 
   renderFilesPreview() {
@@ -1188,6 +1241,7 @@ class MingleBoothEngine {
 
   selectResultSlot(slotIdx) {
     this.selectedSlotIdx = slotIdx;
+    this.updateSlotZoomBadge();
     this.renderResultSlotBar();
   }
 
@@ -1199,47 +1253,244 @@ class MingleBoothEngine {
     await this.syncFinalImageOnly(false, false);
   }
 
+  findResultSlotAt(canvasX, canvasY) {
+    const slots = (this.activeSlots && this.activeSlots.length > 0)
+      ? this.activeSlots
+      : [this.activeSlot || { x: 0, y: 0, width: 1200, height: 1800 }];
+    if (slots.length <= 1) return 0;
+    const exact = slots.findIndex(s =>
+      canvasX >= s.x && canvasX <= (s.x + s.width) &&
+      canvasY >= s.y && canvasY <= (s.y + s.height)
+    );
+    if (exact !== -1) return exact;
+    const pad = 28;
+    const near = slots.findIndex(s =>
+      canvasX >= (s.x - pad) && canvasX <= (s.x + s.width + pad) &&
+      canvasY >= (s.y - pad) && canvasY <= (s.y + s.height + pad)
+    );
+    if (near !== -1) return near;
+    return (typeof this.selectedSlotIdx === 'number' && this.selectedSlotIdx < slots.length) ? this.selectedSlotIdx : 0;
+  }
+
   setupCanvasPanAndZoom() {
     const canvas = document.getElementById('mingleFinalCanvas');
     if (!canvas) return;
     canvas.style.touchAction = 'none';
+    const activePointers = new Map();
     let dragging = false;
+    let pinching = false;
     let lastX = 0;
     let lastY = 0;
+    let pinchInitDist = 0;
+    let pinchInitZoom = 1.0;
     let syncTimer = null;
     const scheduleSync = () => {
       if (syncTimer) clearTimeout(syncTimer);
       syncTimer = setTimeout(() => this.syncFinalImageOnly(), 500);
     };
-
-    canvas.addEventListener('pointerdown', (e) => {
-      dragging = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
-    });
-    window.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
+    const toCanvasCoords = (clientX, clientY) => {
       const rect = canvas.getBoundingClientRect();
       const sx = canvas.width / Math.max(1, rect.width);
       const sy = canvas.height / Math.max(1, rect.height);
-      this.panX += (e.clientX - lastX) * sx;
-      this.panY += (e.clientY - lastY) * sy;
-      lastX = e.clientX;
-      lastY = e.clientY;
-      this.renderResultCanvas();
-    });
-    window.addEventListener('pointerup', () => {
-      if (dragging) {
+      return {
+        x: (clientX - rect.left) * sx,
+        y: (clientY - rect.top) * sy,
+        sx,
+        sy
+      };
+    };
+
+    canvas.addEventListener('pointerdown', (e) => {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+      const coords = toCanvasCoords(e.clientX, e.clientY);
+      const hitIdx = this.findResultSlotAt(coords.x, coords.y);
+      if (this.selectedSlotIdx !== hitIdx) {
+        this.selectedSlotIdx = hitIdx;
+        this.updateSlotZoomBadge();
+        this.renderResultSlotBar();
+      }
+      const tr = this.getSlotTransform(hitIdx);
+
+      if (activePointers.size === 1) {
+        dragging = true;
+        pinching = false;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      } else if (activePointers.size >= 2) {
+        const pts = Array.from(activePointers.values());
         dragging = false;
-        scheduleSync();
+        pinching = true;
+        pinchInitDist = Math.max(15, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
+        pinchInitZoom = tr.zoom || 1.0;
       }
     });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!activePointers.has(e.pointerId)) return;
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const idx = typeof this.selectedSlotIdx === 'number' ? this.selectedSlotIdx : 0;
+      const tr = this.getSlotTransform(idx);
+
+      if (pinching && activePointers.size >= 2) {
+        const pts = Array.from(activePointers.values());
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        tr.zoom = Math.max(1.0, Math.min(3.5, pinchInitZoom * (dist / pinchInitDist)));
+        this.updateSlotZoomBadge();
+        this.renderResultCanvas();
+      } else if (dragging && activePointers.size === 1) {
+        const rect = canvas.getBoundingClientRect();
+        const sx = canvas.width / Math.max(1, rect.width);
+        const sy = canvas.height / Math.max(1, rect.height);
+        tr.panX += (e.clientX - lastX) * sx;
+        tr.panY += (e.clientY - lastY) * sy;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        this.renderResultCanvas();
+      }
+    });
+    const endPointer = (e) => {
+      activePointers.delete(e.pointerId);
+      if (activePointers.size === 0) {
+        if (dragging || pinching) {
+          dragging = false;
+          pinching = false;
+          scheduleSync();
+        }
+      } else if (activePointers.size === 1) {
+        const rem = Array.from(activePointers.values())[0];
+        pinching = false;
+        dragging = true;
+        lastX = rem.x;
+        lastY = rem.y;
+      }
+    };
+    canvas.addEventListener('pointerup', endPointer);
+    canvas.addEventListener('pointercancel', endPointer);
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      this.zoom = Math.max(1.0, Math.min(3.5, this.zoom + (e.deltaY < 0 ? 0.08 : -0.08)));
+      const coords = toCanvasCoords(e.clientX, e.clientY);
+      const hitIdx = this.findResultSlotAt(coords.x, coords.y);
+      if (this.selectedSlotIdx !== hitIdx) {
+        this.selectedSlotIdx = hitIdx;
+        this.renderResultSlotBar();
+      }
+      const tr = this.getSlotTransform(hitIdx);
+      tr.zoom = Math.max(1.0, Math.min(3.5, (tr.zoom || 1.0) + (e.deltaY < 0 ? 0.08 : -0.08)));
+      this.updateSlotZoomBadge();
       this.renderResultCanvas();
       scheduleSync();
     }, { passive: false });
+  }
+
+  async openChangeFrameModal() {
+    const modal = document.getElementById('mingleChangeFrameModal');
+    const grid = document.getElementById('mingleChangeFrameGrid');
+    if (!modal || !grid) return;
+    modal.style.display = 'flex';
+    await this.fetchTemplates();
+
+    const list = (this.allTemplates && this.allTemplates.length > 0) ? this.allTemplates : (this.templates || []);
+    const currentId = this.selectedTemplate ? this.selectedTemplate.id : null;
+    grid.innerHTML = list.map((tpl) => {
+      const isSelected = tpl.id === currentId;
+      const fmtLabel = this.getTemplateFormatLabel(tpl);
+      return `
+        <div class="mingle-frame-card ${isSelected ? 'selected' : ''}" style="padding: 10px; ${isSelected ? 'border-color: var(--coral); background: rgba(230,120,107,0.06);' : ''}" onclick="mingle.applyFrameInResult('${tpl.id}')">
+          <div class="mingle-frame-thumb" style="height: 150px;">
+            <img src="${tpl.image_storage_key}" alt="${this.escapeHtml(tpl.name)}" onerror="this.src='/assets/templates/single-green-template.svg'">
+          </div>
+          <span class="sticker-badge ${isSelected ? 'sticker-coral' : 'sticker-mustard'}" style="font-size: 10.5px; padding: 3px 8px;">
+            ${isSelected ? `✓ Dipakai (${fmtLabel})` : fmtLabel}
+          </span>
+          <div style="font-size: 13.5px; font-weight: 800; color: var(--caramel-brown); line-height: 1.25;">${this.escapeHtml(tpl.name)}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  closeChangeFrameModal(event) {
+    if (event && event.target && event.target.closest('.photo-modal-card') && !event.target.classList.contains('photo-modal-close') && event.target.tagName !== 'BUTTON') {
+      return;
+    }
+    const modal = document.getElementById('mingleChangeFrameModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  async applyFrameInResult(templateId) {
+    const list = (this.allTemplates && this.allTemplates.length > 0) ? this.allTemplates : (this.templates || []);
+    const newTpl = list.find(t => t.id === templateId);
+    if (!newTpl) return;
+
+    this.closeChangeFrameModal();
+    this.selectedTemplate = newTpl;
+    this.filesOnlyMode = false;
+
+    const thumb = document.getElementById('mingleSelectedThumb');
+    const nameEl = document.getElementById('mingleSelectedName');
+    const fmtBadge = document.getElementById('mingleSelectedFormatBadge');
+    if (thumb) thumb.src = newTpl.image_storage_key;
+    if (nameEl) nameEl.innerText = newTpl.name || 'Bingkai Mingle';
+    if (fmtBadge) fmtBadge.innerText = this.getTemplateFormatLabel(newTpl);
+
+    const filesBox = document.getElementById('mingleFilesPreviewBox');
+    const canvasStage = document.getElementById('mingleCanvasStage');
+    const slotZoomBar = document.getElementById('mingleSlotZoomBar');
+    const slotBadge = document.getElementById('mingleActiveSlotBadge');
+    const filterRow = document.getElementById('mingleFilterRow');
+    const printBtn = document.getElementById('btnMinglePrint');
+    if (filesBox) filesBox.style.display = 'none';
+    if (canvasStage) canvasStage.style.display = 'flex';
+    if (slotZoomBar) slotZoomBar.style.display = 'inline-flex';
+    if (slotBadge) slotBadge.style.display = '';
+    if (filterRow) filterRow.style.display = 'flex';
+    if (printBtn) printBtn.style.display = '';
+
+    await this.loadAndKeySelectedTemplate();
+    const slotsCount = (this.activeSlots && this.activeSlots.length) || 1;
+    const photosCount = Math.max(1, this.capturedPhotos.length);
+    this.slotAssignments = Array.from({ length: slotsCount }, (_, idx) => {
+      if (this.slotAssignments && this.slotAssignments[idx] !== undefined) {
+        return this.slotAssignments[idx] % photosCount;
+      }
+      return idx % photosCount;
+    });
+    this.slotTransforms = Array.from({ length: slotsCount }, (_, idx) => (
+      (this.slotTransforms && this.slotTransforms[idx]) ? { ...this.slotTransforms[idx] } : { panX: 0, panY: 0, zoom: 1.0 }
+    ));
+    this.selectedSlotIdx = 0;
+
+    this.renderResultSlotBar();
+    await this.renderResultCanvas();
+    this.updateSlotZoomBadge();
+    await this.syncFinalImageOnly(false, false);
+    this.showToast(`✨ Frame diganti ke ${newTpl.name}!`, '🎨', 2400);
+  }
+
+  openQrZoomModal() {
+    const qrImg = document.getElementById('mingleQrImg');
+    const modal = document.getElementById('mingleQrZoomModal');
+    const zoomImg = document.getElementById('mingleQrZoomImg');
+    const zoomLink = document.getElementById('mingleQrZoomLink');
+    const directLink = document.getElementById('mingleGalleryLink');
+    if (!modal || !zoomImg || !qrImg || !qrImg.src || qrImg.style.display === 'none') return;
+    zoomImg.src = qrImg.src;
+    if (zoomLink) {
+      if (directLink && directLink.href && directLink.href !== '#') {
+        zoomLink.href = directLink.href;
+        zoomLink.style.display = '';
+      } else {
+        zoomLink.style.display = 'none';
+      }
+    }
+    modal.style.display = 'flex';
+  }
+
+  closeQrZoomModal(event) {
+    if (event && event.target && event.target !== document.getElementById('mingleQrZoomModal') && event.target.tagName !== 'BUTTON') {
+      return;
+    }
+    const modal = document.getElementById('mingleQrZoomModal');
+    if (modal) modal.style.display = 'none';
   }
 
   async setFilter(filterKey) {
@@ -1254,11 +1505,13 @@ class MingleBoothEngine {
   async issuePassCreateAndSync() {
     const qrImg = document.getElementById('mingleQrImg');
     const qrPh = document.getElementById('mingleQrPlaceholder');
+    const qrHint = document.getElementById('mingleQrTapHint');
     const linkEl = document.getElementById('mingleGalleryLink');
     const statusEl = document.getElementById('mingleSyncStatus');
 
     if (!this.guestPass) {
       if (qrImg) qrImg.style.display = 'none';
+      if (qrHint) qrHint.style.display = 'none';
       if (qrPh) {
         qrPh.style.display = 'block';
         qrPh.innerText = 'Membuat QR Code Galeri...';
@@ -1281,6 +1534,7 @@ class MingleBoothEngine {
             qrImg.src = this.guestPass.qrDataUrl;
             qrImg.style.display = 'block';
             if (qrPh) qrPh.style.display = 'none';
+            if (qrHint) qrHint.style.display = 'block';
           }
           const token = this.guestPass.token || this.guestPass.token_plain;
           const gUrl = this.guestPass.galleryUrl || (token ? `/gallery/g/${token}` : null);
