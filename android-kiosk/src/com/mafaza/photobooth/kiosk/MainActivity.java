@@ -38,10 +38,12 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends Activity {
@@ -52,6 +54,8 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private TextView usbBadgeView;
+    private TextView modeSwitchBtn;
+    private volatile boolean isCurrentlyMinglePage = false;
     private CanonUsbPtpEngine canonEngine;
     private LocalCanonHttpServer localHttpServer;
     private CameraManager cameraManager;
@@ -105,6 +109,20 @@ public class MainActivity extends Activity {
             public void onUsbUvcChanged(boolean attached, String deviceName) {
                 mainHandler.post(() -> notifyWebViewCameraInventoryChanged());
             }
+
+            @Override
+            public void onPhysicalShutterCaptured(long seq, String source) {
+                mainHandler.post(() -> {
+                    if (webView != null) {
+                        String safeSource = source == null ? "" : source.replace("'", "");
+                        String photoUrl = "http://127.0.0.1:" + LocalCanonHttpServer.PORT + "/physical_capture.jpg?seq=" + seq;
+                        webView.evaluateJavascript(
+                                "window.dispatchEvent(new CustomEvent('mafaza:physical-shutter', { detail: { seq: " + seq
+                                        + ", source: '" + safeSource + "', url: '" + photoUrl + "' } }));",
+                                null);
+                    }
+                });
+            }
         });
 
         localHttpServer = new LocalCanonHttpServer(canonEngine);
@@ -122,30 +140,47 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // Floating small USB indicator badge at bottom-left corner (tap to rescan / long-press to change URL)
+        // Floating bottom-left bar: USB status badge + quick switcher button between Kiosk & Mingle Booth
+        LinearLayout bottomBar = new LinearLayout(this);
+        bottomBar.setOrientation(LinearLayout.HORIZONTAL);
+        bottomBar.setGravity(Gravity.CENTER_VERTICAL);
+
         usbBadgeView = new TextView(this);
         usbBadgeView.setText("📷 USB kamera: Sambungkan kabel USB-C data");
         usbBadgeView.setTextColor(Color.WHITE);
         usbBadgeView.setTextSize(11f);
         usbBadgeView.setPadding(22, 10, 22, 10);
         usbBadgeView.setBackgroundColor(Color.argb(175, 28, 22, 18));
-        usbBadgeView.setAlpha(0.75f);
+        usbBadgeView.setAlpha(0.78f);
+
+        usbBadgeView.setOnClickListener(v -> showUsbDiagnosticsDialog());
+        usbBadgeView.setOnLongClickListener(v -> {
+            showOperatorConfigDialog();
+            return true;
+        });
+
+        modeSwitchBtn = new TextView(this);
+        modeSwitchBtn.setText("📸 Buka Mingle");
+        modeSwitchBtn.setTextColor(Color.WHITE);
+        modeSwitchBtn.setTextSize(11.5f);
+        modeSwitchBtn.setPadding(22, 10, 22, 10);
+        modeSwitchBtn.setBackgroundColor(Color.argb(215, 212, 92, 78));
+        LinearLayout.LayoutParams switchParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        switchParams.setMargins(12, 0, 0, 0);
+        modeSwitchBtn.setOnClickListener(v -> toggleKioskOrMinglePage());
+
+        bottomBar.addView(usbBadgeView);
+        bottomBar.addView(modeSwitchBtn, switchParams);
+
         FrameLayout.LayoutParams badgeParams = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM | Gravity.START);
         badgeParams.setMargins(20, 20, 20, 16);
 
-        usbBadgeView.setOnClickListener(v -> {
-            showUsbDiagnosticsDialog();
-        });
-
-        usbBadgeView.setOnLongClickListener(v -> {
-            showOperatorConfigDialog();
-            return true;
-        });
-
-        rootLayout.addView(usbBadgeView, badgeParams);
+        rootLayout.addView(bottomBar, badgeParams);
         setContentView(rootLayout);
 
         requestRuntimeCameraPermissions();
@@ -153,19 +188,20 @@ public class MainActivity extends Activity {
     }
 
     private void showUsbDiagnosticsDialog() {
-        final String report = "MAFAZA 2.5.4\n" + canonEngine.getUsbDiagnosticsReport();
+        final String report = "MAFAZA 2.5.6\n" + canonEngine.getUsbDiagnosticsReport();
         new AlertDialog.Builder(this)
                 .setTitle("Diagnostik Kamera USB")
                 .setMessage(report)
                 .setPositiveButton("Scan Ulang", (dialog, which) -> canonEngine.scanAndConnectIfAvailable())
-                .setNeutralButton("Salin Diagnostik", (dialog, which) -> {
+                .setNeutralButton(isCurrentlyMinglePage ? "Ke Halaman Kiosk" : "Ke Halaman Mingle",
+                        (dialog, which) -> toggleKioskOrMinglePage())
+                .setNegativeButton("Salin & Tutup", (dialog, which) -> {
                     ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     if (clipboard != null) {
                         clipboard.setPrimaryClip(ClipData.newPlainText("Diagnostik MAFAZA", report));
-                        Toast.makeText(this, "Diagnostik disalin. Tempelkan saat melaporkan kendala.", Toast.LENGTH_LONG).show();
+                        Toast.makeText(this, "Diagnostik disalin.", Toast.LENGTH_SHORT).show();
                     }
                 })
-                .setNegativeButton("Tutup", null)
                 .show();
     }
 
@@ -190,7 +226,7 @@ public class MainActivity extends Activity {
         // Set Desktop User-Agent so public/js/kiosk.js automatically enables Canon USB 127.0.0.1:19898 polling
         // without modifying a single line of public/js/kiosk.js!
         settings.setUserAgentString(
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.4");
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 MafazaKioskAPK/2.5.6");
 
         wv.addJavascriptInterface(new MafazaAndroidBridge(), "MafazaAndroidBridge");
 
@@ -230,6 +266,7 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 injectAndroidKioskBridge(view);
+                updateModeSwitchButton(url);
             }
         });
     }
@@ -362,13 +399,51 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void updateModeSwitchButton(String currentUrl) {
+        mainHandler.post(() -> {
+            isCurrentlyMinglePage = currentUrl != null && currentUrl.contains("/mingle");
+            if (modeSwitchBtn == null) return;
+            if (isCurrentlyMinglePage) {
+                modeSwitchBtn.setText("🖥️ Mode Kiosk");
+                modeSwitchBtn.setBackgroundColor(Color.argb(215, 46, 111, 105));
+            } else {
+                modeSwitchBtn.setText("📸 Buka Mingle");
+                modeSwitchBtn.setBackgroundColor(Color.argb(215, 212, 92, 78));
+            }
+        });
+    }
+
+    private String buildTargetModeUrl(boolean toMingle) {
+        String raw = (webView != null && webView.getUrl() != null && webView.getUrl().startsWith("http"))
+                ? webView.getUrl()
+                : getSavedKioskUrl();
+        try {
+            URI u = new URI(raw);
+            String origin = u.getScheme() + "://" + u.getAuthority();
+            return origin + (toMingle ? "/mingle?fullscreen=1" : "/kiosk?fullscreen=1");
+        } catch (Exception e) {
+            return toMingle ? "https://mafaza.galipatsistem.com/mingle?fullscreen=1" : DEFAULT_KIOSK_URL;
+        }
+    }
+
+    private void toggleKioskOrMinglePage() {
+        if (webView == null) return;
+        boolean goMingle = !isCurrentlyMinglePage;
+        if (canonEngine != null) {
+            canonEngine.setMingleListenMode(goMingle, false);
+        }
+        String target = buildTargetModeUrl(goMingle);
+        updateModeSwitchButton(target);
+        webView.loadUrl(target);
+    }
+
     private void showOperatorConfigDialog() {
         final EditText input = new EditText(this);
         input.setSingleLine(true);
         input.setText(getSavedKioskUrl());
 
         new AlertDialog.Builder(this)
-                .setTitle("MAFAZA 2.5.4 · Pengaturan Kamera & USB")
+                .setTitle("MAFAZA 2.5.6 · Pengaturan Kamera & USB")
                 .setMessage(canonEngine.getUsbDiagnosticsReport() + "\n\nURL Server Kiosk Photobooth:")
                 .setView(input)
                 .setPositiveButton("Simpan & Muat Ulang", (dialog, which) -> {
@@ -379,9 +454,8 @@ public class MainActivity extends Activity {
                         webView.loadUrl(newUrl);
                     }
                 })
-                .setNeutralButton("Scan Ulang Kamera USB", (dialog, which) -> {
-                    canonEngine.scanAndConnectIfAvailable();
-                })
+                .setNeutralButton(isCurrentlyMinglePage ? "Buka Kiosk (/kiosk)" : "Buka Mingle (/mingle)",
+                        (dialog, which) -> toggleKioskOrMinglePage())
                 .setNegativeButton("Batal", null)
                 .show();
     }

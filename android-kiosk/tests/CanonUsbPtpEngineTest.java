@@ -39,9 +39,15 @@ public class CanonUsbPtpEngineTest {
     }
     static class Listener implements CanonUsbPtpEngine.Listener {
         int live;
+        long physicalSeq;
+        String physicalSource = "";
         public void onCameraConnected(String s) { live++; }
         public void onCameraDisconnected() {}
         public void onStatusMessage(String s) {}
+        @Override public void onPhysicalShutterCaptured(long seq, String source) {
+            physicalSeq = seq;
+            physicalSource = source;
+        }
     }
     static class USB extends UsbDeviceConnection {
         final Queue<byte[]> replies = new ArrayDeque<>();
@@ -53,6 +59,9 @@ public class CanonUsbPtpEngineTest {
         boolean rejectShutter;
         boolean omitPhotoResponse;
         boolean canonShot;
+        boolean canonAddedEx;
+        boolean canonPartialOnly;
+        boolean canonRawAndJpeg;
         boolean timeoutFirstOpen;
         boolean noOpenResponse;
         boolean alreadyOpenOnce;
@@ -61,6 +70,7 @@ public class CanonUsbPtpEngineTest {
         boolean genericShotCaptured;
         int mtpRejectOp = -1;
         int livePropertySize;
+        byte[] customSonyPropsData = null;
         @Override public int bulkTransfer(UsbEndpoint ep, byte[] bytes, int length, int timeout) {
             if (ep.getDirection() == 128) {
                 byte[] reply = replies.poll();
@@ -97,7 +107,9 @@ public class CanonUsbPtpEngineTest {
                 di.putShort(8, (short) 100);
                 data = di.array();
             }
-            if (rc == 0x2001 && (op == 0x9202 || op == 0x9209)) data = new byte[16];
+            if (rc == 0x2001 && (op == 0x9202 || op == 0x9209)) {
+                data = (op == 0x9209 && customSonyPropsData != null) ? customSonyPropsData : new byte[16];
+            }
             if (rc == 0x2001 && op == 0x1007) {
                 data = genericShotCaptured
                         ? ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putInt(1).putInt(777).array()
@@ -106,12 +118,28 @@ public class CanonUsbPtpEngineTest {
             if (op == 0x100e && rc == 0x2001) genericShotCaptured = true;
             if (rc == 0x2001 && op == 0x1008) {
                 data = new byte[52];
-                ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN).putShort(4, (short) 0x3801).putInt(8, JPEG.length);
+                short fmt = (canonRawAndJpeg && param == 111) ? (short) 0xB101 : (short) 0x3801;
+                ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN).putShort(4, fmt).putInt(8, JPEG.length);
+                if (canonPartialOnly) rc = 0x2005;
             }
-            if (rc == 0x2001 && op == 0x1009) data = JPEG;
+            if (rc == 0x2001 && op == 0x1009) {
+                if (canonPartialOnly) rc = 0x2005;
+                else data = JPEG;
+            }
+            if (rc == 0x2001 && op == 0x9107 && canonPartialOnly) data = JPEG;
             if (op == 0x910f && rc == 0x2001) canonShot = true;
             if (op == 0x9116 && canonShot) {
-                data = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN).putInt(12).putInt(0xc186).putInt(123).array();
+                if (canonRawAndJpeg) {
+                    ByteBuffer ev = ByteBuffer.allocate(32).order(ByteOrder.LITTLE_ENDIAN);
+                    ev.putInt(12).putInt(0xc186).putInt(111); // RAW handle first
+                    ev.putInt(20).putInt(0xc181).putInt(123).putInt(1).putShort((short) 0x3801).putShort((short) 0); // JPEG second
+                    data = ev.array();
+                } else if (canonAddedEx) {
+                    data = ByteBuffer.allocate(20).order(ByteOrder.LITTLE_ENDIAN)
+                            .putInt(20).putInt(0xc181).putInt(123).putInt(1).putShort((short) 0x3801).putShort((short) 0).array();
+                } else {
+                    data = ByteBuffer.allocate(12).order(ByteOrder.LITTLE_ENDIAN).putInt(12).putInt(0xc186).putInt(123).array();
+                }
                 canonShot = false;
             }
             if (data != null) replies.add(PtpUsbTransportTest.packet(12 + data.length, 2, op, tid, data));
@@ -272,6 +300,49 @@ public class CanonUsbPtpEngineTest {
         capture.setAccessible(true); capture.invoke(server, http);
         String response = http.toString("UTF-8");
         check(response.contains("\"ok\":false") && !response.contains("imageUrl"), "HTTP bridge returns failure without a fake photo URL");
+
+        // Mingle physical shutter capture for Canon EOS (drops mirror to OVF & picks up 0xC186 event)
+        Listener canonMingleListener = new Listener();
+        USB canonMingleUsb = new USB();
+        CanonUsbPtpEngine canonMingle = connect(canonMingleUsb, false, canonMingleListener);
+        canonMingle.setMingleListenMode(true, false);
+        check(!canonMingle.supportsLiveView() && canonMingle.isMingleListenMode(), "Canon Mingle drops LiveView mirror for OVF + flash");
+        canonMingleUsb.canonShot = true; // Simulate photographer pressing physical Canon shutter button
+        Method pollMingle = CanonUsbPtpEngine.class.getDeclaredMethod("pollPhysicalShutterEventsLocked");
+        pollMingle.setAccessible(true);
+        pollMingle.invoke(canonMingle);
+        check(canonMingle.getPhysicalCaptureSeq() == 1 && canonMingleListener.physicalSeq == 1
+                && Arrays.equals(JPEG, canonMingle.getLastPhysicalCapturedJpeg()),
+                "Canon physical shutter event downloads full JPEG and notifies Mingle listener");
+
+        // Mingle physical shutter capture for Sony A7 III (0x9209 0xD215=0x8001 readiness)
+        Listener sonyMingleListener = new Listener();
+        USB sonyMingleUsb = new USB();
+        CanonUsbPtpEngine sonyMingle = connect(sonyMingleUsb, true, sonyMingleListener);
+        sonyMingle.setMingleListenMode(true, false);
+        sonyMingleUsb.customSonyPropsData = propReady;
+        set(sonyMingle, "lastKeepAliveMs", 0L);
+        pollMingle.invoke(sonyMingle);
+        check(sonyMingle.getPhysicalCaptureSeq() == 1 && sonyMingleListener.physicalSeq == 1
+                && Arrays.equals(JPEG, sonyMingle.getLastPhysicalCapturedJpeg()),
+                "Sony physical shutter readiness (0xD215) downloads full JPEG and notifies Mingle listener");
+
+        // Canon EOS 1300D: PCHDDCapacity (0x911A), ObjectAddedEx (0xC181), and GetPartialObject (0x9107) chunk download
+        USB canon1300Usb = new USB();
+        canon1300Usb.canonAddedEx = true;
+        canon1300Usb.canonPartialOnly = true;
+        CanonUsbPtpEngine canon1300 = connect(canon1300Usb, false, new Listener());
+        check(canon1300Usb.operations.contains(0x911A), "Canon init sends PCHDDCapacity (0x911A) for host transfer");
+        check(Arrays.equals(JPEG, canon1300.capturePhotoWithFlash()),
+                "Canon ObjectAddedEx (0xC181) + GetPartialObject (0x9107) succeeds even when 0x1009 is rejected");
+
+        // Canon EOS RAW+JPEG event burst skips RAW handle and downloads the JPEG handle
+        USB canonBurstUsb = new USB();
+        canonBurstUsb.canonRawAndJpeg = true;
+        CanonUsbPtpEngine canonBurst = connect(canonBurstUsb, false, new Listener());
+        check(Arrays.equals(JPEG, canonBurst.capturePhotoWithFlash()),
+                "Canon multi-handle burst skips RAW (0xB101) and downloads JPEG object cleanly");
+
         System.out.println("Sony/Canon camera failures and JPEG paths: " + passed + " checks passed");
     }
 }

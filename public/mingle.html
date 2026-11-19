@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#381E11">
+  <link rel="manifest" href="/manifest-kiosk.json">
+  <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
+  <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
+  <title>Mafaza — Mingle Booth (Roaming Camera)</title>
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.7">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+      background: #FFF9F2;
+      color: var(--dark-roast, #381E11);
+      overflow-x: hidden;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .mingle-shell {
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      padding: 14px 18px 66px;
+      max-width: 1320px;
+      margin: 0 auto;
+      box-sizing: border-box;
+      gap: 14px;
+    }
+
+    .mingle-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      background: var(--cream-card, #FFFDF9);
+      border: 2px solid var(--border-soft, #EAD8C7);
+      border-radius: 20px;
+      padding: 10px 16px;
+      box-shadow: 0 6px 18px rgba(123, 72, 46, 0.07);
+    }
+
+    .mingle-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mingle-brand img {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      object-fit: cover;
+      border: 2px solid var(--coral, #E6786B);
+    }
+
+    .mingle-brand-title {
+      font-size: 17px;
+      font-weight: 800;
+      color: var(--caramel-brown, #7B482E);
+      line-height: 1.2;
+      margin: 0;
+    }
+
+    .mingle-brand-sub {
+      font-size: 12px;
+      color: var(--text-muted, #8C6D5A);
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 340px;
+    }
+
+    .mingle-topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .mingle-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      background: rgba(95, 143, 138, 0.14);
+      color: #1F5B56;
+      border: 1.5px solid rgba(95, 143, 138, 0.4);
+    }
+
+    .mingle-status-pill.offline {
+      background: rgba(212, 167, 84, 0.16);
+      color: #7A581A;
+      border-color: rgba(212, 167, 84, 0.45);
+    }
+
+    .mingle-screen {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .mingle-screen.active {
+      display: flex;
+    }
+
+    .mingle-hero-note {
+      background: var(--cream-card, #FFFDF9);
+      border: 2px solid var(--border-soft, #EAD8C7);
+      border-radius: 20px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .mingle-frames-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(195px, 1fr));
+      gap: 16px;
+      padding: 4px 2px;
+    }
+
+    .mingle-frame-card {
+      background: var(--cream-card, #FFFDF9);
+      border: 3px solid var(--border-soft, #EAD8C7);
+      border-radius: 22px;
+      padding: 12px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      text-align: center;
+      transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.2s, box-shadow 0.2s;
+      box-shadow: 0 6px 16px rgba(123, 72, 46, 0.06);
+      user-select: none;
+    }
+
+    .mingle-frame-card:active,
+    .mingle-frame-card:hover {
+      border-color: var(--coral, #E6786B);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 24px rgba(230, 120, 107, 0.24);
+    }
+
+    .mingle-frame-thumb {
+      height: 210px;
+      border-radius: 14px;
+      background: #2E2A3B;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      padding: 8px;
+    }
+
+    .mingle-frame-thumb img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+
+    .mingle-ready-grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 1.35fr) minmax(290px, 0.95fr);
+      gap: 18px;
+      flex: 1;
+      align-items: stretch;
+    }
+
+    .mingle-ready-grid.is-landscape,
+    .mingle-result-grid.is-landscape {
+      grid-template-columns: minmax(400px, 1.55fr) minmax(270px, 0.85fr);
+    }
+
+    @media (max-width: 860px) {
+      .mingle-ready-grid,
+      .mingle-result-grid,
+      .mingle-ready-grid.is-landscape,
+      .mingle-result-grid.is-landscape {
+        grid-template-columns: 1fr !important;
+      }
+    }
+
+    .mingle-card {
+      background: var(--cream-card, #FFFDF9);
+      border: 2px solid var(--border-soft, #EAD8C7);
+      border-radius: 24px;
+      padding: 18px;
+      box-shadow: 0 8px 24px rgba(123, 72, 46, 0.07);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .mingle-viewfinder {
+      position: relative;
+      flex: 1;
+      min-height: 280px;
+      max-height: 64dvh;
+      width: 100%;
+      margin: 0 auto;
+      background: #1B1614;
+      border-radius: 18px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid rgba(230, 120, 107, 0.35);
+      transition: aspect-ratio 0.25s ease;
+    }
+
+    .mingle-viewfinder.is-landscape {
+      aspect-ratio: 3 / 2;
+      max-height: 60dvh;
+    }
+
+    .mingle-viewfinder.is-portrait {
+      aspect-ratio: 2 / 3;
+      width: auto;
+      max-width: 100%;
+      max-height: 62dvh;
+    }
+
+    .mingle-viewfinder canvas,
+    .mingle-viewfinder video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+
+    .mingle-viewfinder.is-portrait video,
+    .mingle-viewfinder.is-landscape video {
+      object-fit: cover;
+    }
+
+    .mingle-ovf-prompt {
+      position: relative;
+      z-index: 3;
+      text-align: center;
+      padding: 24px;
+      color: #FFF9F2;
+      max-width: 420px;
+    }
+
+    .mingle-shutter-banner {
+      background: linear-gradient(135deg, rgba(230, 120, 107, 0.14), rgba(212, 167, 84, 0.16));
+      border: 2px solid rgba(230, 120, 107, 0.45);
+      border-radius: 18px;
+      padding: 14px 16px;
+      text-align: center;
+    }
+
+    .mingle-pulse-dot {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #27ae60;
+      box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.65);
+      animation: minglePulse 1.6s infinite;
+      margin-right: 6px;
+    }
+
+    @keyframes minglePulse {
+      0% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(39, 174, 96, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); }
+    }
+
+    .mingle-result-grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 1.25fr) minmax(300px, 0.95fr);
+      gap: 18px;
+      flex: 1;
+      align-items: stretch;
+    }
+
+    .mingle-canvas-stage {
+      flex: 1;
+      min-height: 360px;
+      background: #221D1A;
+      border-radius: 18px;
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .mingle-canvas-stage.is-landscape {
+      min-height: 260px;
+    }
+
+    #mingleFinalCanvas {
+      max-width: 100%;
+      max-height: 64dvh;
+      width: auto;
+      height: auto;
+      border-radius: 12px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+      touch-action: none;
+      cursor: grab;
+    }
+
+    #mingleFinalCanvas.is-landscape {
+      width: 100%;
+      height: auto;
+      max-height: 62dvh;
+    }
+
+    .mingle-orient-tabs {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .mingle-orient-tab {
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      border: 1.5px solid var(--border-soft, #EAD8C7);
+      background: #FFF;
+      color: var(--caramel-brown, #7B482E);
+      cursor: pointer;
+    }
+
+    .mingle-orient-tab.active {
+      background: var(--coral, #E6786B);
+      color: #FFF;
+      border-color: var(--coral, #E6786B);
+    }
+
+    .mingle-filter-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .mingle-filter-btn {
+      padding: 6px 11px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 700;
+      border: 1.5px solid var(--border-soft, #EAD8C7);
+      background: #FFF;
+      color: var(--caramel-brown, #7B482E);
+      cursor: pointer;
+    }
+
+    .mingle-filter-btn.active {
+      background: var(--coral, #E6786B);
+      color: #FFF;
+      border-color: var(--coral, #E6786B);
+    }
+
+    .mingle-qr-box {
+      background: #FFF;
+      border: 2px dashed rgba(230, 120, 107, 0.45);
+      border-radius: 20px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 10px;
+    }
+
+    .mingle-qr-box img {
+      width: 210px;
+      height: 210px;
+      max-width: 100%;
+      border-radius: 12px;
+      background: #FFF;
+      padding: 6px;
+      border: 1.5px solid #F0E4D7;
+    }
+
+    .mingle-toast {
+      position: fixed;
+      top: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 9999;
+      background: #2C1B12;
+      color: #FFF9F2;
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 700;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .mingle-processing-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(28, 17, 12, 0.78);
+      backdrop-filter: blur(4px);
+      z-index: 9000;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #FFF9F2;
+      gap: 12px;
+      text-align: center;
+      padding: 24px;
+    }
+
+    .mingle-files-mode-card {
+      background: linear-gradient(135deg, #2E6F69, #1F5B56);
+      color: #FFFDF9;
+      border-radius: 20px;
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      cursor: pointer;
+      box-shadow: 0 8px 22px rgba(31, 91, 86, 0.22);
+      transition: transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .mingle-files-mode-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 26px rgba(31, 91, 86, 0.3);
+    }
+
+    .mingle-captured-strip {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 6px 2px;
+      min-height: 76px;
+      align-items: center;
+    }
+
+    .mingle-thumb-item {
+      position: relative;
+      flex: 0 0 auto;
+      width: 72px;
+      height: 64px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 2px solid var(--border-soft, #EAD8C7);
+      background: #1B1614;
+      cursor: pointer;
+    }
+
+    .mingle-thumb-item.active {
+      border-color: var(--coral, #E6786B);
+      box-shadow: 0 0 0 2px rgba(230, 120, 107, 0.35);
+    }
+
+    .mingle-thumb-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .mingle-thumb-badge {
+      position: absolute;
+      bottom: 2px;
+      left: 2px;
+      background: rgba(0, 0, 0, 0.72);
+      color: #fff;
+      font-size: 9.5px;
+      font-weight: 800;
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    .mingle-thumb-del {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(220, 38, 38, 0.9);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      line-height: 1;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .mingle-files-preview-box {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .mingle-files-hero {
+      background: #1B1614;
+      border-radius: 16px;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      max-height: 44dvh;
+      overflow: hidden;
+    }
+
+    .mingle-files-hero img {
+      max-width: 100%;
+      max-height: 40dvh;
+      object-fit: contain;
+      border-radius: 10px;
+    }
+
+    .mingle-files-thumbs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+      gap: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+      padding: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div id="mingleToast" class="mingle-toast"></div>
+
+  <div id="mingleProcessingOverlay" class="mingle-processing-overlay">
+    <div style="font-size: 46px;">📸</div>
+    <h2 style="margin: 0; font-size: 22px; font-weight: 800;">Foto Diterima! Memproses Hasil &amp; QR...</h2>
+    <p id="mingleProcessingSub" style="margin: 0; font-size: 14px; color: #EAD8C7;">Tunggu sebentar, foto siap dalam sekejap.</p>
+  </div>
+
+  <div class="mingle-shell">
+    <!-- Top Bar -->
+    <header class="mingle-topbar">
+      <div class="mingle-brand">
+        <img src="/assets/logo-mafaza.jpg" alt="Mafaza">
+        <div>
+          <h1 class="mingle-brand-title">📸 Mingle Booth · Foto Keliling</h1>
+          <div id="mingleEventTitle" class="mingle-brand-sub">Memuat event aktif...</div>
+        </div>
+      </div>
+
+      <div class="mingle-topbar-actions">
+        <span id="mingleCamStatusPill" class="mingle-status-pill offline">⏳ Memeriksa kamera...</span>
+        <button type="button" class="btn btn-secondary" style="padding: 7px 12px; font-size: 12px;" onclick="mingle.refreshAll()">🔄 Refresh</button>
+        <button type="button" class="btn btn-secondary" style="padding: 7px 12px; font-size: 12px;" onclick="mingle.toggleFullScreen()">⛶ Layar Penuh</button>
+        <a href="/kiosk?fullscreen=1" class="btn btn-coral" style="padding: 7px 14px; font-size: 12px; text-decoration: none;">🖥️ Mode Kiosk</a>
+      </div>
+    </header>
+
+    <!-- SCREEN 1: PILIH BINGKAI ATAU MODE JUAL FILE -->
+    <section id="screenMingleSelect" class="mingle-screen active">
+      <!-- Shortcut Mode Jual File / Banyak Foto (Tanpa Bingkai) -->
+      <div class="mingle-files-mode-card" onclick="mingle.startFilesOnlyMode()">
+        <div style="display: flex; align-items: center; gap: 14px; min-width: 0;">
+          <div style="font-size: 34px; flex-shrink: 0;">📁</div>
+          <div>
+            <div style="font-size: 16.5px; font-weight: 800; line-height: 1.25;">Mode Jual File · Foto Sepuasnya (Tanpa Bingkai)</div>
+            <div style="font-size: 12.5px; opacity: 0.92; margin-top: 2px;">Jepret 5×, 10×, 30×, atau banyak pose pakai shutter kamera → semua file HD langsung masuk ke 1 QR Download Tamu!</div>
+          </div>
+        </div>
+        <span class="btn" style="background: #FFF9F2; color: #1F5B56; font-weight: 800; font-size: 13px; padding: 9px 16px; border-radius: 999px; flex-shrink: 0;">
+          🚀 Mulai Foto Banyak ➔
+        </span>
+      </div>
+
+      <div class="mingle-hero-note">
+        <div>
+          <h2 style="margin: 0 0 4px; font-size: 20px; font-weight: 800; color: var(--caramel-brown);">Atau Pilih Bingkai Foto</h2>
+          <p id="mingleTemplateHint" style="margin: 0; font-size: 13px; color: var(--text-muted);">
+            Tunjukkan layar ke tamu, pilih bingkai &amp; jumlah jepretan (bisa 1×, multi-pose, atau bebas cekrek).
+          </p>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <select id="mingleSelectShotsOverride" onchange="mingle.setShotsOverride(this.value)" style="padding: 6px 10px; border-radius: 999px; border: 1.5px solid var(--border-soft); background: #FFF; font-size: 12px; font-weight: 800; color: var(--caramel-brown);">
+            <option value="auto" selected>📸 Ikut Pengaturan Bingkai</option>
+            <option value="1">⚡ 1× Cekrek (Langsung Jadi)</option>
+            <option value="2">📸 2× Cekrek</option>
+            <option value="3">📸 3× Cekrek</option>
+            <option value="4">📸 4× Cekrek</option>
+            <option value="unlimited">♾️ Banyak Foto (Bebas Cekrek)</option>
+          </select>
+          <div class="mingle-orient-tabs" id="mingleOrientFilterRow">
+            <button type="button" class="mingle-orient-tab active" data-orient="all" onclick="mingle.setOrientFilter('all')">✨ Semua</button>
+            <button type="button" class="mingle-orient-tab" data-orient="portrait" onclick="mingle.setOrientFilter('portrait')">📱 Potret</button>
+            <button type="button" class="mingle-orient-tab" data-orient="landscape" onclick="mingle.setOrientFilter('landscape')">🖼️ Lanskap</button>
+          </div>
+          <button type="button" id="btnToggleAllMingleFrames" class="btn btn-secondary" style="font-size: 12px; padding: 7px 12px;" onclick="mingle.toggleShowFallbackFrames()">
+            🖼️ Tampilkan Semua Frame
+          </button>
+        </div>
+      </div>
+
+      <div id="mingleFramesGrid" class="mingle-frames-grid">
+        <!-- Diisi oleh mingle.js -->
+      </div>
+    </section>
+
+    <!-- SCREEN 2: SIAP FOTO (MENUNGGU SHUTTER KAMERA FISIK) -->
+    <section id="screenMingleReady" class="mingle-screen">
+      <div id="mingleReadyGrid" class="mingle-ready-grid">
+        <div class="mingle-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <strong id="mingleReadyCamLabel" style="font-size: 15px; color: var(--caramel-brown);">📷 Siap Memotret Tamu</strong>
+            <div style="display: flex; gap: 6px; align-items: center;">
+              <button type="button" id="btnToggleCanonLv" class="btn btn-secondary" style="display: none; font-size: 11.5px; padding: 5px 10px;" onclick="mingle.toggleCanonLiveView()">👁️ LiveView / OVF Flash</button>
+              <button type="button" class="btn btn-secondary" style="font-size: 11.5px; padding: 5px 10px;" onclick="mingle.openSelectScreen()">← Kembali / Ganti Mode</button>
+            </div>
+          </div>
+
+          <div id="mingleViewfinder" class="mingle-viewfinder">
+            <canvas id="mingleLiveCanvas" style="display: none;"></canvas>
+            <video id="mingleVideoFeed" autoplay muted playsinline style="display: none;"></video>
+            <div id="mingleOvfPrompt" class="mingle-ovf-prompt">
+              <div style="font-size: 46px; margin-bottom: 10px;">📸</div>
+              <h3 id="minglePromptHeading" style="margin: 0 0 8px; font-size: 20px; font-weight: 800; color: #FFF9F2;">
+                Tekan Tombol Shutter di Kamera!
+              </h3>
+              <p id="minglePromptDesc" style="margin: 0; font-size: 13.5px; line-height: 1.5; color: #EAD8C7;">
+                Tidak ada hitungan mundur. Begitu tombol shutter kamera Sony / Canon ditekan, foto langsung tersimpan.
+              </p>
+            </div>
+          </div>
+
+          <!-- Strip Thumbnail Foto Terambil (Saat Multi-Pose / Banyak Foto) -->
+          <div id="mingleReadyStripWrap" style="display: none; border-top: 1.5px dashed var(--border-soft); padding-top: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span id="mingleStripCountLabel" style="font-size: 12px; font-weight: 800; color: var(--caramel-brown);">🎞️ Foto Tersimpan: 0</span>
+              <span style="font-size: 11px; color: var(--text-muted);">Terus tekan shutter untuk tambah foto</span>
+            </div>
+            <div id="mingleCapturedStrip" class="mingle-captured-strip"></div>
+          </div>
+        </div>
+
+        <div class="mingle-card" style="justify-content: space-between;">
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-size: 12px; font-weight: 800; color: var(--text-muted);">MODE &amp; BINGKAI TERPILIH</div>
+            <div style="display: flex; gap: 12px; align-items: center; background: #FFF; border: 1.5px solid var(--border-soft); border-radius: 16px; padding: 10px;">
+              <img id="mingleSelectedThumb" src="/assets/templates/single-green-template.svg" alt="Bingkai" style="width: 72px; height: 96px; object-fit: contain; background: #2E2A3B; border-radius: 10px; padding: 4px;">
+              <div style="min-width: 0;">
+                <h3 id="mingleSelectedName" style="margin: 0 0 4px; font-size: 15.5px; font-weight: 800; color: var(--caramel-brown);">Bingkai Mingle</h3>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                  <span id="mingleSelectedFormatBadge" class="sticker-badge sticker-mustard" style="font-size: 11px;">4R Potret</span>
+                  <span id="mingleShotsProgressPill" class="sticker-badge sticker-teal" style="font-size: 11px;">📸 0 / 1 Foto</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; background: #FFF; border: 1.5px solid var(--border-soft); border-radius: 12px; padding: 8px 10px;">
+              <span style="font-size: 11.5px; font-weight: 800; color: var(--caramel-brown);">🎯 Jumlah Cekrek:</span>
+              <select id="mingleReadyShotsSelect" onchange="mingle.setShotsOverride(this.value)" style="padding: 5px 8px; border-radius: 8px; border: 1.5px solid var(--border-soft); background: var(--cream-card); font-size: 12px; font-weight: 800; color: var(--caramel-brown);">
+                <option value="1">1× Langsung Jadi</option>
+                <option value="2">2× Pose</option>
+                <option value="3">3× Pose</option>
+                <option value="4">4× Pose</option>
+                <option value="unlimited">♾️ Banyak Foto (Bebas)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mingle-shutter-banner">
+            <div style="font-size: 14px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">
+              <span class="mingle-pulse-dot"></span>Menunggu Jepretan Kamera
+            </div>
+            <p id="mingleWaitDesc" style="margin: 0; font-size: 12.5px; color: var(--text-muted);">
+              Tekan langsung shutter fisik kamera Sony A7 III / Canon EOS Anda.
+            </p>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <button type="button" id="btnMingleFinishSession" class="btn" style="display: none; width: 100%; padding: 14px; font-size: 15px; font-weight: 800; background: #1F5B56; color: #FFF; border-radius: 14px;" onclick="mingle.finishCaptureSession()">
+              ✅ Selesai Foto &amp; Buat QR Galeri ➔
+            </button>
+            <button type="button" id="btnMingleScreenCapture" class="btn btn-coral" style="width: 100%; padding: 14px; font-size: 15px; font-weight: 800;" onclick="mingle.triggerBackupCapture()">
+              📸 Jepret dari Layar (Cadangan / Kamera Tab)
+            </button>
+            <button type="button" class="btn btn-secondary" style="width: 100%; padding: 10px; font-size: 13px;" onclick="mingle.openSelectScreen()">
+              ← Kembali ke Daftar Mode &amp; Bingkai
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCREEN 3: HASIL FOTO & SCAN QR TAMU -->
+    <section id="screenMingleResult" class="mingle-screen">
+      <div id="mingleResultGrid" class="mingle-result-grid">
+        <div class="mingle-card">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <strong id="mingleResultTitle" style="font-size: 15px; color: var(--caramel-brown);">✨ Hasil Foto Tamu</strong>
+            <span id="mingleResultHint" style="font-size: 11.5px; color: var(--text-muted);">Geser foto untuk atur posisi</span>
+          </div>
+
+          <div id="mingleCanvasStage" class="mingle-canvas-stage">
+            <canvas id="mingleFinalCanvas"></canvas>
+          </div>
+
+          <!-- Tampilan Mode Jual File Tanpa Bingkai -->
+          <div id="mingleFilesPreviewBox" class="mingle-files-preview-box">
+            <div class="mingle-files-hero">
+              <img id="mingleFilesHeroImg" src="" alt="Preview Foto HD">
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <strong id="mingleFilesCountHeading" style="font-size: 13px; color: var(--caramel-brown);">📁 0 File Foto HD Siap Diunduh</strong>
+              <span style="font-size: 11px; color: var(--text-muted);">Semua foto di bawah masuk ke QR</span>
+            </div>
+            <div id="mingleFilesThumbsGrid" class="mingle-files-thumbs-grid"></div>
+          </div>
+
+          <!-- Pemilih Slot & Pose jika mengambil banyak foto pada frame berbingkai -->
+          <div id="mingleResultSlotBar" style="display: none; flex-direction: column; gap: 6px; border-top: 1.5px dashed var(--border-soft); padding-top: 8px;">
+            <div id="mingleResultSlotTabs" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
+            <div id="mingleResultPhotoPicker" class="mingle-captured-strip"></div>
+          </div>
+
+          <div class="mingle-filter-row" id="mingleFilterRow">
+            <button type="button" class="mingle-filter-btn active" data-filter="normal" onclick="mingle.setFilter('normal')">🌿 Normal</button>
+            <button type="button" class="mingle-filter-btn" data-filter="glowing" onclick="mingle.setFilter('glowing')">✨ Glowing</button>
+            <button type="button" class="mingle-filter-btn" data-filter="korean" onclick="mingle.setFilter('korean')">🌸 Soft</button>
+            <button type="button" class="mingle-filter-btn" data-filter="warm_retro" onclick="mingle.setFilter('warm_retro')">🧡 Retro</button>
+            <button type="button" class="mingle-filter-btn" data-filter="vivid" onclick="mingle.setFilter('vivid')">🎨 Vivid</button>
+            <button type="button" class="mingle-filter-btn" data-filter="bw" onclick="mingle.setFilter('bw')">🖤 B&amp;W</button>
+          </div>
+        </div>
+
+        <div class="mingle-card" style="justify-content: space-between;">
+          <div class="mingle-qr-box">
+            <div id="mingleQrHeaderText" style="font-size: 13px; font-weight: 800; color: var(--caramel-brown);">📲 Scan QR di HP Tamu untuk Download</div>
+            <img id="mingleQrImg" src="" alt="QR Download Foto" style="display: none;">
+            <div id="mingleQrPlaceholder" style="padding: 40px 12px; font-size: 13px; color: var(--text-muted); font-weight: 700;">Menyiapkan QR Code...</div>
+            <a id="mingleGalleryLink" href="#" target="_blank" style="display: none; font-size: 12px; font-weight: 700; color: var(--coral); text-decoration: underline;">
+              🔗 Buka Galeri Foto Tamu
+            </a>
+            <div id="mingleSyncStatus" style="font-size: 11.5px; color: #219653; font-weight: 700;">⏳ Menyimpan hasil ke server...</div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <button type="button" class="btn btn-coral" style="width: 100%; padding: 15px; font-size: 15.5px; font-weight: 800;" onclick="mingle.nextGuest()">
+              ✨ Selesai · Tamu Berikutnya
+            </button>
+            <button type="button" id="btnMingleAddMorePhotos" class="btn btn-secondary" style="width: 100%; padding: 11px; font-size: 13px; font-weight: 800; border-color: #1F5B56; color: #1F5B56;" onclick="mingle.addMorePhotos()">
+              ➕ Tambah Foto Lagi ke Sesi Ini
+            </button>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+              <button type="button" class="btn btn-secondary" style="padding: 11px; font-size: 13px; font-weight: 700;" onclick="mingle.retakeSameFrame()">
+                📸 Foto Ulang
+              </button>
+              <button type="button" id="btnMinglePrint" class="btn btn-secondary" style="padding: 11px; font-size: 13px; font-weight: 700;" onclick="mingle.printResult()">
+                🖨️ Cetak Foto
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/js/notify.js?v=warm-retro-v3.5"></script>
+  <script src="/js/offline-store.js?v=1.1"></script>
+  <script src="/js/mingle.js?v=1.3"></script>
+</body>
+</html>

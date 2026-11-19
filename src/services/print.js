@@ -497,12 +497,15 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
   // Cari token galeri dan posisi QR template untuk ditempelkan khusus pada lembar cetak
   let qrUrl = extraOptions.qrUrl || null;
   let qrPosition = extraOptions.qrPosition || null;
+  let qrCoords = Array.isArray(extraOptions.qrCoords) ? extraOptions.qrCoords : null;
+  let qrTemplateWidth = null;
+  let qrTemplateHeight = null;
 
   if (photoSessionId) {
     const session = db.prepare(`
       SELECT ps.id, ps.guest_pass_id, ps.template_id, ps.event_id,
              gp.token_plain,
-             t.qr_position
+             t.qr_position, t.qr_coords_json, t.width as tpl_width, t.height as tpl_height
       FROM photo_sessions ps
       LEFT JOIN guest_passes gp ON ps.guest_pass_id = gp.id
       LEFT JOIN templates t ON ps.template_id = t.id
@@ -511,6 +514,12 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
 
     if (session) {
       if (!qrPosition) qrPosition = session.qr_position || 'bottom-right';
+      if (!qrCoords && session.qr_coords_json) {
+        const parsed = parseJson(session.qr_coords_json, []);
+        if (Array.isArray(parsed) && parsed.length > 0) qrCoords = parsed;
+      }
+      qrTemplateWidth = session.tpl_width || null;
+      qrTemplateHeight = session.tpl_height || null;
       if (!qrUrl) {
         let token = session.token_plain;
         if (!token && session.guest_pass_id) {
@@ -531,6 +540,11 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
 
   options.qrUrl = qrUrl;
   options.qrPosition = qrPosition || 'bottom-right';
+  if (qrCoords && qrCoords.length > 0) {
+    options.qrCoords = qrCoords;
+    options.qrTemplateWidth = qrTemplateWidth;
+    options.qrTemplateHeight = qrTemplateHeight;
+  }
 
   const printerName = options.printerName;
   const driverName = options.driverName;

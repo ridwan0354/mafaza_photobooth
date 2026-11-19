@@ -8,9 +8,16 @@ if (!window.__pbNotifyInitialized) {
 let activeTemplate = null;
 let templatesList = [];
 let editorSlots = [];
+let editorQrCoords = [];
+let selectedQrIndex = 0;
+let editorCachedImg = null;
+let editorCachedImgSrc = '';
+let editorRenderRafId = null;
 let templateFilterMode = 'event';
 let selectedSlotIndex = 0;
 let draggingSlot = null;
+let draggingQr = null;
+let resizingQr = null;
 let dragStartX = 0, dragStartY = 0;
 let initialSlotX = 0, initialSlotY = 0;
 let activeDragHandle = null;
@@ -1245,20 +1252,17 @@ async function saveEventConfig() {
 function setTemplateFilter(mode) {
   templateFilterMode = mode;
   const btnEvent = document.getElementById('btnFilterEventTemplates');
+  const btnMingle = document.getElementById('btnFilterMingleTemplates');
   const btnAll = document.getElementById('btnFilterAllTemplates');
-  if (btnEvent && btnAll) {
-    if (mode === 'event') {
-      btnEvent.style.background = 'var(--coral)';
-      btnEvent.style.color = 'white';
-      btnAll.style.background = 'transparent';
-      btnAll.style.color = 'var(--caramel-brown)';
-    } else {
-      btnAll.style.background = 'var(--coral)';
-      btnAll.style.color = 'white';
-      btnEvent.style.background = 'transparent';
-      btnEvent.style.color = 'var(--caramel-brown)';
-    }
-  }
+  [
+    { el: btnEvent, active: mode === 'event' },
+    { el: btnMingle, active: mode === 'mingle' },
+    { el: btnAll, active: mode === 'all' }
+  ].forEach(({ el, active }) => {
+    if (!el) return;
+    el.style.background = active ? 'var(--coral)' : 'transparent';
+    el.style.color = active ? 'white' : 'var(--caramel-brown)';
+  });
   loadTemplates();
 }
 
@@ -1271,9 +1275,13 @@ async function loadTemplates() {
 
   try {
     let url = '/api/templates';
+    const params = [];
     if (templateFilterMode === 'event' && activeKioskEventId) {
-      url += `?eventId=${activeKioskEventId}`;
+      params.push(`eventId=${encodeURIComponent(activeKioskEventId)}`);
+    } else if (templateFilterMode === 'mingle') {
+      params.push('booth=mingle');
     }
+    if (params.length > 0) url += '?' + params.join('&');
     const res = await fetch(url);
     if (res.ok) {
       templatesList = await res.json();
@@ -1313,6 +1321,42 @@ async function loadTemplates() {
   }
 }
 
+const TEMPLATE_FORMAT_MAP = {
+  portrait: { width: 1200, height: 1800, orientation: 'portrait', paperSize: '4R', label: '4R Potret (1200×1800)' },
+  landscape: { width: 1800, height: 1200, orientation: 'landscape', paperSize: '4R', label: '4R Lanskap (1800×1200)' },
+  portrait_5r: { width: 1500, height: 2100, orientation: 'portrait', paperSize: '5R', label: '5R Potret (1500×2100)' },
+  landscape_5r: { width: 2100, height: 1500, orientation: 'landscape', paperSize: '5R', label: '5R Lanskap (2100×1500)' },
+  strip: { width: 600, height: 1800, orientation: 'strip', paperSize: '2x6', label: 'Photo Strip 2×6 (600×1800)' },
+  square: { width: 1200, height: 1200, orientation: 'square', paperSize: '4x4', label: 'Square 4×4 (1200×1200)' }
+};
+
+function getTemplateFormatKey(t) {
+  if (!t) return 'portrait';
+  const orient = String(t.orientation || '').toLowerCase();
+  if (orient === 'strip') return 'strip';
+  if (orient === 'square' || (t.width && t.height && Math.abs(t.width - t.height) <= 12)) return 'square';
+  const w = parseInt(t.width, 10) || 1200;
+  const h = parseInt(t.height, 10) || 1800;
+  const isLand = orient === 'landscape' || w > h;
+  const pSize = String(t.paper_size || '').toUpperCase();
+  const maxD = Math.max(w, h);
+  const minD = Math.min(w, h);
+  const ratio = maxD / Math.max(1, minD);
+  const is5R = pSize === '5R' || (ratio >= 1.34 && ratio <= 1.44) || (maxD >= 2000 && ratio < 1.46);
+  if (isLand) return is5R ? 'landscape_5r' : 'landscape';
+  return is5R ? 'portrait_5r' : 'portrait';
+}
+
+function getTemplateFormatBadgeLabel(t) {
+  const key = getTemplateFormatKey(t);
+  if (key === 'strip') return 'Strip 2×6';
+  if (key === 'square') return 'Square 4×4';
+  if (key === 'landscape_5r') return '5R Lanskap';
+  if (key === 'portrait_5r') return '5R Potret';
+  if (key === 'landscape') return '4R Lanskap';
+  return '4R Potret';
+}
+
 function renderTemplatesGallery() {
   const container = document.getElementById('templatesGalleryGrid');
   if (!container) return;
@@ -1340,7 +1384,7 @@ function renderTemplatesGallery() {
     const isSelected = activeTemplate && activeTemplate.id === t.id;
     const isEventSpecific = t.event_id === activeKioskEventId;
     const isGlobal = !t.event_id;
-    const formatLabel = t.orientation === 'strip' ? 'Photo Strip 2×6' : 'Single Photo 4×6';
+    const formatLabel = getTemplateFormatBadgeLabel(t);
     const slotsCount = t.slots ? t.slots.length : 0;
     const shotsMode = t.shots_mode || 'event';
     const evShots = t.event_shots_count || (activeEvent && activeEvent.config && activeEvent.config.shotsCount) || 3;
@@ -1348,7 +1392,15 @@ function renderTemplatesGallery() {
       ? `📌 Ikut Event (${evShots}x Pose)`
       : shotsMode === 'slots'
       ? `🟩 Sesuai Slot (${slotsCount}x Pose)`
+      : shotsMode === 'unlimited'
+      ? '♾️ Bebas Cekrek (Banyak File)'
       : `📸 ${shotsMode}x Pose / Cekrek`;
+    const boothMode = t.booth_mode || 'kiosk';
+    const boothBadgeHtml = boothMode === 'mingle'
+      ? `<span class="sticker-badge sticker-teal" style="font-size: 10.5px; padding: 3px 8px; background: rgba(46,111,105,0.16); border-color: rgba(46,111,105,0.45); color: #1F5B56; font-weight: 800;">📸 Khusus Mingle</span>`
+      : boothMode === 'both'
+      ? `<span class="sticker-badge sticker-teal" style="font-size: 10.5px; padding: 3px 8px; background: rgba(95,143,138,0.18); color: #2E6F69; font-weight: 800;">✨ Kiosk + Mingle</span>`
+      : '';
 
     return `
       <div class="card-retro" style="display: flex; flex-direction: column; padding: 14px; position: relative; border-color: ${isSelected ? 'var(--coral)' : 'var(--border-soft)'}; box-shadow: ${isSelected ? '0 8px 24px rgba(230,120,107,0.25)' : 'none'}; transform: ${isSelected ? 'translateY(-4px)' : 'none'};">
@@ -1364,11 +1416,12 @@ function renderTemplatesGallery() {
 
         <!-- Badges -->
         <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
+          ${boothBadgeHtml}
           <span class="sticker-badge sticker-mustard" style="font-size: 10.5px; padding: 3px 8px;">${formatLabel}</span>
           <span class="sticker-badge sticker-teal" style="font-size: 10.5px; padding: 3px 8px;">🟩 ${slotsCount} Slot</span>
           <span class="sticker-badge sticker-coral" style="font-size: 10.5px; padding: 3px 8px; background: rgba(230,120,107,0.16); border-color: rgba(230,120,107,0.45); color: #A63A2E; font-weight: 800;">${shotsBadgeLabel}</span>
           <span class="sticker-badge sticker-mustard" style="font-size: 10px; padding: 3px 7px; background: rgba(212,167,84,0.18); border-color: rgba(212,167,84,0.4); color: #7a581a;">
-            ${t.qr_position === 'bottom-left' ? '↙️ QR Kiri Bawah' : t.qr_position === 'top-right' ? '↗️ QR Kanan Atas' : t.qr_position === 'top-left' ? '↖️ QR Kiri Atas' : t.qr_position === 'none' ? '🚫 Tanpa QR' : '↘️ QR Kanan Bawah'}
+            ${t.qr_position === 'none' ? '🚫 Tanpa QR' : (Array.isArray(t.qr_coords) && t.qr_coords.length >= 2) ? `✂️ ${t.qr_coords.length} QR Cetak` : (Array.isArray(t.qr_coords) && t.qr_coords.length === 1) ? '📍 1 QR Custom' : t.qr_position === 'bottom-left' ? '↙️ QR Kiri Bawah' : t.qr_position === 'top-right' ? '↗️ QR Kanan Atas' : t.qr_position === 'top-left' ? '↖️ QR Kiri Atas' : '↘️ QR Kanan Bawah'}
           </span>
           ${isEventSpecific ? `
             <span class="sticker-badge sticker-purple" style="font-size: 10.5px; padding: 3px 8px;">📌 Event Ini</span>
@@ -1411,6 +1464,93 @@ function renderTemplatesGallery() {
   container.innerHTML = cardsHtml + uploadCardHtml;
 }
 
+function buildPresetQrCoords(preset, w, h) {
+  const cw = parseInt(w, 10) || 1200;
+  const ch = parseInt(h, 10) || 1800;
+  const isStrip = cw <= 700;
+  const qSize = isStrip ? 115 : Math.round(Math.min(cw, ch) * 0.115);
+  const pad = isStrip ? 18 : 34;
+  if (preset === 'none') return [];
+  if (preset === 'dual-bottom-right') {
+    const halfW = Math.round(cw / 2);
+    return [
+      { id: 'qr_1', x: halfW - qSize - pad, y: ch - qSize - pad, size: qSize },
+      { id: 'qr_2', x: cw - qSize - pad, y: ch - qSize - pad, size: qSize }
+    ];
+  }
+  let x = cw - qSize - pad;
+  let y = ch - qSize - pad;
+  if (preset === 'bottom-left') { x = pad; y = ch - qSize - pad; }
+  else if (preset === 'top-right') { x = cw - qSize - pad; y = pad; }
+  else if (preset === 'top-left') { x = pad; y = pad; }
+  return [{ id: 'qr_1', x, y, size: qSize }];
+}
+
+function initEditorQrFromTemplate(tpl) {
+  if (!tpl) {
+    editorQrCoords = [];
+    selectedQrIndex = -1;
+    renderQrInspector();
+    return;
+  }
+  const w = parseInt(tpl.width, 10) || 1200;
+  const h = parseInt(tpl.height, 10) || 1800;
+  const pos = tpl.qr_position || 'bottom-right';
+  if (pos === 'none') {
+    editorQrCoords = [];
+  } else if (Array.isArray(tpl.qr_coords) && tpl.qr_coords.length > 0) {
+    editorQrCoords = tpl.qr_coords.map((q, i) => ({
+      id: q.id || `qr_${i + 1}`,
+      x: Math.round(Number(q.x) || 0),
+      y: Math.round(Number(q.y) || 0),
+      size: Math.max(40, Math.min(600, Math.round(Number(q.size) || 140)))
+    }));
+  } else {
+    editorQrCoords = buildPresetQrCoords(pos, w, h);
+  }
+  selectedQrIndex = editorQrCoords.length > 0 ? 0 : -1;
+  renderQrInspector();
+}
+
+function renderQrInspector() {
+  const countSel = document.getElementById('editorTemplateQrCount');
+  const countBadge = document.getElementById('inspectorQrCountBadge');
+  const wrap = document.getElementById('editorQrControlsWrap');
+  const tabs = document.getElementById('editorQrSelectorTabs');
+  const inpX = document.getElementById('inpQrX');
+  const inpY = document.getElementById('inpQrY');
+  const inpS = document.getElementById('inpQrSize');
+  const count = editorQrCoords.length;
+
+  if (countSel) countSel.value = count >= 2 ? '2' : (count === 1 ? '1' : '0');
+  if (countBadge) countBadge.innerText = count === 0 ? 'Tanpa QR' : `${count} QR`;
+  if (wrap) wrap.style.display = count > 0 ? 'block' : 'none';
+
+  if (tabs) {
+    tabs.innerHTML = editorQrCoords.map((q, idx) => `
+      <button type="button" class="btn ${idx === selectedQrIndex ? 'btn-coral' : 'btn-secondary'}" style="font-size: 11px; padding: 4px 10px;" onclick="selectEditorQr(${idx})">
+        🎟️ QR #${idx + 1}
+      </button>
+    `).join('');
+  }
+
+  const q = (selectedQrIndex >= 0 && editorQrCoords[selectedQrIndex]) ? editorQrCoords[selectedQrIndex] : null;
+  if (inpX && inpY && inpS) {
+    inpX.disabled = !q;
+    inpY.disabled = !q;
+    inpS.disabled = !q;
+    inpX.value = q ? Math.round(q.x) : '';
+    inpY.value = q ? Math.round(q.y) : '';
+    inpS.value = q ? Math.round(q.size) : '';
+  }
+}
+
+function selectEditorQr(idx) {
+  selectedQrIndex = idx;
+  renderQrInspector();
+  scheduleEditorRender();
+}
+
 function selectTemplateForEditor(templateId, scroll = true) {
   const found = templatesList.find(t => t.id === templateId);
   if (!found) return;
@@ -1421,14 +1561,22 @@ function selectTemplateForEditor(templateId, scroll = true) {
   const nameEl = document.getElementById('currentEditorTemplateName');
   if (nameEl) nameEl.innerText = activeTemplate.name;
 
+  const fmtKey = getTemplateFormatKey(activeTemplate);
   const typeEl = document.getElementById('currentEditorTypeBadge');
   if (typeEl) {
-    typeEl.innerText = activeTemplate.orientation === 'strip' ? 'Photo Strip 2×6 (600×1800)' : 'Single Photo 4×6 (1200×1800)';
+    typeEl.innerText = (TEMPLATE_FORMAT_MAP[fmtKey] && TEMPLATE_FORMAT_MAP[fmtKey].label) || getTemplateFormatBadgeLabel(activeTemplate);
+  }
+  const fmtSelect = document.getElementById('editorTemplateFormat');
+  if (fmtSelect) {
+    fmtSelect.value = fmtKey;
   }
 
+  initEditorQrFromTemplate(activeTemplate);
   const qrSelect = document.getElementById('editorTemplateQrPos');
   if (qrSelect) {
-    qrSelect.value = activeTemplate.qr_position || 'bottom-right';
+    qrSelect.value = (activeTemplate.qr_position === 'none')
+      ? 'none'
+      : (editorQrCoords.length >= 2 ? 'dual-bottom-right' : (activeTemplate.qr_position || 'bottom-right'));
   }
 
   const shotsSelect = document.getElementById('editorTemplateShotsMode');
@@ -1439,6 +1587,10 @@ function selectTemplateForEditor(templateId, scroll = true) {
   }
   if (shotsSelect) {
     shotsSelect.value = activeTemplate.shots_mode || 'event';
+  }
+  const boothSelect = document.getElementById('editorTemplateBoothMode');
+  if (boothSelect) {
+    boothSelect.value = activeTemplate.booth_mode || 'kiosk';
   }
 
   renderSlotsList();
@@ -1452,17 +1604,137 @@ function selectTemplateForEditor(templateId, scroll = true) {
   }
 }
 
+function onEditorFormatChange(fmtKey) {
+  if (!activeTemplate) return;
+  const meta = TEMPLATE_FORMAT_MAP[fmtKey] || TEMPLATE_FORMAT_MAP.portrait;
+  activeTemplate.orientation = meta.orientation;
+  activeTemplate.paper_size = meta.paperSize;
+  const typeEl = document.getElementById('currentEditorTypeBadge');
+  if (typeEl) typeEl.innerText = meta.label;
+  renderEditorCanvas();
+  renderTemplatesGallery();
+}
+
+function onEditorBoothModeChange(val) {
+  if (!activeTemplate) return;
+  activeTemplate.booth_mode = val || 'kiosk';
+  if (val === 'mingle' && (!activeTemplate.shots_mode || activeTemplate.shots_mode === 'event')) {
+    activeTemplate.shots_mode = '1';
+    const shotsSelect = document.getElementById('editorTemplateShotsMode');
+    if (shotsSelect) shotsSelect.value = '1';
+  }
+  renderTemplatesGallery();
+}
+
+function onUploadModalBoothModeChange(val) {
+  const shotsModeSelect = document.getElementById('tplModalShotsMode');
+  const formatSelect = document.getElementById('tplModalFormat');
+  if (val === 'mingle') {
+    if (shotsModeSelect && shotsModeSelect.value === 'event') shotsModeSelect.value = '1';
+    if (formatSelect && formatSelect.value === 'strip') formatSelect.value = 'portrait';
+  }
+}
+
 function onEditorShotsModeChange(val) {
   if (!activeTemplate) return;
   activeTemplate.shots_mode = val || 'event';
   renderTemplatesGallery();
 }
 
+function onEditorQrCountChange(val) {
+  if (!activeTemplate) return;
+  const count = parseInt(val, 10) || 0;
+  const canvas = document.getElementById('templateEditorCanvas');
+  const cw = (canvas && canvas.width) || activeTemplate.width || 1200;
+  const ch = (canvas && canvas.height) || activeTemplate.height || 1800;
+
+  if (count === 0) {
+    activeTemplate.qr_position = 'none';
+    editorQrCoords = [];
+    selectedQrIndex = -1;
+  } else if (count === 1) {
+    if (activeTemplate.qr_position === 'none') activeTemplate.qr_position = 'bottom-right';
+    if (editorQrCoords.length > 0) {
+      editorQrCoords = [{ ...editorQrCoords[0], id: 'qr_1' }];
+    } else {
+      editorQrCoords = buildPresetQrCoords(activeTemplate.qr_position, cw, ch);
+    }
+    selectedQrIndex = 0;
+  } else {
+    if (activeTemplate.qr_position === 'none') activeTemplate.qr_position = 'bottom-right';
+    if (editorQrCoords.length >= 2) {
+      editorQrCoords = editorQrCoords.slice(0, 2);
+    } else {
+      editorQrCoords = buildPresetQrCoords('dual-bottom-right', cw, ch);
+    }
+    selectedQrIndex = 0;
+  }
+  activeTemplate.qr_coords = editorQrCoords;
+  renderQrInspector();
+  scheduleEditorRender();
+  renderTemplatesGallery();
+}
+
 function onEditorQrPositionChange(val) {
   if (!activeTemplate) return;
-  activeTemplate.qr_position = val;
-  renderEditorCanvas();
+  const canvas = document.getElementById('templateEditorCanvas');
+  const cw = (canvas && canvas.width) || activeTemplate.width || 1200;
+  const ch = (canvas && canvas.height) || activeTemplate.height || 1800;
+  activeTemplate.qr_position = val === 'dual-bottom-right' ? 'bottom-right' : val;
+  editorQrCoords = buildPresetQrCoords(val, cw, ch);
+  activeTemplate.qr_coords = editorQrCoords;
+  selectedQrIndex = editorQrCoords.length > 0 ? 0 : -1;
+  renderQrInspector();
+  scheduleEditorRender();
   renderTemplatesGallery();
+}
+
+function resetQrToDualSplitPreset() {
+  onEditorQrPositionChange('dual-bottom-right');
+}
+
+function onQrParamChange() {
+  if (selectedQrIndex < 0 || !editorQrCoords[selectedQrIndex]) return;
+  const q = editorQrCoords[selectedQrIndex];
+  const nx = parseInt(document.getElementById('inpQrX').value, 10);
+  const ny = parseInt(document.getElementById('inpQrY').value, 10);
+  const ns = parseInt(document.getElementById('inpQrSize').value, 10);
+  if (!isNaN(nx)) q.x = nx;
+  if (!isNaN(ny)) q.y = ny;
+  if (!isNaN(ns) && ns >= 40) q.size = ns;
+  scheduleEditorRender();
+}
+
+function adjustActiveQrSize(delta) {
+  if (selectedQrIndex < 0 || !editorQrCoords[selectedQrIndex]) return;
+  const q = editorQrCoords[selectedQrIndex];
+  q.size = Math.max(40, Math.min(500, Math.round(q.size + delta)));
+  renderQrInspector();
+  scheduleEditorRender();
+}
+
+function applySplit2UpLandscapeHelper() {
+  if (!activeTemplate) return;
+  const canvas = document.getElementById('templateEditorCanvas');
+  const cw = (canvas && canvas.width) || activeTemplate.width || 1800;
+  const ch = (canvas && canvas.height) || activeTemplate.height || 1200;
+  const halfW = Math.round(cw / 2);
+  const padX = Math.round(halfW * 0.1);
+  const slotW = halfW - padX * 2;
+  const slotY = Math.round(ch * 0.07);
+  const slotH = Math.round(ch * 0.68);
+  editorSlots = [
+    { id: 'slot_1', pose_index: 1, x: padX, y: slotY, width: slotW, height: slotH },
+    { id: 'slot_2', pose_index: 2, x: halfW + padX, y: slotY, width: slotW, height: slotH }
+  ];
+  selectedSlotIndex = 0;
+  activeTemplate.shots_mode = '1';
+  const shotsSelect = document.getElementById('editorTemplateShotsMode');
+  if (shotsSelect) shotsSelect.value = '1';
+
+  onEditorQrPositionChange('dual-bottom-right');
+  renderSlotsList();
+  scheduleEditorRender();
 }
 
 // ==========================================
@@ -1506,9 +1778,13 @@ function openUploadTemplateModal() {
     targetSelect.innerHTML = opts;
   }
 
+  const boothModeSelect = document.getElementById('tplModalBoothMode');
+  if (boothModeSelect) {
+    boothModeSelect.value = (templateFilterMode === 'mingle') ? 'mingle' : 'kiosk';
+  }
   const shotsModeSelect = document.getElementById('tplModalShotsMode');
   if (shotsModeSelect) {
-    shotsModeSelect.value = 'event';
+    shotsModeSelect.value = (templateFilterMode === 'mingle') ? '1' : 'event';
   }
   onUploadModalEventTargetChange();
 
@@ -1616,16 +1892,29 @@ function handlePickedTemplateFile(file) {
     if (previewContainer) previewContainer.style.display = 'block';
     if (promptText) promptText.style.display = 'none';
 
-    // Auto detect aspect ratio
+    // Auto detect aspect ratio (Strip, Square, 4R/5R Portrait vs Landscape)
     const testImg = new Image();
     testImg.src = e.target.result;
     testImg.onload = () => {
       const formatSelect = document.getElementById('tplModalFormat');
-      if (formatSelect) {
-        if (testImg.height / testImg.width >= 2.0) {
+      if (formatSelect && testImg.naturalWidth && testImg.naturalHeight) {
+        const iw = testImg.naturalWidth;
+        const ih = testImg.naturalHeight;
+        const maxD = Math.max(iw, ih);
+        const minD = Math.min(iw, ih);
+        const ratio = maxD / Math.max(1, minD);
+        if (ih / iw >= 2.0) {
           formatSelect.value = 'strip';
+        } else if (Math.abs(iw - ih) / maxD < 0.08) {
+          formatSelect.value = 'square';
+        } else if (iw > ih) {
+          formatSelect.value = (ratio >= 1.34 && ratio <= 1.44) || (iw >= 2000 && ratio < 1.46)
+            ? 'landscape_5r'
+            : 'landscape';
         } else {
-          formatSelect.value = 'portrait';
+          formatSelect.value = (ratio >= 1.34 && ratio <= 1.44) || (ih >= 2000 && ratio < 1.46)
+            ? 'portrait_5r'
+            : 'portrait';
         }
       }
     };
@@ -1664,8 +1953,10 @@ async function submitTemplateUpload(event) {
 
   const eventTarget = document.getElementById('tplModalEventTarget').value;
   const format = document.getElementById('tplModalFormat').value;
+  const formatMeta = TEMPLATE_FORMAT_MAP[format] || TEMPLATE_FORMAT_MAP.portrait;
   const qrPosition = document.getElementById('tplModalQrPosition')?.value || 'bottom-right';
-  const shotsMode = document.getElementById('tplModalShotsMode')?.value || 'event';
+  const boothMode = document.getElementById('tplModalBoothMode')?.value || 'kiosk';
+  const shotsMode = document.getElementById('tplModalShotsMode')?.value || (boothMode === 'mingle' ? '1' : 'event');
 
   const btnSubmit = document.getElementById('btnSubmitUploadTemplate');
   const originalText = btnSubmit ? btnSubmit.innerText : '🚀 Unggah & Buka di Canvas';
@@ -1679,11 +1970,14 @@ async function submitTemplateUpload(event) {
     formData.append('templateFile', selectedUploadFile);
     formData.append('name', name);
     if (eventTarget) formData.append('eventId', eventTarget);
-    formData.append('orientation', format);
+    formData.append('orientation', formatMeta.orientation);
+    formData.append('paperSize', formatMeta.paperSize);
+    formData.append('formatPreset', format);
     formData.append('qrPosition', qrPosition);
     formData.append('shotsMode', shotsMode);
-    formData.append('width', format === 'strip' ? '600' : '1200');
-    formData.append('height', '1800');
+    formData.append('boothMode', boothMode);
+    formData.append('width', String(formatMeta.width));
+    formData.append('height', String(formatMeta.height));
 
     const res = await fetch('/api/templates', {
       method: 'POST',
@@ -1693,15 +1987,13 @@ async function submitTemplateUpload(event) {
     if (res.ok) {
       const created = await res.json();
       closeUploadTemplateModal();
-      alert(`🎉 Template "${created.name}" berhasil diunggah!\n\nSistem sekarang membuka template di Canvas Editor untuk deteksi lubang hijau otomatis.`);
-      
+
       await loadTemplates();
       selectTemplateForEditor(created.id, true);
 
-      // Auto trigger green slot detection on canvas
-      setTimeout(() => {
-        runAutoGreenDetection();
-      }, 400);
+      // Cleanly await image load and detect green photo slots at full natural dimensions, then auto-save
+      await runAutoGreenDetection(true);
+      alert(`🎉 Template "${created.name}" berhasil diunggah & ${editorSlots.length} slot foto otomatis terdeteksi & tersimpan!`);
     } else {
       const err = await res.json();
       alert('Gagal mengunggah template: ' + (err.error || 'Terjadi kesalahan pada server'));
@@ -1889,6 +2181,111 @@ function getSlotResizeHandles(slot) {
   };
 }
 
+function scheduleEditorRender() {
+  if (editorRenderRafId) return;
+  editorRenderRafId = requestAnimationFrame(() => {
+    editorRenderRafId = null;
+    renderEditorCanvas();
+  });
+}
+
+function drawEditorFrameNow(canvas, tplImg) {
+  const ctx = canvas.getContext('2d');
+  const targetW = (tplImg && tplImg.naturalWidth) || activeTemplate.width || 1200;
+  const targetH = (tplImg && tplImg.naturalHeight) || activeTemplate.height || 1800;
+
+  // NEVER reset canvas.width / canvas.height unless dimensions actually changed (prevents drag flicker!)
+  if (canvas.width !== targetW) canvas.width = targetW;
+  if (canvas.height !== targetH) canvas.height = targetH;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (tplImg && tplImg.complete && tplImg.naturalWidth > 0) {
+    ctx.drawImage(tplImg, 0, 0, canvas.width, canvas.height);
+  } else {
+    ctx.fillStyle = '#2E2A3B';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // Draw detected/active slots as interactive overlays
+  editorSlots.forEach((slot, idx) => {
+    const isSelected = (idx === selectedSlotIndex);
+
+    ctx.fillStyle = isSelected ? 'rgba(236, 72, 153, 0.45)' : 'rgba(168, 85, 247, 0.3)';
+    ctx.fillRect(slot.x, slot.y, slot.width, slot.height);
+
+    ctx.strokeStyle = isSelected ? '#ec4899' : '#a855f7';
+    ctx.lineWidth = isSelected ? 4 : 2.5;
+    ctx.strokeRect(slot.x, slot.y, slot.width, slot.height);
+
+    // Label on top-left of slot
+    const labelText = `📷 Pose #${slot.pose_index}`;
+    ctx.font = 'bold 22px sans-serif';
+    const textWidth = ctx.measureText(labelText).width;
+    ctx.fillStyle = isSelected ? '#ec4899' : '#6b21a8';
+    ctx.fillRect(slot.x, slot.y, textWidth + 24, 32);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(labelText, slot.x + 10, slot.y + 23);
+
+    // Dimension badge on bottom-right of slot
+    const dimText = `${Math.round(slot.width)}×${Math.round(slot.height)}px`;
+    ctx.font = '13px monospace';
+    const dimWidth = ctx.measureText(dimText).width;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.fillRect(slot.x + slot.width - dimWidth - 14, slot.y + slot.height - 22, dimWidth + 14, 22);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(dimText, slot.x + slot.width - dimWidth - 7, slot.y + slot.height - 6);
+
+    // If selected, draw 8 resize handles
+    if (isSelected) {
+      const handles = getSlotResizeHandles(slot);
+      for (const h of Object.values(handles)) {
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(h.x - 7, h.y - 7, 14, 14);
+        ctx.strokeStyle = '#ec4899';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(h.x - 7, h.y - 7, 14, 14);
+      }
+    }
+  });
+
+  // Draw 1 or 2 interactive draggable & resizable QR overlays
+  if (activeTemplate.qr_position !== 'none' && Array.isArray(editorQrCoords) && editorQrCoords.length > 0) {
+    editorQrCoords.forEach((q, idx) => {
+      const qSize = Math.max(40, Number(q.size) || 140);
+      const isSelectedQr = (idx === selectedQrIndex);
+      ctx.save();
+      ctx.fillStyle = isSelectedQr ? 'rgba(255, 250, 230, 0.96)' : 'rgba(255, 255, 255, 0.9)';
+      ctx.fillRect(q.x, q.y, qSize, qSize);
+      ctx.strokeStyle = isSelectedQr ? '#E6786B' : '#D4A754';
+      ctx.lineWidth = isSelectedQr ? 4 : 3;
+      ctx.setLineDash([7, 4]);
+      ctx.strokeRect(q.x, q.y, qSize, qSize);
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = isSelectedQr ? '#A63A2E' : '#7a581a';
+      ctx.font = `bold ${Math.max(13, Math.round(qSize * 0.13))}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`🎟️ QR #${idx + 1}`, q.x + qSize / 2, q.y + qSize / 2 - 10);
+      ctx.font = `${Math.max(10, Math.round(qSize * 0.095))}px sans-serif`;
+      ctx.fillStyle = '#555';
+      ctx.fillText(`${Math.round(qSize)}px (Geser)`, q.x + qSize / 2, q.y + qSize / 2 + 12);
+
+      // Corner resize handle (bottom-right of QR)
+      if (isSelectedQr) {
+        const hx = q.x + qSize;
+        const hy = q.y + qSize;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(hx - 8, hy - 8, 16, 16);
+        ctx.strokeStyle = '#E6786B';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(hx - 8, hy - 8, 16, 16);
+      }
+      ctx.restore();
+    });
+  }
+}
+
 function renderEditorCanvas() {
   const canvas = document.getElementById('templateEditorCanvas');
   if (!canvas || !activeTemplate) {
@@ -1904,100 +2301,29 @@ function renderEditorCanvas() {
     }
     return;
   }
-  const ctx = canvas.getContext('2d');
 
-  canvas.width = activeTemplate.width || 600;
-  canvas.height = activeTemplate.height || 1800;
+  const src = activeTemplate.image_storage_key;
+  if (editorCachedImg && editorCachedImgSrc === src && editorCachedImg.complete && editorCachedImg.naturalWidth > 0) {
+    drawEditorFrameNow(canvas, editorCachedImg);
+    return;
+  }
 
+  const targetW = activeTemplate.width || 1200;
+  const targetH = activeTemplate.height || 1800;
+  if (canvas.width !== targetW) canvas.width = targetW;
+  if (canvas.height !== targetH) canvas.height = targetH;
+
+  editorCachedImgSrc = src;
   const tplImg = new Image();
   tplImg.crossOrigin = 'anonymous';
-  tplImg.src = activeTemplate.image_storage_key;
+  editorCachedImg = tplImg;
   tplImg.onload = () => {
-    if (tplImg.naturalWidth && tplImg.naturalHeight) {
-      canvas.width = tplImg.naturalWidth;
-      canvas.height = tplImg.naturalHeight;
-    }
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(tplImg, 0, 0, canvas.width, canvas.height);
-
-    // Draw detected/active slots as interactive overlays
-    editorSlots.forEach((slot, idx) => {
-      const isSelected = (idx === selectedSlotIndex);
-
-      ctx.fillStyle = isSelected ? 'rgba(236, 72, 153, 0.45)' : 'rgba(168, 85, 247, 0.3)';
-      ctx.fillRect(slot.x, slot.y, slot.width, slot.height);
-
-      ctx.strokeStyle = isSelected ? '#ec4899' : '#a855f7';
-      ctx.lineWidth = isSelected ? 4 : 2.5;
-      ctx.strokeRect(slot.x, slot.y, slot.width, slot.height);
-
-      // Label on top-left of slot
-      const labelText = `📷 Pose #${slot.pose_index}`;
-      ctx.font = 'bold 22px sans-serif';
-      const textWidth = ctx.measureText(labelText).width;
-      ctx.fillStyle = isSelected ? '#ec4899' : '#6b21a8';
-      ctx.fillRect(slot.x, slot.y, textWidth + 24, 32);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(labelText, slot.x + 10, slot.y + 23);
-
-      // Dimension badge on bottom-right of slot
-      const dimText = `${Math.round(slot.width)}×${Math.round(slot.height)}px`;
-      ctx.font = '13px monospace';
-      const dimWidth = ctx.measureText(dimText).width;
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(slot.x + slot.width - dimWidth - 14, slot.y + slot.height - 22, dimWidth + 14, 22);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(dimText, slot.x + slot.width - dimWidth - 7, slot.y + slot.height - 6);
-
-      // If selected, draw 8 resize handles
-      if (isSelected) {
-        const handles = getSlotResizeHandles(slot);
-        for (const h of Object.values(handles)) {
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(h.x - 7, h.y - 7, 14, 14);
-          ctx.strokeStyle = '#ec4899';
-          ctx.lineWidth = 2.5;
-          ctx.strokeRect(h.x - 7, h.y - 7, 14, 14);
-        }
-      }
-    });
-
-    // Indikator Posisi QR Galeri pada Hasil Cetak (Visual Preview di Canvas Editor)
-    const qrPos = activeTemplate.qr_position || 'bottom-right';
-    if (qrPos !== 'none') {
-      const isStrip = (canvas.width <= 700);
-      const qrW = isStrip ? 110 : 150;
-      const qrH = isStrip ? 110 : 150;
-      const padX = isStrip ? 18 : 32;
-      const padY = isStrip ? 18 : 32;
-      let qx = 0, qy = 0;
-      switch (qrPos) {
-        case 'bottom-left': qx = padX; qy = canvas.height - qrH - padY; break;
-        case 'top-right': qx = canvas.width - qrW - padX; qy = padY; break;
-        case 'top-left': qx = padX; qy = padY; break;
-        case 'bottom-right':
-        default: qx = canvas.width - qrW - padX; qy = canvas.height - qrH - padY; break;
-      }
-      ctx.save();
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-      ctx.fillRect(qx, qy, qrW, qrH);
-      ctx.strokeStyle = '#D4A754';
-      ctx.lineWidth = 3;
-      ctx.setLineDash([6, 4]);
-      ctx.strokeRect(qx, qy, qrW, qrH);
-      ctx.fillStyle = '#7a581a';
-      ctx.font = 'bold 15px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText('🎟️ QR Cetak', qx + qrW / 2, qy + qrH / 2 - 10);
-      ctx.font = '11.5px sans-serif';
-      ctx.fillStyle = '#666';
-      ctx.fillText('(Galeri Tamu)', qx + qrW / 2, qy + qrH / 2 + 12);
-      ctx.restore();
-    }
+    if (editorCachedImgSrc !== src) return;
+    drawEditorFrameNow(canvas, tplImg);
   };
   tplImg.onerror = () => {
+    if (editorCachedImgSrc !== src) return;
+    const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.fillStyle = '#2E2A3B';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -2006,29 +2332,45 @@ function renderEditorCanvas() {
     ctx.textAlign = 'center';
     ctx.fillText('File template belum dimuat', canvas.width / 2, canvas.height / 2);
   };
+  tplImg.src = src;
 }
 
-// Smart 2D Connected Component Green Chroma Detection
-function runAutoGreenDetection() {
+// Smart 2D Connected Component Green Chroma Detection (Clean offscreen scan at full natural resolution)
+async function runAutoGreenDetection(silentAndAutoSave = false) {
   const canvas = document.getElementById('templateEditorCanvas');
   if (!canvas || !activeTemplate) return;
-  const ctx = canvas.getContext('2d');
 
   try {
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const cleanImg = new Image();
+    cleanImg.crossOrigin = 'anonymous';
+    cleanImg.src = activeTemplate.image_storage_key;
+    await new Promise((resolve, reject) => {
+      cleanImg.onload = resolve;
+      cleanImg.onerror = () => reject(new Error('Gambar template gagal dimuat'));
+    });
+
+    const w = cleanImg.naturalWidth || activeTemplate.width || 1200;
+    const h = cleanImg.naturalHeight || activeTemplate.height || 1800;
+    activeTemplate.width = w;
+    activeTemplate.height = h;
+    canvas.width = w;
+    canvas.height = h;
+
+    const scanCanvas = document.createElement('canvas');
+    scanCanvas.width = w;
+    scanCanvas.height = h;
+    const scanCtx = scanCanvas.getContext('2d');
+    scanCtx.drawImage(cleanImg, 0, 0, w, h);
+
+    const imgData = scanCtx.getImageData(0, 0, w, h);
     const data = imgData.data;
-    const w = canvas.width;
-    const h = canvas.height;
 
     // Green Chroma Predicate:
     // Supports #00FF00 (pure green) AND Apple/Canva lime green (#7ED957: rgb 126, 217, 87)
     function isGreenPixel(r, g, b, a) {
       if (a < 128) return false;
-      // Pure or high chroma green
       if (g >= 150 && r <= 100 && b <= 100) return true;
-      // Canva lime green / Apple green (#7ED957, #66CC00, #A8E063)
       if (g >= 140 && (g - r) >= 30 && (g - b) >= 35) return true;
-      // Slightly darker olive green screens
       if (g >= 120 && (g - r) >= 40 && (g - b) >= 40) return true;
       return false;
     }
@@ -2044,12 +2386,7 @@ function runAutoGreenDetection() {
       for (let gx = 0; gx < gridCols; gx++) {
         const px = gx * step;
         const idx = (py * w + px) * 4;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        const a = data[idx + 3];
-
-        if (isGreenPixel(r, g, b, a)) {
+        if (isGreenPixel(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) {
           grid[gy * gridCols + gx] = 1;
           totalGreenPoints++;
         }
@@ -2057,15 +2394,29 @@ function runAutoGreenDetection() {
     }
 
     if (totalGreenPoints === 0) {
-      alert('ℹ️ Tidak ditemukan area hijau murni (#00FF00) atau lime green (#7ED957). Sistem menambahkan slot pose standar yang dapat Anda atur secara manual.');
-      editorSlots = [
-        { id: 'slot_1', pose_index: 1, x: 50, y: 130, width: canvas.width - 100, height: 420 },
-        { id: 'slot_2', pose_index: 2, x: 50, y: 580, width: canvas.width - 100, height: 420 },
-        { id: 'slot_3', pose_index: 3, x: 50, y: 1030, width: canvas.width - 100, height: 420 }
-      ];
+      if (!silentAndAutoSave) {
+        alert('ℹ️ Tidak ditemukan area hijau murni (#00FF00) atau lime green (#7ED957). Sistem menambahkan slot pose standar yang dapat Anda atur secara manual.');
+      }
+      if (activeTemplate.orientation === 'strip') {
+        const slotW = Math.round(w * 0.84);
+        const slotX = Math.round((w - slotW) / 2);
+        const slotH = Math.round(h * 0.24);
+        editorSlots = [
+          { id: 'slot_1', pose_index: 1, x: slotX, y: Math.round(h * 0.06), width: slotW, height: slotH },
+          { id: 'slot_2', pose_index: 2, x: slotX, y: Math.round(h * 0.33), width: slotW, height: slotH },
+          { id: 'slot_3', pose_index: 3, x: slotX, y: Math.round(h * 0.60), width: slotW, height: slotH }
+        ];
+      } else {
+        editorSlots = [
+          { id: 'slot_1', pose_index: 1, x: Math.round(w * 0.06), y: Math.round(h * 0.08), width: Math.round(w * 0.88), height: Math.round(h * 0.76) }
+        ];
+      }
       selectedSlotIndex = 0;
       renderSlotsList();
       renderEditorCanvas();
+      if (silentAndAutoSave) {
+        await saveTemplateVersion(true);
+      }
       return;
     }
 
@@ -2129,7 +2480,9 @@ function runAutoGreenDetection() {
     }
 
     if (components.length === 0) {
-      alert('ℹ️ Area hijau yang terdeteksi terlalu kecil. Silakan tambah slot manual.');
+      if (!silentAndAutoSave) {
+        alert('ℹ️ Area hijau yang terdeteksi terlalu kecil. Silakan tambah slot manual.');
+      }
       return;
     }
 
@@ -2154,10 +2507,16 @@ function runAutoGreenDetection() {
     renderSlotsList();
     renderEditorCanvas();
 
-    alert(`🎉 Sukses! Algoritma cerdas berhasil mendeteksi ${editorSlots.length} slot pose hijau secara akurat pada template Anda.`);
+    if (silentAndAutoSave) {
+      await saveTemplateVersion(true);
+    } else {
+      alert(`🎉 Sukses! Algoritma cerdas berhasil mendeteksi ${editorSlots.length} slot pose hijau secara akurat pada template Anda.`);
+    }
   } catch (err) {
     console.error('Auto green detection error:', err);
-    alert('Terjadi kesalahan deteksi hijau: ' + err.message);
+    if (!silentAndAutoSave) {
+      alert('Terjadi kesalahan deteksi hijau: ' + err.message);
+    }
   }
 }
 
@@ -2188,32 +2547,46 @@ function deleteSlot(index) {
   renderEditorCanvas();
 }
 
-async function saveTemplateVersion() {
+async function saveTemplateVersion(silent = false) {
   if (!activeTemplate) {
-    alert('Pilih template terlebih dahulu');
+    if (!silent) alert('Pilih template terlebih dahulu');
     return;
   }
   const canvas = document.getElementById('templateEditorCanvas');
   const width = (canvas && canvas.width) || activeTemplate.width || 1200;
   const height = (canvas && canvas.height) || activeTemplate.height || 1800;
-  const qrPosition = document.getElementById('editorTemplateQrPos')?.value || activeTemplate.qr_position || 'bottom-right';
+  const rawQrPos = document.getElementById('editorTemplateQrPos')?.value || activeTemplate.qr_position || 'bottom-right';
+  const qrPosition = (editorQrCoords.length === 0) ? 'none' : (rawQrPos === 'dual-bottom-right' ? 'bottom-right' : rawQrPos);
   const shotsMode = document.getElementById('editorTemplateShotsMode')?.value || activeTemplate.shots_mode || 'event';
+  const boothMode = document.getElementById('editorTemplateBoothMode')?.value || activeTemplate.booth_mode || 'kiosk';
+  const fmtKey = document.getElementById('editorTemplateFormat')?.value || getTemplateFormatKey(activeTemplate);
+  const fmtMeta = TEMPLATE_FORMAT_MAP[fmtKey] || TEMPLATE_FORMAT_MAP.portrait;
   try {
     const res = await fetch(`/api/templates/${activeTemplate.id}/slots`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slots: editorSlots, qrPosition, shotsMode, width, height })
+      body: JSON.stringify({
+        slots: editorSlots,
+        qrPosition,
+        qrCoords: editorQrCoords,
+        shotsMode,
+        boothMode,
+        orientation: fmtMeta.orientation,
+        paperSize: fmtMeta.paperSize,
+        width,
+        height
+      })
     });
     if (res.ok) {
-      alert('✅ Konfigurasi slot pose template berhasil disimpan & dipublikasikan untuk Kiosk Event!');
+      if (!silent) alert('✅ Konfigurasi slot pose & QR cetak template berhasil disimpan & dipublikasikan!');
       await loadTemplates();
     } else {
       const err = await res.json().catch(() => ({}));
-      alert('Gagal menyimpan slot: ' + (err.error || 'Terjadi kesalahan'));
+      if (!silent) alert('Gagal menyimpan slot: ' + (err.error || 'Terjadi kesalahan'));
     }
   } catch (e) {
     console.error('saveTemplateVersion error:', e);
-    alert('Gagal menyimpan template: ' + (e.message || 'Terjadi kesalahan'));
+    if (!silent) alert('Gagal menyimpan template: ' + (e.message || 'Terjadi kesalahan'));
   }
 }
 
@@ -2223,8 +2596,8 @@ async function saveTemplateVersion() {
 
 function getCanvasMouseCoords(e, canvas) {
   const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
+  const scaleX = canvas.width / Math.max(1, rect.width);
+  const scaleY = canvas.height / Math.max(1, rect.height);
   return {
     x: (e.clientX - rect.left) * scaleX,
     y: (e.clientY - rect.top) * scaleY,
@@ -2236,7 +2609,7 @@ function getCanvasMouseCoords(e, canvas) {
 function findHandleAtCoords(slot, mouseX, mouseY, scaleX) {
   if (!slot) return null;
   const handles = getSlotResizeHandles(slot);
-  const grabRadius = 16 * (scaleX || 1); // comfortable grab zone
+  const grabRadius = 16 * (scaleX || 1);
 
   for (const [key, h] of Object.entries(handles)) {
     if (Math.abs(mouseX - h.x) <= grabRadius && Math.abs(mouseY - h.y) <= grabRadius) {
@@ -2251,6 +2624,35 @@ const editorCanvas = document.getElementById('templateEditorCanvas');
 if (editorCanvas) {
   editorCanvas.addEventListener('mousedown', (e) => {
     const coords = getCanvasMouseCoords(e, editorCanvas);
+    const grabR = 16 * (coords.scaleX || 1);
+
+    // 0. Check QR corner resize handle & QR boxes first (they sit on top of slots)
+    if (activeTemplate && activeTemplate.qr_position !== 'none' && Array.isArray(editorQrCoords) && editorQrCoords.length > 0) {
+      if (selectedQrIndex >= 0 && editorQrCoords[selectedQrIndex]) {
+        const sq = editorQrCoords[selectedQrIndex];
+        const qSize = sq.size || 140;
+        if (Math.abs(coords.x - (sq.x + qSize)) <= grabR && Math.abs(coords.y - (sq.y + qSize)) <= grabR) {
+          resizingQr = sq;
+          resizeInitialState = { size: qSize, mouseX: coords.x, mouseY: coords.y };
+          return;
+        }
+      }
+      for (let i = editorQrCoords.length - 1; i >= 0; i--) {
+        const q = editorQrCoords[i];
+        const qSize = q.size || 140;
+        if (coords.x >= q.x && coords.x <= q.x + qSize && coords.y >= q.y && coords.y <= q.y + qSize) {
+          selectedQrIndex = i;
+          draggingQr = q;
+          dragStartX = coords.x;
+          dragStartY = coords.y;
+          initialSlotX = q.x;
+          initialSlotY = q.y;
+          renderQrInspector();
+          scheduleEditorRender();
+          return;
+        }
+      }
+    }
 
     // 1. Check if clicking on any handle of the currently selected slot
     if (selectedSlotIndex >= 0 && editorSlots[selectedSlotIndex]) {
@@ -2282,7 +2684,7 @@ if (editorCanvas) {
         initialSlotX = slot.x;
         initialSlotY = slot.y;
         renderSlotsList();
-        renderEditorCanvas();
+        scheduleEditorRender();
         return;
       }
     }
@@ -2293,7 +2695,29 @@ if (editorCanvas) {
     if (!canvas) return;
     const coords = getCanvasMouseCoords(e, canvas);
 
-    // Handle active resizing
+    // Handle active QR resizing
+    if (resizingQr && resizeInitialState) {
+      const d = Math.max(coords.x - resizeInitialState.mouseX, coords.y - resizeInitialState.mouseY);
+      const snap = 5;
+      resizingQr.size = Math.max(40, Math.min(500, Math.round((resizeInitialState.size + d) / snap) * snap));
+      renderQrInspector();
+      scheduleEditorRender();
+      return;
+    }
+
+    // Handle active QR moving
+    if (draggingQr) {
+      const dx = coords.x - dragStartX;
+      const dy = coords.y - dragStartY;
+      const snap = 5;
+      draggingQr.x = Math.round((initialSlotX + dx) / snap) * snap;
+      draggingQr.y = Math.round((initialSlotY + dy) / snap) * snap;
+      renderQrInspector();
+      scheduleEditorRender();
+      return;
+    }
+
+    // Handle active slot resizing
     if (resizingSlot && activeDragHandle && resizeInitialState) {
       const dx = coords.x - resizeInitialState.mouseX;
       const dy = coords.y - resizeInitialState.mouseY;
@@ -2327,11 +2751,11 @@ if (editorCanvas) {
       resizingSlot.height = Math.round(newH / snap) * snap;
 
       updateSlotInspector();
-      renderEditorCanvas();
+      scheduleEditorRender();
       return;
     }
 
-    // Handle active moving
+    // Handle active slot moving
     if (draggingSlot) {
       const dx = coords.x - dragStartX;
       const dy = coords.y - dragStartY;
@@ -2341,11 +2765,30 @@ if (editorCanvas) {
       draggingSlot.y = Math.round((initialSlotY + dy) / snap) * snap;
 
       updateSlotInspector();
-      renderEditorCanvas();
+      scheduleEditorRender();
       return;
     }
 
     // Hover cursor state when not dragging
+    const grabR = 16 * (coords.scaleX || 1);
+    if (activeTemplate && activeTemplate.qr_position !== 'none' && Array.isArray(editorQrCoords)) {
+      if (selectedQrIndex >= 0 && editorQrCoords[selectedQrIndex]) {
+        const sq = editorQrCoords[selectedQrIndex];
+        const qSize = sq.size || 140;
+        if (Math.abs(coords.x - (sq.x + qSize)) <= grabR && Math.abs(coords.y - (sq.y + qSize)) <= grabR) {
+          editorCanvas.style.cursor = 'nwse-resize';
+          return;
+        }
+      }
+      for (const q of editorQrCoords) {
+        const qSize = q.size || 140;
+        if (coords.x >= q.x && coords.x <= q.x + qSize && coords.y >= q.y && coords.y <= q.y + qSize) {
+          editorCanvas.style.cursor = 'move';
+          return;
+        }
+      }
+    }
+
     if (selectedSlotIndex >= 0 && editorSlots[selectedSlotIndex]) {
       const activeSlot = editorSlots[selectedSlotIndex];
       const hitHandle = findHandleAtCoords(activeSlot, coords.x, coords.y, coords.scaleX);
@@ -2367,13 +2810,20 @@ if (editorCanvas) {
   });
 
   window.addEventListener('mouseup', () => {
+    if (resizingQr || draggingQr) {
+      resizingQr = null;
+      draggingQr = null;
+      resizeInitialState = null;
+      renderQrInspector();
+      scheduleEditorRender();
+    }
     if (resizingSlot || draggingSlot) {
       resizingSlot = null;
       activeDragHandle = null;
       resizeInitialState = null;
       draggingSlot = null;
       renderSlotsList();
-      renderEditorCanvas();
+      scheduleEditorRender();
     }
   });
 }

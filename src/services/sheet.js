@@ -16,13 +16,16 @@ import QRCode from 'qrcode';
 export const PAPER_PRESETS = {
   '2x6': { widthIn: 4, heightIn: 6, layout: '2up', label: 'Photo Strip 2×6 inch (2 strip per lembar kertas 4R / 102×152 mm)' },
   '4x6': { widthIn: 4, heightIn: 6, layout: 'single', label: 'Photo 4R (102×152 mm / 4×6 inch Postcard)' },
-  '5x7': { widthIn: 5, heightIn: 7, layout: 'single', label: 'Kertas 5×7' },
+  '4r': { widthIn: 4, heightIn: 6, layout: 'single', label: 'Photo 4R (102×152 mm / 4×6 inch Postcard)' },
+  '5x7': { widthIn: 5, heightIn: 7, layout: 'single', label: 'Photo 5R (127×178 mm / 5×7 inch)' },
+  '5r': { widthIn: 5, heightIn: 7, layout: 'single', label: 'Photo 5R (127×178 mm / 5×7 inch)' },
   '6x8': { widthIn: 6, heightIn: 8, layout: 'single', label: 'Kertas 6×8' },
   'A4': { widthIn: 8.27, heightIn: 11.69, layout: 'single', label: 'Kertas A4' }
 };
 
 export function resolvePaper(paperSize) {
-  return PAPER_PRESETS[paperSize] || PAPER_PRESETS['2x6'];
+  const key = String(paperSize || '').trim();
+  return PAPER_PRESETS[key] || PAPER_PRESETS[key.toLowerCase()] || PAPER_PRESETS['2x6'];
 }
 
 const CRC_TABLE = (() => {
@@ -279,93 +282,103 @@ export function getMafazaLogoImage() {
   return null;
 }
 
-/**
- * Tempelkan QR Code Galeri Tamu khusus pada lembar cetak (printed sheet) dengan logo Mafaza di tengahnya.
- * File digital asli di gallery tetap bersih tanpa watermark QR.
- * @param {object} img - Decoded image { width, height, channels, data }
- * @param {string} qrUrl - URL galeri tamu lengkap (https://.../gallery/g/:token)
- * @param {string} position - 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left' | 'none'
- * @param {boolean} isStrip - Apakah gambar berbentuk strip photobooth
- */
-export function overlayQrCodeOnImage(img, qrUrl, position = 'bottom-right', isStrip = false) {
-  if (!img || !qrUrl || position === 'none') return img;
+function isInsideRoundedBox(cx, cy, w, h, radius) {
+  if (cx < radius && cy < radius) {
+    const dx = radius - cx, dy = radius - cy;
+    return dx * dx + dy * dy <= radius * radius;
+  }
+  if (cx >= w - radius && cy < radius) {
+    const dx = cx - (w - radius - 1), dy = radius - cy;
+    return dx * dx + dy * dy <= radius * radius;
+  }
+  if (cx < radius && cy >= h - radius) {
+    const dx = radius - cx, dy = cy - (h - radius - 1);
+    return dx * dx + dy * dy <= radius * radius;
+  }
+  if (cx >= w - radius && cy >= h - radius) {
+    const dx = cx - (w - radius - 1), dy = cy - (h - radius - 1);
+    return dx * dx + dy * dy <= radius * radius;
+  }
+  return true;
+}
 
-  try {
-    // Error correction H (High 30% tolerance) memastikan QR tetap terbaca cepat dengan logo di tengahnya
-    const qr = QRCode.create(qrUrl, { errorCorrectionLevel: 'H' });
-    const modCount = qr.modules.size;
-    const marginMods = 1; // 1 modul quiet zone di sekitar matriks
-    const totalMods = modCount + marginMods * 2;
+function stampSingleQrCard(outData, imgW, imgH, channels, qr, logoImg, startX, startY, targetSizePx) {
+  const modCount = qr.modules.size;
+  const marginMods = 1;
+  const totalMods = modCount + marginMods * 2;
+  const modulePx = Math.max(2, Math.floor((targetSizePx * 0.88) / totalMods));
+  const qrInnerSize = totalMods * modulePx;
+  const cardPad = Math.max(4, Math.round(modulePx * 1.8));
+  const cardW = qrInnerSize + cardPad * 2;
+  const cardH = qrInnerSize + cardPad * 2;
 
-    // Ukuran target: ~130-140px untuk photo strip (lebar 600px), ~170-190px untuk single photo (lebar 1200px)
-    const modulePx = isStrip
-      ? Math.max(2, Math.floor(130 / totalMods))
-      : Math.max(3, Math.floor(175 / totalMods));
+  const clampedX = Math.max(0, Math.min(imgW - cardW, Math.round(startX)));
+  const clampedY = Math.max(0, Math.min(imgH - cardH, Math.round(startY)));
 
-    const qrInnerSize = totalMods * modulePx;
-    // Padding kartu putih di sekeliling QR
-    const cardPad = Math.max(5, Math.round(modulePx * 1.8));
-    const cardW = qrInnerSize + cardPad * 2;
-    const cardH = qrInnerSize + cardPad * 2;
-
-    const padX = isStrip ? 20 : 32;
-    const padY = isStrip ? 20 : 32;
-
-    let startX = 0;
-    let startY = 0;
-
-    switch (position) {
-      case 'bottom-left':
-        startX = padX;
-        startY = img.height - cardH - padY;
-        break;
-      case 'top-right':
-        startX = img.width - cardW - padX;
-        startY = padY;
-        break;
-      case 'top-left':
-        startX = padX;
-        startY = padY;
-        break;
-      case 'bottom-right':
-      default:
-        startX = img.width - cardW - padX;
-        startY = img.height - cardH - padY;
-        break;
+  // 1. Kartu putih lembut dengan sudut membulat
+  const radius = Math.min(10, Math.round(cardPad * 1.2));
+  for (let cy = 0; cy < cardH; cy++) {
+    const py = clampedY + cy;
+    if (py < 0 || py >= imgH) continue;
+    for (let cx = 0; cx < cardW; cx++) {
+      const px = clampedX + cx;
+      if (px < 0 || px >= imgW || !isInsideRoundedBox(cx, cy, cardW, cardH, radius)) continue;
+      const idx = (py * imgW + px) * channels;
+      outData[idx + 0] = 255;
+      outData[idx + 1] = 255;
+      outData[idx + 2] = 255;
+      if (channels === 4) outData[idx + 3] = 255;
     }
+  }
 
-    startX = Math.max(0, Math.min(img.width - cardW, startX));
-    startY = Math.max(0, Math.min(img.height - cardH, startY));
-
-    // Salin buffer agar data gambar asli tidak termodifikasi
-    const outData = Buffer.from(img.data);
-    const { width: imgW, height: imgH, channels } = img;
-
-    // 1. Gambar kartu putih bersih dengan sudut melengkung lembut
-    const radius = Math.min(10, Math.round(cardPad * 1.2));
-    for (let cy = 0; cy < cardH; cy++) {
-      const py = startY + cy;
-      if (py < 0 || py >= imgH) continue;
-      for (let cx = 0; cx < cardW; cx++) {
-        const px = startX + cx;
-        if (px < 0 || px >= imgW) continue;
-
-        let isCorner = false;
-        if (cx < radius && cy < radius) {
-          const dx = radius - cx, dy = radius - cy;
-          if (dx * dx + dy * dy > radius * radius) isCorner = true;
-        } else if (cx >= cardW - radius && cy < radius) {
-          const dx = cx - (cardW - radius - 1), dy = radius - cy;
-          if (dx * dx + dy * dy > radius * radius) isCorner = true;
-        } else if (cx < radius && cy >= cardH - radius) {
-          const dx = radius - cx, dy = cy - (cardH - radius - 1);
-          if (dx * dx + dy * dy > radius * radius) isCorner = true;
-        } else if (cx >= cardW - radius && cy >= cardH - radius) {
-          const dx = cx - (cardW - radius - 1), dy = cy - (cardH - radius - 1);
-          if (dx * dx + dy * dy > radius * radius) isCorner = true;
+  // 2. Modul hitam QR
+  const qrOffsetX = clampedX + cardPad;
+  const qrOffsetY = clampedY + cardPad;
+  for (let r = 0; r < modCount; r++) {
+    for (let c = 0; c < modCount; c++) {
+      if (qr.modules.get(r, c) === 1) {
+        const modX0 = qrOffsetX + (c + marginMods) * modulePx;
+        const modY0 = qrOffsetY + (r + marginMods) * modulePx;
+        for (let my = 0; my < modulePx; my++) {
+          const py = modY0 + my;
+          if (py < 0 || py >= imgH) continue;
+          for (let mx = 0; mx < modulePx; mx++) {
+            const px = modX0 + mx;
+            if (px < 0 || px >= imgW) continue;
+            const idx = (py * imgW + px) * channels;
+            outData[idx + 0] = 0;
+            outData[idx + 1] = 0;
+            outData[idx + 2] = 0;
+            if (channels === 4) outData[idx + 3] = 255;
+          }
         }
-        if (isCorner) continue;
+      }
+    }
+  }
 
+  // 3. Logo Mafaza di tengah matriks QR
+  if (logoImg) {
+    const qrMatrixPx = modCount * modulePx;
+    const qrStartX = qrOffsetX + marginMods * modulePx;
+    const qrStartY = qrOffsetY + marginMods * modulePx;
+
+    const logoBoxSize = Math.round(qrMatrixPx * 0.22);
+    const logoX = qrStartX + Math.floor((qrMatrixPx - logoBoxSize) / 2);
+    const logoY = qrStartY + Math.floor((qrMatrixPx - logoBoxSize) / 2);
+
+    const badgePad = Math.max(3, Math.round(modulePx * 1.2));
+    const badgeX = logoX - badgePad;
+    const badgeY = logoY - badgePad;
+    const badgeW = logoBoxSize + badgePad * 2;
+    const badgeH = logoBoxSize + badgePad * 2;
+    const bRadius = Math.min(8, Math.round(badgeW * 0.18));
+
+    for (let cy = 0; cy < badgeH; cy++) {
+      const py = badgeY + cy;
+      if (py < 0 || py >= imgH) continue;
+      for (let cx = 0; cx < badgeW; cx++) {
+        const px = badgeX + cx;
+        if (px < 0 || px >= imgW || !isInsideRoundedBox(cx, cy, badgeW, badgeH, bRadius)) continue;
         const idx = (py * imgW + px) * channels;
         outData[idx + 0] = 255;
         outData[idx + 1] = 255;
@@ -374,125 +387,97 @@ export function overlayQrCodeOnImage(img, qrUrl, position = 'bottom-right', isSt
       }
     }
 
-    // 2. Gambar modul hitam QR
-    const qrOffsetX = startX + cardPad;
-    const qrOffsetY = startY + cardPad;
-
-    for (let r = 0; r < modCount; r++) {
-      for (let c = 0; c < modCount; c++) {
-        if (qr.modules.get(r, c) === 1) {
-          const modX0 = qrOffsetX + (c + marginMods) * modulePx;
-          const modY0 = qrOffsetY + (r + marginMods) * modulePx;
-
-          for (let my = 0; my < modulePx; my++) {
-            const py = modY0 + my;
-            if (py < 0 || py >= imgH) continue;
-            for (let mx = 0; mx < modulePx; mx++) {
-              const px = modX0 + mx;
-              if (px < 0 || px >= imgW) continue;
-              const idx = (py * imgW + px) * channels;
-              outData[idx + 0] = 0;
-              outData[idx + 1] = 0;
-              outData[idx + 2] = 0;
-              if (channels === 4) outData[idx + 3] = 255;
-            }
-          }
-        }
+    const srcW = logoImg.width, srcH = logoImg.height;
+    const lRadius = Math.max(2, bRadius - badgePad);
+    for (let ly = 0; ly < logoBoxSize; ly++) {
+      const py = logoY + ly;
+      if (py < 0 || py >= imgH) continue;
+      const sy = Math.floor((ly / logoBoxSize) * srcH);
+      const srcRow = sy * srcW * 4;
+      for (let lx = 0; lx < logoBoxSize; lx++) {
+        const px = logoX + lx;
+        if (px < 0 || px >= imgW || !isInsideRoundedBox(lx, ly, logoBoxSize, logoBoxSize, lRadius)) continue;
+        const sx = Math.floor((lx / logoBoxSize) * srcW);
+        const srcIdx = srcRow + sx * 4;
+        const targetIdx = (py * imgW + px) * channels;
+        outData[targetIdx + 0] = logoImg.data[srcIdx + 0];
+        outData[targetIdx + 1] = logoImg.data[srcIdx + 1];
+        outData[targetIdx + 2] = logoImg.data[srcIdx + 2];
+        if (channels === 4) outData[targetIdx + 3] = 255;
       }
     }
+  }
+}
 
-    // 3. Gambar logo Mafaza di tengah-tengah matriks QR
+/**
+ * Tempelkan 1 atau lebih QR Code Galeri Tamu khusus pada lembar cetak (printed sheet)
+ * dengan logo Mafaza di tengahnya. File digital asli di gallery tetap bersih tanpa QR.
+ * @param {object} img - Decoded image { width, height, channels, data }
+ * @param {string} qrUrl - URL galeri tamu lengkap (https://.../gallery/g/:token)
+ * @param {string|Array} positionOrList - 'bottom-right'|'bottom-left'|'top-right'|'top-left'|'dual-bottom-right'|'none' atau array [{x, y, size}]
+ * @param {boolean} isStrip - Apakah gambar berbentuk strip photobooth
+ * @param {object|null} tplSize - Dimensi referensi template { width, height } untuk penskalaan koordinat kustom
+ */
+export function overlayQrCodeOnImage(img, qrUrl, positionOrList = 'bottom-right', isStrip = false, tplSize = null) {
+  if (!img || !qrUrl || positionOrList === 'none') return img;
+
+  try {
+    const qr = QRCode.create(qrUrl, { errorCorrectionLevel: 'H' });
+    const outData = Buffer.from(img.data);
+    const { width: imgW, height: imgH, channels } = img;
     const logoImg = getMafazaLogoImage();
-    if (logoImg) {
-      const qrMatrixPx = modCount * modulePx;
-      const qrStartX = qrOffsetX + marginMods * modulePx;
-      const qrStartY = qrOffsetY + marginMods * modulePx;
 
-      const logoBoxSize = Math.round(qrMatrixPx * 0.22);
-      const logoX = qrStartX + Math.floor((qrMatrixPx - logoBoxSize) / 2);
-      const logoY = qrStartY + Math.floor((qrMatrixPx - logoBoxSize) / 2);
-
-      const badgePad = Math.max(3, Math.round(modulePx * 1.2));
-      const badgeX = logoX - badgePad;
-      const badgeY = logoY - badgePad;
-      const badgeW = logoBoxSize + badgePad * 2;
-      const badgeH = logoBoxSize + badgePad * 2;
-      const bRadius = Math.min(8, Math.round(badgeW * 0.18));
-
-      // Kartu badge putih di sekeliling logo agar modul QR tidak bertabrakan dengan logo
-      for (let cy = 0; cy < badgeH; cy++) {
-        const py = badgeY + cy;
-        if (py < 0 || py >= imgH) continue;
-        for (let cx = 0; cx < badgeW; cx++) {
-          const px = badgeX + cx;
-          if (px < 0 || px >= imgW) continue;
-
-          let isCorner = false;
-          if (cx < bRadius && cy < bRadius) {
-            const dx = bRadius - cx, dy = bRadius - cy;
-            if (dx * dx + dy * dy > bRadius * bRadius) isCorner = true;
-          } else if (cx >= badgeW - bRadius && cy < bRadius) {
-            const dx = cx - (badgeW - bRadius - 1), dy = bRadius - cy;
-            if (dx * dx + dy * dy > bRadius * bRadius) isCorner = true;
-          } else if (cx < bRadius && cy >= badgeH - bRadius) {
-            const dx = bRadius - cx, dy = cy - (badgeH - bRadius - 1);
-            if (dx * dx + dy * dy > bRadius * bRadius) isCorner = true;
-          } else if (cx >= badgeW - bRadius && cy >= badgeH - bRadius) {
-            const dx = cx - (badgeW - bRadius - 1), dy = cy - (badgeH - bRadius - 1);
-            if (dx * dx + dy * dy > bRadius * bRadius) isCorner = true;
-          }
-          if (isCorner) continue;
-
-          const idx = (py * imgW + px) * channels;
-          outData[idx + 0] = 255;
-          outData[idx + 1] = 255;
-          outData[idx + 2] = 255;
-          if (channels === 4) outData[idx + 3] = 255;
-        }
+    if (Array.isArray(positionOrList) && positionOrList.length > 0) {
+      const refW = (tplSize && tplSize.width) || imgW;
+      const refH = (tplSize && tplSize.height) || imgH;
+      const sx = imgW / Math.max(1, refW);
+      const sy = imgH / Math.max(1, refH);
+      for (const item of positionOrList) {
+        const sizePx = Math.max(60, Math.round((Number(item.size) || 150) * Math.min(sx, sy)));
+        stampSingleQrCard(
+          outData, imgW, imgH, channels, qr, logoImg,
+          Math.round((Number(item.x) || 0) * sx),
+          Math.round((Number(item.y) || 0) * sy),
+          sizePx
+        );
       }
-
-      // Stamp logo Mafaza di dalam [logoX, logoY, logoBoxSize, logoBoxSize]
-      const srcW = logoImg.width, srcH = logoImg.height;
-      const lRadius = Math.max(2, bRadius - badgePad);
-
-      for (let ly = 0; ly < logoBoxSize; ly++) {
-        const py = logoY + ly;
-        if (py < 0 || py >= imgH) continue;
-        const sy = Math.floor((ly / logoBoxSize) * srcH);
-        const srcRow = sy * srcW * 4;
-
-        for (let lx = 0; lx < logoBoxSize; lx++) {
-          const px = logoX + lx;
-          if (px < 0 || px >= imgW) continue;
-
-          let isCorner = false;
-          if (lx < lRadius && ly < lRadius) {
-            const dx = lRadius - lx, dy = lRadius - ly;
-            if (dx * dx + dy * dy > lRadius * lRadius) isCorner = true;
-          } else if (lx >= logoBoxSize - lRadius && ly < lRadius) {
-            const dx = lx - (logoBoxSize - lRadius - 1), dy = lRadius - ly;
-            if (dx * dx + dy * dy > lRadius * lRadius) isCorner = true;
-          } else if (lx < lRadius && ly >= logoBoxSize - lRadius) {
-            const dx = lRadius - lx, dy = ly - (logoBoxSize - lRadius - 1);
-            if (dx * dx + dy * dy > lRadius * lRadius) isCorner = true;
-          } else if (lx >= logoBoxSize - lRadius && ly >= logoBoxSize - lRadius) {
-            const dx = lx - (logoBoxSize - lRadius - 1), dy = ly - (logoBoxSize - lRadius - 1);
-            if (dx * dx + dy * dy > lRadius * lRadius) isCorner = true;
-          }
-          if (isCorner) continue;
-
-          const sx = Math.floor((lx / logoBoxSize) * srcW);
-          const srcIdx = srcRow + sx * 4;
-          const targetIdx = (py * imgW + px) * channels;
-
-          outData[targetIdx + 0] = logoImg.data[srcIdx + 0];
-          outData[targetIdx + 1] = logoImg.data[srcIdx + 1];
-          outData[targetIdx + 2] = logoImg.data[srcIdx + 2];
-          if (channels === 4) outData[targetIdx + 3] = 255;
-        }
-      }
+      return { width: imgW, height: imgH, channels, data: outData };
     }
 
+    const defaultSize = isStrip ? 148 : 195;
+    const padX = isStrip ? 20 : 32;
+    const padY = isStrip ? 20 : 32;
+
+    if (positionOrList === 'dual-bottom-right') {
+      const halfW = Math.round(imgW / 2);
+      const qSize = Math.round(Math.min(imgW, imgH) * 0.125);
+      stampSingleQrCard(outData, imgW, imgH, channels, qr, logoImg, halfW - qSize - padX, imgH - qSize - padY, qSize);
+      stampSingleQrCard(outData, imgW, imgH, channels, qr, logoImg, imgW - qSize - padX, imgH - qSize - padY, qSize);
+      return { width: imgW, height: imgH, channels, data: outData };
+    }
+
+    let startX = 0, startY = 0;
+    switch (positionOrList) {
+      case 'bottom-left':
+        startX = padX;
+        startY = imgH - defaultSize - padY;
+        break;
+      case 'top-right':
+        startX = imgW - defaultSize - padX;
+        startY = padY;
+        break;
+      case 'top-left':
+        startX = padX;
+        startY = padY;
+        break;
+      case 'bottom-right':
+      default:
+        startX = imgW - defaultSize - padX;
+        startY = imgH - defaultSize - padY;
+        break;
+    }
+
+    stampSingleQrCard(outData, imgW, imgH, channels, qr, logoImg, startX, startY, defaultSize);
     return { width: imgW, height: imgH, channels, data: outData };
   } catch (err) {
     console.warn('overlayQrCodeOnImage failed:', err);
@@ -522,8 +507,14 @@ export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
     const isStrip = isStripShaped(img.width, img.height);
     const shouldTwoUp = isStrip && (paper.layout === '2up' || is4x6Paper);
 
-    const targetW = Math.round((paper.widthIn || 4) * 300);
-    const targetH = Math.round((paper.heightIn || 6) * 300);
+    let targetW = Math.round((paper.widthIn || 4) * 300);
+    let targetH = Math.round((paper.heightIn || 6) * 300);
+    const isLandscapeImg = !isStrip && img.width > img.height;
+    if (isLandscapeImg && targetW < targetH) {
+      const tmp = targetW;
+      targetW = targetH;
+      targetH = tmp;
+    }
     const isBorderless = options.borderless !== false;
 
     // Skala margin kustom dari pengaturan printer (default 90%)
@@ -533,19 +524,28 @@ export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
       : 0.90;
 
     const marginKey = Math.round(scale * 100);
+    const hasCustomQr = Array.isArray(options.qrCoords) && options.qrCoords.length > 0;
+    const qrPayloadSpec = hasCustomQr ? options.qrCoords : options.qrPosition;
+    const qrSpecHash = hasCustomQr
+      ? crypto.createHash('md5').update(JSON.stringify(options.qrCoords)).digest('hex').slice(0, 6)
+      : (options.qrPosition || 'bottom-right');
     const qrKey = options.qrPosition && options.qrPosition !== 'none' && options.qrUrl
-      ? `_qr_${options.qrPosition}_${crypto.createHash('md5').update(options.qrUrl).digest('hex').slice(0, 8)}`
+      ? `_qr_${qrSpecHash}_${crypto.createHash('md5').update(options.qrUrl).digest('hex').slice(0, 8)}`
       : '';
-    const outPath = path.join(os.tmpdir(), `mafaza_sheet_${cacheKey}_m${marginKey}${qrKey}.png`);
+    const orientKey = isLandscapeImg ? '_ls' : '';
+    const outPath = path.join(os.tmpdir(), `mafaza_sheet_${cacheKey}_m${marginKey}${orientKey}${qrKey}.png`);
     if (fs.existsSync(outPath) && fs.statSync(outPath).mtimeMs >= fs.statSync(srcPath).mtimeMs) {
       return outPath;
     }
 
     let baseImg = img;
 
-    // Stempel QR code jika dikonfigurasi (ditempelkan pada tiap strip sebelum disusun 2up agar kedua strip ada QR-nya)
+    // Stempel 1 atau 2 QR code jika dikonfigurasi (ditempelkan pada tiap strip sebelum disusun 2up agar kedua strip ada QR-nya)
     if (options.qrUrl && options.qrPosition && options.qrPosition !== 'none') {
-      baseImg = overlayQrCodeOnImage(baseImg, options.qrUrl, options.qrPosition, isStrip);
+      const tplSize = (options.qrTemplateWidth && options.qrTemplateHeight)
+        ? { width: options.qrTemplateWidth, height: options.qrTemplateHeight }
+        : null;
+      baseImg = overlayQrCodeOnImage(baseImg, options.qrUrl, qrPayloadSpec, isStrip, tplSize);
     }
 
     // Jika format photo strip: susun 2 strip berdampingan terlebih dahulu

@@ -112,9 +112,12 @@ CREATE TABLE IF NOT EXISTS templates (
   width INTEGER NOT NULL DEFAULT 1200, -- px
   height INTEGER NOT NULL DEFAULT 1800, -- px
   dpi INTEGER NOT NULL DEFAULT 300,
-  orientation TEXT NOT NULL DEFAULT 'portrait', -- 'portrait', 'landscape', 'strip'
+  orientation TEXT NOT NULL DEFAULT 'portrait', -- 'portrait', 'landscape', 'strip', 'square'
+  paper_size TEXT NOT NULL DEFAULT '4R', -- '4R', '5R', '2x6', '4x4'
   qr_position TEXT NOT NULL DEFAULT 'bottom-right', -- 'bottom-right', 'bottom-left', 'top-right', 'top-left', 'none'
+  qr_coords_json TEXT NOT NULL DEFAULT '[]', -- Custom 1 or 2 draggable QR overlays [{id, x, y, size}]
   shots_mode TEXT NOT NULL DEFAULT 'event', -- 'event', 'slots', or '1'..'10'
+  booth_mode TEXT NOT NULL DEFAULT 'kiosk', -- 'kiosk', 'mingle', 'both'
   current_version_id TEXT,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

@@ -794,7 +794,7 @@ class KioskEngine {
 
   async fetchTemplates() {
     try {
-      const res = await fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}`);
+      const res = await fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&booth=kiosk`);
       if (res.ok) {
         const fetched = await res.json();
         if (Array.isArray(fetched)) {
@@ -1308,6 +1308,78 @@ class KioskEngine {
     return (tpl && tpl.orientation === 'strip') ? 3 : 1;
   }
 
+  isTemplateLandscape(tpl) {
+    if (!tpl) return false;
+    if (String(tpl.orientation || '').toLowerCase() === 'landscape') return true;
+    return !!(tpl.width && tpl.height && Number(tpl.width) > Number(tpl.height));
+  }
+
+  getTemplateFormatLabel(tpl) {
+    if (!tpl) return '4R Potret';
+    const orient = String(tpl.orientation || '').toLowerCase();
+    if (orient === 'strip') return 'Strip 2×6';
+    if (orient === 'square' || (tpl.width && tpl.height && Math.abs(tpl.width - tpl.height) <= 12)) return 'Square 4×4';
+    const w = parseInt(tpl.width, 10) || 1200;
+    const h = parseInt(tpl.height, 10) || 1800;
+    const maxD = Math.max(w, h);
+    const minD = Math.min(w, h);
+    const ratio = maxD / Math.max(1, minD);
+    const pSize = String(tpl.paper_size || '').toUpperCase();
+    const is5R = pSize === '5R' || (ratio >= 1.34 && ratio <= 1.44) || (maxD >= 2000 && ratio < 1.46);
+    const prefix = is5R ? '5R' : '4R';
+    return this.isTemplateLandscape(tpl) ? `${prefix} Lanskap` : `${prefix} Potret`;
+  }
+
+  setTemplateOrientFilter(orient) {
+    this.templateOrientFilter = orient || 'all';
+    document.querySelectorAll('#templateOrientFilterRow .preview-slot-tab').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-orient') === this.templateOrientFilter);
+    });
+    this.renderTemplateSelection('all');
+  }
+
+  applyCameraOrientationForTemplate(tpl) {
+    if (!tpl) return;
+    const isLandTpl = this.isTemplateLandscape(tpl);
+    const slots = Array.isArray(tpl.slots) ? tpl.slots : [];
+    const primarySlot = slots[0];
+    const slotIsPortrait = primarySlot && primarySlot.height > primarySlot.width * 1.08;
+
+    if (isLandTpl) {
+      // Pilih bingkai Lanskap -> kamera & viewport wajib lanskap
+      if (this.cameraAspectRatio === '2/3' || this.cameraAspectRatio === '3/4' || !this.cameraAspectRatio) {
+        this.setCameraAspectRatio('3/2');
+      } else {
+        this.syncCameraAdjustments();
+      }
+    } else if (tpl.orientation !== 'strip' && slotIsPortrait) {
+      // Single Frame Potret dengan slot tegak
+      if (this.cameraAspectRatio === '16/9' || this.cameraAspectRatio === '3/2' || this.cameraAspectRatio === '4/3') {
+        this.setCameraAspectRatio('2/3');
+      } else {
+        this.syncCameraAdjustments();
+      }
+    } else if (this.cameraAspectRatio === '2/3' || this.cameraAspectRatio === '3/4') {
+      // Strip 2x6 biasanya punya slot foto mendatar (3:2 / 4:3)
+      this.setCameraAspectRatio('3/2');
+    }
+  }
+
+  applyPreviewOrientationLayout(tplWidth, tplHeight) {
+    const isLand = tplWidth > tplHeight;
+    const studioGrid = document.getElementById('previewStudioGrid');
+    const stage = document.getElementById('previewCanvasStage');
+    const finalCanvas = document.getElementById('finalCanvas');
+    if (studioGrid) studioGrid.classList.toggle('is-landscape', isLand);
+    if (stage) stage.classList.toggle('is-landscape', isLand);
+    if (finalCanvas) {
+      finalCanvas.classList.toggle('is-landscape', isLand);
+      if (tplWidth > 0 && tplHeight > 0) {
+        finalCanvas.style.aspectRatio = `${tplWidth} / ${tplHeight}`;
+      }
+    }
+  }
+
   renderTemplateSelection(filter = 'all') {
     const container = document.getElementById('templateListContainer');
     container.innerHTML = '';
@@ -1327,11 +1399,24 @@ class KioskEngine {
       filtered = this.templates.filter(t => t.category === 'retro' || t.orientation === 'strip');
     }
 
-    const displayTemplates = filtered.length > 0 ? filtered : this.templates;
+    const orientFilter = this.templateOrientFilter || 'all';
+    if (orientFilter === 'portrait') {
+      filtered = filtered.filter(t => !this.isTemplateLandscape(t));
+    } else if (orientFilter === 'landscape') {
+      filtered = filtered.filter(t => this.isTemplateLandscape(t));
+    }
+
+    const displayTemplates = filtered.length > 0 ? filtered : (orientFilter === 'all' ? this.templates : []);
+
+    if (displayTemplates.length === 0) {
+      const lbl = orientFilter === 'landscape' ? 'Lanskap' : 'Potret';
+      container.innerHTML = `<div style="padding: 32px; text-align: center; color: var(--text-muted); font-weight: 700;">Belum ada template ${lbl} di event ini.</div>`;
+      return;
+    }
 
     displayTemplates.forEach((tpl, idx) => {
       const poseCount = this.resolveTemplatePosesCount(tpl);
-      const formatShort = tpl.orientation === 'strip' ? 'Strip' : 'Single';
+      const formatBadge = this.getTemplateFormatLabel(tpl);
       const card = document.createElement('div');
       card.className = `template-retro-card ${idx === 0 ? 'selected' : ''}`;
       card.onclick = () => {
@@ -1340,15 +1425,21 @@ class KioskEngine {
         this.selectedTemplate = tpl;
         this.selectedMode = tpl.orientation === 'strip' ? 'strip' : 'single';
         this.totalPosesRequired = this.resolveTemplatePosesCount(tpl);
+        this.applyCameraOrientationForTemplate(tpl);
       };
       card.innerHTML = `
         <div class="template-check-badge">✓</div>
         <div style="height: 180px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; background: #FFFBF5; border-radius: 18px; border: 2px dashed #EAD8C7; overflow: hidden; padding: 8px;">
           <img src="${tpl.image_storage_key}" style="max-height: 100%; max-width: 100%; object-fit: contain;">
         </div>
-        <span class="badge-pill ${tpl.orientation === 'strip' ? 'badge-coral' : 'badge-active'}" style="font-size: 11px; margin-bottom: 6px;">
-          📸 ${poseCount}x Pose (${formatShort})
-        </span>
+        <div style="display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; margin-bottom: 6px;">
+          <span class="badge-pill ${tpl.orientation === 'strip' ? 'badge-coral' : 'badge-active'}" style="font-size: 11px;">
+            📸 ${poseCount}x Pose
+          </span>
+          <span class="badge-pill" style="font-size: 11px; background: rgba(212,167,84,0.18); color: #7a581a; border: 1px solid rgba(212,167,84,0.4);">
+            ${formatBadge}
+          </span>
+        </div>
         <h4 style="font-size: 16px; font-weight: 700; color: #7B482E; margin-top: 4px; font-family: var(--font-heading);">${tpl.name}</h4>
       `;
       container.appendChild(card);
@@ -2874,6 +2965,7 @@ class KioskEngine {
   async startCountdownSequence() {
     this.clearAllTimers();
     this.totalPosesRequired = this.resolveTemplatePosesCount(this.selectedTemplate);
+    this.applyCameraOrientationForTemplate(this.selectedTemplate);
 
     this.posesCaptured = new Array(this.totalPosesRequired).fill(null);
     this.activePoseIndex = 0;
@@ -3303,7 +3395,7 @@ class KioskEngine {
   }
 
   setCameraAspectRatio(ratio) {
-    const validRatios = ['16/9', '3/2', '4/3'];
+    const validRatios = ['16/9', '3/2', '4/3', '2/3', '3/4'];
     if (!validRatios.includes(ratio)) ratio = '16/9';
     this.cameraAspectRatio = ratio;
     try {
@@ -3321,17 +3413,15 @@ class KioskEngine {
   }
 
   cycleCameraAspectRatio() {
-    const current = this.cameraAspectRatio || '16/9';
-    let next = '16/9';
-    if (current === '16/9') next = '3/2';
-    else if (current === '3/2') next = '4/3';
-    else if (current === '4/3') next = '16/9';
+    const order = ['16/9', '3/2', '4/3', '2/3', '3/4'];
+    const idx = order.indexOf(this.cameraAspectRatio || '16/9');
+    const next = order[(idx + 1) % order.length];
     this.setCameraAspectRatio(next);
   }
 
   updateCameraAspectRatioButtonsUI() {
     const current = this.cameraAspectRatio || '16/9';
-    ['16/9', '3/2', '4/3'].forEach(r => {
+    ['16/9', '3/2', '4/3', '2/3', '3/4'].forEach(r => {
       const btnId = 'btnRatio' + r.replace('/', '_');
       const btn = document.getElementById(btnId);
       if (btn) {
@@ -3372,6 +3462,12 @@ class KioskEngine {
     } else if (this.cameraAspectRatio === '4/3') {
       targetWidth = 1200;
       targetHeight = 900;
+    } else if (this.cameraAspectRatio === '2/3') {
+      targetWidth = 800;
+      targetHeight = 1200;
+    } else if (this.cameraAspectRatio === '3/4') {
+      targetWidth = 900;
+      targetHeight = 1200;
     }
     canvas.width = targetWidth;
     canvas.height = targetHeight;
@@ -3388,6 +3484,17 @@ class KioskEngine {
       const vw = (useCanonCanvas ? this.canonUsbCanvas.width : video.videoWidth) || canvas.width;
       const vh = (useCanonCanvas ? this.canonUsbCanvas.height : video.videoHeight) || canvas.height;
 
+      // Aspect-cover base source rectangle matching canvas target ratio without stretching
+      const targetAspect = canvas.width / canvas.height;
+      const srcAspect = vw / Math.max(1, vh);
+      let baseSrcW = vw;
+      let baseSrcH = vh;
+      if (srcAspect > targetAspect) {
+        baseSrcW = vh * targetAspect;
+      } else if (srcAspect < targetAspect) {
+        baseSrcH = vw / targetAspect;
+      }
+
       if (zoom < 1.0) {
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -3395,10 +3502,12 @@ class KioskEngine {
         const dh = canvas.height * zoom;
         const dx = (canvas.width - dw) / 2 + (panX * (canvas.width - dw) / 2);
         const dy = (canvas.height - dh) / 2 - (panY * (canvas.height - dh) / 2);
-        ctx.drawImage(sourceEl, 0, 0, vw, vh, dx, dy, dw, dh);
+        const sx = (vw - baseSrcW) / 2;
+        const sy = (vh - baseSrcH) / 2;
+        ctx.drawImage(sourceEl, sx, sy, baseSrcW, baseSrcH, dx, dy, dw, dh);
       } else {
-        const cropW = vw / zoom;
-        const cropH = vh / zoom;
+        const cropW = baseSrcW / zoom;
+        const cropH = baseSrcH / zoom;
         const maxOffX = (vw - cropW) / 2;
         const maxOffY = (vh - cropH) / 2;
         const cropX = Math.max(0, Math.min(vw - cropW, maxOffX - (panX * maxOffX)));
@@ -3856,12 +3965,98 @@ class KioskEngine {
       finalCanvas.width = tplWidth;
       finalCanvas.height = tplHeight;
     }
+    this.applyPreviewOrientationLayout(tplWidth, tplHeight);
 
-    const slots = this.selectedTemplate.slots || [
-      { id: 'slot_1', pose_index: 1, x: 50, y: 130, width: 500, height: 420 },
-      { id: 'slot_2', pose_index: 2, x: 50, y: 580, width: 500, height: 420 },
-      { id: 'slot_3', pose_index: 3, x: 50, y: 1030, width: 500, height: 420 }
-    ];
+    const dbW = this.selectedTemplate.width || tplWidth;
+    const dbH = this.selectedTemplate.height || tplHeight;
+    const scaleX = dbW > 0 ? tplWidth / dbW : 1;
+    const scaleY = dbH > 0 ? tplHeight / dbH : 1;
+
+    let slots = (this.selectedTemplate.slots && this.selectedTemplate.slots.length > 0)
+      ? this.selectedTemplate.slots.map(s => ({
+          ...s,
+          x: Math.round(s.x * scaleX),
+          y: Math.round(s.y * scaleY),
+          width: Math.round(s.width * scaleX),
+          height: Math.round(s.height * scaleY)
+        }))
+      : (this.selectedTemplate.orientation === 'strip'
+        ? [
+            { id: 'slot_1', pose_index: 1, x: 50, y: 130, width: 500, height: 420 },
+            { id: 'slot_2', pose_index: 2, x: 50, y: 580, width: 500, height: 420 },
+            { id: 'slot_3', pose_index: 3, x: 50, y: 1030, width: 500, height: 420 }
+          ]
+        : [{ id: 'slot_1', pose_index: 1, x: Math.round(tplWidth * 0.06), y: Math.round(tplHeight * 0.06), width: Math.round(tplWidth * 0.88), height: Math.round(tplHeight * 0.78) }]);
+
+    // Prepare frame overlay with green chroma keying inside slot regions
+    const frameCanvas = document.createElement('canvas');
+    frameCanvas.width = tplWidth;
+    frameCanvas.height = tplHeight;
+    const fCtx = frameCanvas.getContext('2d');
+    fCtx.drawImage(templateImg, 0, 0, tplWidth, tplHeight);
+
+    try {
+      const frameImgData = fCtx.getImageData(0, 0, tplWidth, tplHeight);
+      const data = frameImgData.data;
+
+      // Chroma predicate: pure green (#00FF00), Canva lime green (#7ED957), and shades
+      function isGreen(r, g, b, a) {
+        if (a < 50) return false;
+        if (g >= 150 && r <= 100 && b <= 100) return true;
+        if (g >= 135 && (g - r) >= 28 && (g - b) >= 32) return true;
+        if (g >= 115 && (g - r) >= 35 && (g - b) >= 35) return true;
+        return false;
+      }
+
+      // Guard for single-slot templates whose stored slot didn't cover the actual green rectangle
+      if (slots.length === 1) {
+        let minGX = tplWidth, maxGX = -1, minGY = tplHeight, maxGY = -1, greenCount = 0;
+        const step = 6;
+        for (let y = 0; y < tplHeight; y += step) {
+          for (let x = 0; x < tplWidth; x += step) {
+            const idx = (y * tplWidth + x) * 4;
+            if (isGreen(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) {
+              greenCount++;
+              if (x < minGX) minGX = x;
+              if (x > maxGX) maxGX = x;
+              if (y < minGY) minGY = y;
+              if (y > maxGY) maxGY = y;
+            }
+          }
+        }
+        if (greenCount > 30 && maxGX > minGX + 60 && maxGY > minGY + 60) {
+          const gW = (maxGX - minGX) + step;
+          const gH = (maxGY - minGY) + step;
+          if (gW > slots[0].width * 1.15 || gH > slots[0].height * 1.15) {
+            slots = [{ id: slots[0].id || 'slot_1', pose_index: 1, x: minGX, y: minGY, width: gW, height: gH }];
+          }
+        }
+      }
+
+      // Key out green pixels within slot regions so photos show through
+      const pad = 12;
+      for (const slot of slots) {
+        const startX = Math.max(0, Math.floor(slot.x - pad));
+        const endX = Math.min(tplWidth, Math.ceil(slot.x + slot.width + pad));
+        const startY = Math.max(0, Math.floor(slot.y - pad));
+        const endY = Math.min(tplHeight, Math.ceil(slot.y + slot.height + pad));
+
+        for (let y = startY; y < endY; y++) {
+          for (let x = startX; x < endX; x++) {
+            const idx = (y * tplWidth + x) * 4;
+            if (isGreen(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) {
+              data[idx + 3] = 0; // Transparent!
+            }
+          }
+        }
+      }
+
+      fCtx.putImageData(frameImgData, 0, 0);
+    } catch (e) {
+      console.warn('Frame chroma key processing error:', e);
+    }
+
+    this.selectedTemplate.slots = slots;
 
     const validPhotoIndices = this.posesCaptured
       .map((p, idx) => (p !== null ? idx : -1))
@@ -3885,54 +4080,6 @@ class KioskEngine {
     }
     this.selectedPreviewSlotIndex = 0;
     this.cachedPhotoImages = {};
-
-    // Prepare frame overlay with green chroma keying inside slot regions
-    const frameCanvas = document.createElement('canvas');
-    frameCanvas.width = tplWidth;
-    frameCanvas.height = tplHeight;
-    const fCtx = frameCanvas.getContext('2d');
-    fCtx.drawImage(templateImg, 0, 0, tplWidth, tplHeight);
-
-    try {
-      const frameImgData = fCtx.getImageData(0, 0, tplWidth, tplHeight);
-      const data = frameImgData.data;
-
-      // Chroma predicate: pure green (#00FF00), Canva lime green (#7ED957), and shades
-      function isGreen(r, g, b, a) {
-        if (a < 50) return false;
-        if (g >= 150 && r <= 100 && b <= 100) return true;
-        if (g >= 135 && (g - r) >= 28 && (g - b) >= 32) return true;
-        if (g >= 115 && (g - r) >= 35 && (g - b) >= 35) return true;
-        return false;
-      }
-
-      // Key out green pixels within slot regions so photos show through
-      const pad = 12;
-      for (const slot of slots) {
-        const startX = Math.max(0, Math.floor(slot.x - pad));
-        const endX = Math.min(tplWidth, Math.ceil(slot.x + slot.width + pad));
-        const startY = Math.max(0, Math.floor(slot.y - pad));
-        const endY = Math.min(tplHeight, Math.ceil(slot.y + slot.height + pad));
-
-        for (let y = startY; y < endY; y++) {
-          for (let x = startX; x < endX; x++) {
-            const idx = (y * tplWidth + x) * 4;
-            const r = data[idx];
-            const g = data[idx + 1];
-            const b = data[idx + 2];
-            const a = data[idx + 3];
-
-            if (isGreen(r, g, b, a)) {
-              data[idx + 3] = 0; // Transparent!
-            }
-          }
-        }
-      }
-
-      fCtx.putImageData(frameImgData, 0, 0);
-    } catch (e) {
-      console.warn('Frame chroma key processing error:', e);
-    }
     this.cachedKeyedFrame = frameCanvas;
   }
 
@@ -3950,7 +4097,7 @@ class KioskEngine {
 
     grid.innerHTML = listToRender.map((tpl) => {
       const isSelected = tpl.id === currentId;
-      const slotCount = (tpl.slots && tpl.slots.length) ? tpl.slots.length : (tpl.orientation === 'strip' ? 3 : 1);
+      const fmtBadge = this.getTemplateFormatLabel(tpl);
       return `
         <div class="template-retro-card ${isSelected ? 'selected' : ''}" style="padding: 12px; cursor: pointer;" onclick="kiosk.applyFrameInPreview('${tpl.id}')">
           <div class="template-check-badge">✓</div>
@@ -3958,7 +4105,7 @@ class KioskEngine {
             <img src="${tpl.image_storage_key}" alt="${tpl.name}" style="max-height: 100%; max-width: 100%; object-fit: contain;">
           </div>
           <span class="badge-pill ${isSelected ? 'badge-coral' : 'badge-active'}" style="font-size: 10.5px; margin-bottom: 4px; padding: 3px 10px;">
-            ${isSelected ? '✓ Sedang Dipakai' : `${slotCount} Slot Foto`}
+            ${isSelected ? `✓ Dipakai (${fmtBadge})` : fmtBadge}
           </span>
           <h4 style="font-size: 14px; font-weight: 700; color: #7B482E; margin-top: 2px; font-family: var(--font-heading); line-height: 1.25;">${tpl.name}</h4>
         </div>

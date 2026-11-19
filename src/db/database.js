@@ -123,6 +123,78 @@ function runMigrations() {
   ensureColumn('templates', 'qr_position', "TEXT DEFAULT 'bottom-right'");
   // Mode jumlah pose/cekrek per template ('event' = ikut pengaturan event, 'slots' = sesuai lubang hijau, atau angka '1'..'10')
   ensureColumn('templates', 'shots_mode', "TEXT DEFAULT 'event'");
+  // Target jenis booth untuk template ('kiosk', 'mingle', 'both')
+  ensureColumn('templates', 'booth_mode', "TEXT DEFAULT 'kiosk'");
+  // Ukuran cetak fisik template ('4R', '5R', '2x6', '4x4')
+  ensureColumn('templates', 'paper_size', "TEXT DEFAULT '4R'");
+  // Koordinat kustom 1 atau 2 QR pada hasil cetak [{id, x, y, size}]
+  ensureColumn('templates', 'qr_coords_json', "TEXT DEFAULT '[]'");
+
+  ensureStarterLandscapeTemplates();
+}
+
+function ensureStarterLandscapeTemplates() {
+  try {
+    db.exec('CREATE TABLE IF NOT EXISTS app_migrations (id TEXT PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP)');
+    const already = db.prepare("SELECT id FROM app_migrations WHERE id = 'seed_polaroid_2up_landscape_v1'").get();
+    if (already) return;
+    const tenant = db.prepare("SELECT id FROM tenants WHERE id = 'tenant_studiokeren_01'").get();
+    if (!tenant) return;
+
+    const starters = [
+      {
+        id: 'tpl_polaroid_2up_4r_land',
+        verId: 'ver_polaroid_2up_4r_1',
+        name: 'Polaroid Minimalis 2-Up (4R Lanskap · Potong Tengah)',
+        width: 1800,
+        height: 1200,
+        paperSize: '4R',
+        img: '/assets/templates/polaroid-marble-2up-4r-landscape.svg',
+        slots: [
+          { id: 'slot_1', pose_index: 1, x: 90, y: 80, width: 720, height: 825 },
+          { id: 'slot_2', pose_index: 2, x: 990, y: 80, width: 720, height: 825 }
+        ],
+        qrCoords: [
+          { id: 'qr_1', x: 675, y: 975, size: 135 },
+          { id: 'qr_2', x: 1575, y: 975, size: 135 }
+        ]
+      },
+      {
+        id: 'tpl_polaroid_2up_5r_land',
+        verId: 'ver_polaroid_2up_5r_1',
+        name: 'Polaroid Minimalis 2-Up (5R Lanskap · Potong Tengah)',
+        width: 2100,
+        height: 1500,
+        paperSize: '5R',
+        img: '/assets/templates/polaroid-marble-2up-5r-landscape.svg',
+        slots: [
+          { id: 'slot_1', pose_index: 1, x: 110, y: 96, width: 830, height: 1035 },
+          { id: 'slot_2', pose_index: 2, x: 1160, y: 96, width: 830, height: 1035 }
+        ],
+        qrCoords: [
+          { id: 'qr_1', x: 785, y: 1215, size: 160 },
+          { id: 'qr_2', x: 1835, y: 1215, size: 160 }
+        ]
+      }
+    ];
+
+    const insertTpl = db.prepare(`
+      INSERT OR IGNORE INTO templates (id, tenant_id, event_id, name, status, width, height, dpi, orientation, paper_size, qr_position, qr_coords_json, shots_mode, booth_mode, current_version_id)
+      VALUES (?, ?, NULL, ?, 'published', ?, ?, 300, 'landscape', ?, 'bottom-right', ?, '1', 'both', ?)
+    `);
+    const insertVer = db.prepare(`
+      INSERT OR IGNORE INTO template_versions (id, template_id, image_storage_key, slots_json, layers_json, version)
+      VALUES (?, ?, ?, ?, '[]', 1)
+    `);
+
+    for (const s of starters) {
+      insertTpl.run(s.id, tenant.id, s.name, s.width, s.height, s.paperSize, JSON.stringify(s.qrCoords), s.verId);
+      insertVer.run(s.verId, s.id, s.img, JSON.stringify(s.slots));
+    }
+    db.prepare("INSERT OR IGNORE INTO app_migrations (id) VALUES ('seed_polaroid_2up_landscape_v1')").run();
+  } catch (e) {
+    console.warn('ensureStarterLandscapeTemplates skipped:', e.message);
+  }
 }
 
 function seedDatabase() {

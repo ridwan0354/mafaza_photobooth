@@ -157,6 +157,10 @@ app.get('/kiosk', (req, res) => {
   res.sendFile(path.join(publicDir, 'kiosk.html'));
 });
 
+app.get('/mingle', (req, res) => {
+  res.sendFile(path.join(publicDir, 'mingle.html'));
+});
+
 app.get('/gallery/g/:token', (req, res) => {
   res.sendFile(path.join(publicDir, 'gallery.html'));
 });

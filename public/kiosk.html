@@ -99,15 +99,22 @@
       width: 96%;
       margin: 0 auto;
     }
+    .preview-studio-grid.is-landscape {
+      grid-template-columns: minmax(520px, 1.75fr) minmax(300px, 0.95fr) minmax(290px, 0.9fr);
+    }
     @media (max-width: 1240px) {
       .preview-studio-grid {
         grid-template-columns: minmax(380px, 1.35fr) minmax(300px, 1.05fr) minmax(290px, 0.95fr);
         max-width: 1140px;
         gap: 16px;
       }
+      .preview-studio-grid.is-landscape {
+        grid-template-columns: minmax(430px, 1.65fr) minmax(270px, 0.95fr) minmax(270px, 0.9fr);
+      }
     }
     @media (max-width: 992px) {
-      .preview-studio-grid {
+      .preview-studio-grid,
+      .preview-studio-grid.is-landscape {
         grid-template-columns: 1fr;
         max-width: 640px;
         gap: 16px;
@@ -182,6 +189,9 @@
       user-select: none;
       -webkit-user-select: none;
     }
+    .preview-canvas-stage.is-landscape {
+      min-height: 260px;
+    }
     .preview-canvas-stage canvas {
       max-height: 55vh;
       max-width: 100%;
@@ -193,6 +203,11 @@
       border-radius: 8px;
       box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
       background: #ffffff;
+    }
+    .preview-canvas-stage.is-landscape canvas {
+      width: 100%;
+      height: auto;
+      max-height: 55vh;
     }
 
     /* Aesthetic Photo Filter Bar */
@@ -565,9 +580,15 @@
       </div>
 
       <h2 style="font-size: 36px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">Pilih Frame Favoritmu</h2>
-      <p style="font-size: 15px; color: var(--text-muted); margin-bottom: 24px;">Sesuaikan dengan tema dan gaya acaramu</p>
+      <p style="font-size: 15px; color: var(--text-muted); margin-bottom: 14px;">Sesuaikan tema, ukuran (4R / 5R / Strip), dan orientasi (Potret / Lanskap)</p>
 
-      <div id="templateListContainer" style="display: flex; gap: 24px; justify-content: center; margin-bottom: 28px; z-index: 20;">
+      <div id="templateOrientFilterRow" style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 18px; z-index: 25;">
+        <button type="button" class="preview-slot-tab active" data-orient="all" onclick="kiosk.setTemplateOrientFilter('all')">✨ Semua Frame</button>
+        <button type="button" class="preview-slot-tab" data-orient="portrait" onclick="kiosk.setTemplateOrientFilter('portrait')">📱 Potret / Tegak</button>
+        <button type="button" class="preview-slot-tab" data-orient="landscape" onclick="kiosk.setTemplateOrientFilter('landscape')">🖼️ Lanskap / Mendatar</button>
+      </div>
+
+      <div id="templateListContainer" style="display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; margin-bottom: 28px; z-index: 20;">
         <!-- Populated via JS -->
       </div>
 
@@ -725,10 +746,12 @@
         <!-- 1. Pilihan Rasio Bingkai (Aspect Ratio) -->
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%;">
           <span style="font-size: 10px; font-weight: 800; color: var(--caramel-brown); flex-shrink: 0;">📐 Rasio:</span>
-          <div style="display: flex; gap: 4px; flex: 1; justify-content: flex-end;">
-            <button type="button" id="btnRatio16_9" onclick="kiosk.setCameraAspectRatio('16/9')" style="padding: 4px 8px; border-radius: 7px; border: 1.5px solid var(--coral); background: var(--coral); color: #fff; font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 16:9 Widescreen (Cocok untuk Video Capture & Sony A7III)">16:9</button>
-            <button type="button" id="btnRatio3_2" onclick="kiosk.setCameraAspectRatio('3/2')" style="padding: 4px 8px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 3:2 Asli Sensor Kamera Mirrorless / DSLR">3:2</button>
-            <button type="button" id="btnRatio4_3" onclick="kiosk.setCameraAspectRatio('4/3')" style="padding: 4px 8px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 4:3 Klasik Tablet">4:3</button>
+          <div style="display: flex; gap: 3px; flex: 1; justify-content: flex-end; flex-wrap: wrap;">
+            <button type="button" id="btnRatio16_9" onclick="kiosk.setCameraAspectRatio('16/9')" style="padding: 4px 7px; border-radius: 7px; border: 1.5px solid var(--coral); background: var(--coral); color: #fff; font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 16:9 Widescreen">16:9</button>
+            <button type="button" id="btnRatio3_2" onclick="kiosk.setCameraAspectRatio('3/2')" style="padding: 4px 7px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 3:2 Lanskap (4R)">3:2</button>
+            <button type="button" id="btnRatio4_3" onclick="kiosk.setCameraAspectRatio('4/3')" style="padding: 4px 7px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 4:3 Klasik">4:3</button>
+            <button type="button" id="btnRatio2_3" onclick="kiosk.setCameraAspectRatio('2/3')" style="padding: 4px 7px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 2:3 Potret (4R Tegak)">2:3</button>
+            <button type="button" id="btnRatio3_4" onclick="kiosk.setCameraAspectRatio('3/4')" style="padding: 4px 7px; border-radius: 7px; border: 1.5px solid var(--border-soft); background: #fff; color: var(--caramel-brown); font-size: 10px; font-weight: 800; cursor: pointer;" title="Rasio 3:4 Potret (Tegak)">3:4</button>
           </div>
         </div>
 
@@ -991,7 +1014,7 @@
       </p>
 
       <!-- BALANCED 3-CARD STUDIO WORKSPACE -->
-      <div class="preview-studio-grid">
+      <div id="previewStudioGrid" class="preview-studio-grid">
         <!-- CARD 1: Frame Preview & Interactive Pan/Zoom -->
         <div class="preview-col-card">
           <div class="preview-card-header" style="margin-bottom: 6px;">
@@ -1004,7 +1027,7 @@
             </div>
           </div>
 
-          <div class="preview-canvas-stage" style="position: relative;">
+          <div id="previewCanvasStage" class="preview-canvas-stage" style="position: relative;">
             <canvas id="finalCanvas"></canvas>
 
             <!-- Floating Touch Zoom Controls on Frame Hasil (Untuk Monitor Sentuh & Laptop) -->
@@ -1324,6 +1347,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v9.7"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v9.8"></script>
 </body>
 </html>

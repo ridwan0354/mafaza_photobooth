@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1200" width="1800" height="1200">
+  <defs>
+    <linearGradient id="marbleBg4R" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F6F4F0"/>
+      <stop offset="50%" stop-color="#EAE6DF"/>
+      <stop offset="100%" stop-color="#F3EFE9"/>
+    </linearGradient>
+    <filter id="cardShadow4R" x="-6%" y="-6%" width="112%" height="114%">
+      <feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#5C4D3C" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+
+  <!-- 4R Landscape White Marble Backdrop (1800x1200 · 2-Up Split Cut Tengah) -->
+  <rect width="1800" height="1200" fill="url(#marbleBg4R)"/>
+
+  <!-- Subtle Marble Veins Left & Right -->
+  <g fill="none" stroke-linecap="round" opacity="0.55">
+    <path d="M-40,180 C180,260 290,90 540,190 C720,260 810,130 920,210" stroke="#D5CEC3" stroke-width="5"/>
+    <path d="M20,980 C220,910 390,1090 610,990 C760,920 840,1040 900,970" stroke="#DFD5C5" stroke-width="4"/>
+    <path d="M110,420 C260,520 420,380 650,510" stroke="#E5C890" stroke-width="2.5" opacity="0.7"/>
+    <path d="M880,180 C1080,260 1190,90 1440,190 C1620,260 1710,130 1840,210" stroke="#D5CEC3" stroke-width="5"/>
+    <path d="M920,980 C1120,910 1290,1090 1510,990 C1660,920 1740,1040 1820,970" stroke="#DFD5C5" stroke-width="4"/>
+    <path d="M1010,420 C1160,520 1320,380 1550,510" stroke="#E5C890" stroke-width="2.5" opacity="0.7"/>
+  </g>
+
+  <!-- Center Cut Line Guide (Potong Tengah setelah Cetak) -->
+  <line x1="900" y1="24" x2="900" y2="1176" stroke="#B8B0A4" stroke-width="2.5" stroke-dasharray="14 14" opacity="0.65"/>
+
+  <!-- LEFT POLAROID CARD -->
+  <g transform="translate(0, 0)">
+    <rect x="55" y="48" width="790" height="1104" rx="18" fill="#FDFBF7" stroke="#E8E1D5" stroke-width="2" filter="url(#cardShadow4R)"/>
+    <!-- Photo Slot #1 (#00FF00) -->
+    <rect id="green_slot_1" x="90" y="80" width="720" height="825" rx="8" fill="#00FF00"/>
+    <!-- Minimalist Polaroid Caption -->
+    <text x="108" y="995" font-family="'Playfair Display', Georgia, serif" font-size="40" font-weight="700" fill="#2D2620" letter-spacing="2">
+      MOMENT
+    </text>
+    <text x="108" y="1038" font-family="'Playfair Display', Georgia, serif" font-size="24" font-style="italic" fill="#7B6A58" letter-spacing="1">
+      Celebration &amp; Memories
+    </text>
+    <text x="108" y="1088" font-family="'Inter', sans-serif" font-size="16" font-weight="600" fill="#A09080" letter-spacing="3">
+      MAFAZA PHOTOBOOTH
+    </text>
+  </g>
+
+  <!-- RIGHT POLAROID CARD -->
+  <g transform="translate(900, 0)">
+    <rect x="55" y="48" width="790" height="1104" rx="18" fill="#FDFBF7" stroke="#E8E1D5" stroke-width="2" filter="url(#cardShadow4R)"/>
+    <!-- Photo Slot #2 (#00FF00) -->
+    <rect id="green_slot_2" x="90" y="80" width="720" height="825" rx="8" fill="#00FF00"/>
+    <!-- Minimalist Polaroid Caption -->
+    <text x="108" y="995" font-family="'Playfair Display', Georgia, serif" font-size="40" font-weight="700" fill="#2D2620" letter-spacing="2">
+      MOMENT
+    </text>
+    <text x="108" y="1038" font-family="'Playfair Display', Georgia, serif" font-size="24" font-style="italic" fill="#7B6A58" letter-spacing="1">
+      Celebration &amp; Memories
+    </text>
+    <text x="108" y="1088" font-family="'Inter', sans-serif" font-size="16" font-weight="600" fill="#A09080" letter-spacing="3">
+      MAFAZA PHOTOBOOTH
+    </text>
+  </g>
+</svg>

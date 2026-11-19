@@ -725,7 +725,8 @@
     let currentEventTemplate = null;
 
     function renderSingleSessionCard(s, sIndex, totalCount, container) {
-      const finalPhoto = (s.media && s.media.find(m => m.type === 'final_photo')) || (s.media && s.media[0]);
+      const genuineFinal = s.media && s.media.find(m => m.type === 'final_photo');
+      const finalPhoto = genuineFinal || (s.media && s.media[0]);
       const rawCaptures = (s.media && s.media.filter(m => m.type === 'raw_capture')) || [];
       const liveClips = (s.media && s.media.filter(m => m.type === 'live_clip')) || [];
       const boomerangAsset = s.media && s.media.find(m => m.type === 'boomerang');
@@ -791,6 +792,7 @@
           `;
         }).join('');
 
+        const rawUrlsEncoded = encodeURIComponent(JSON.stringify(rawCaptures.map(r => r.filePath)));
         rawPhotosHtml = `
           <div class="gallery-feature-box">
             <div class="gallery-feature-box-header">
@@ -802,7 +804,14 @@
                   Tahan foto atau klik <strong>LIVE</strong> untuk melihat video sebelum foto diambil!
                 </div>
               </div>
-              <span class="sticker-badge sticker-yellow">◎ LIVE</span>
+              <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                ${rawCaptures.length >= 2 ? `
+                  <button type="button" class="btn btn-coral" style="padding: 6px 12px; font-size: 11.5px; font-weight: 800; border-radius: var(--radius-pill); cursor: pointer;" onclick="downloadAllRawSessionPhotos('${s.id}', '${rawUrlsEncoded}')">
+                    ⬇️ Unduh Semua (${rawCaptures.length})
+                  </button>
+                ` : ''}
+                <span class="sticker-badge sticker-yellow">◎ LIVE</span>
+              </div>
             </div>
 
             <div class="raw-poses-grid">
@@ -832,7 +841,7 @@
           <div class="session-col-main">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
               <span style="font-size: 13px; font-weight: 800; color: var(--caramel-brown); display: flex; align-items: center; gap: 6px;">
-                <span>🖼️</span> Foto Jadi (Dengan Frame Acara)
+                ${genuineFinal ? '<span>🖼️</span> Foto Jadi (Dengan Frame Acara)' : '<span>📸</span> Foto Utama (Original HD)'}
               </span>
             </div>
 
@@ -1967,6 +1976,43 @@
       toast._timer = setTimeout(() => {
         toast.style.opacity = '0';
       }, duration);
+    }
+
+    async function downloadAllRawSessionPhotos(sessionId, encodedUrls) {
+      try {
+        const urls = JSON.parse(decodeURIComponent(encodedUrls || '[]'));
+        if (!Array.isArray(urls) || urls.length === 0) return;
+        showToast(`⬇️ Memulai unduhan ${urls.length} foto HD...`, 3500);
+
+        // On iOS with Web Share API, share multiple File objects at once into Photos.app!
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (isIOS && typeof navigator !== 'undefined' && navigator.canShare && urls.length <= 15) {
+          try {
+            const files = [];
+            for (let i = 0; i < urls.length; i++) {
+              const res = await fetch(urls[i]);
+              if (res.ok) {
+                const blob = await res.blob();
+                files.push(new File([blob], `Foto_${i + 1}_${sessionId}.jpg`, { type: 'image/jpeg' }));
+              }
+            }
+            if (files.length > 0 && navigator.canShare({ files })) {
+              await navigator.share({ files });
+              return;
+            }
+          } catch (e) {
+            if (e && e.name === 'AbortError') return;
+          }
+        }
+
+        for (let i = 0; i < urls.length; i++) {
+          await downloadMediaFile(urls[i], `Foto_${i + 1}_${sessionId}.jpg`, 'image/jpeg');
+          await new Promise(r => setTimeout(r, 260));
+        }
+        showToast(`✅ Selesai mengunduh ${urls.length} foto!`, 3000);
+      } catch (err) {
+        showToast('Gagal mengunduh semua foto.', 2800);
+      }
     }
 
     async function downloadMediaFile(source, filename = 'download', mimeType = '') {

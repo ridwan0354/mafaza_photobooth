@@ -137,6 +137,13 @@ public class LocalCanonHttpServer {
                 } else {
                     sendJson(out, 404, "{\"ok\":false,\"error\":\"No captured photo available\"}");
                 }
+            } else if ("/physical_capture.jpg".equals(path)) {
+                byte[] photo = canonEngine.getLastPhysicalCapturedJpeg();
+                if (canonEngine.isActive() && photo != null && photo.length > 0) {
+                    sendBinary(out, 200, "image/jpeg", photo);
+                } else {
+                    sendJson(out, 404, "{\"ok\":false,\"error\":\"No physical shutter photo available\"}");
+                }
             } else {
                 sendJson(out, 404, "{\"ok\":false,\"error\":\"Not found\"}");
             }
@@ -147,6 +154,9 @@ public class LocalCanonHttpServer {
     }
 
     private void handleControlParams(Map<String, String> params) {
+        if (params.containsKey("mingle")) {
+            canonEngine.setMingleListenMode("1".equals(params.get("mingle")), "1".equals(params.get("mingle_lv")));
+        }
         if (!canonEngine.isActive()) {
             canonEngine.scanAndConnectIfAvailable();
             return;
@@ -212,10 +222,16 @@ public class LocalCanonHttpServer {
         int wb = canonEngine.getCurrentWb();
         int ae = canonEngine.getCurrentAeMode();
         int err = canonEngine.getLastCmdError();
+        long physicalSeq = canonEngine.getPhysicalCaptureSeq();
+        String physicalUrl = physicalSeq > 0 ? ("http://127.0.0.1:" + PORT + "/physical_capture.jpg?seq=" + physicalSeq) : "";
 
         return "{"
                 + "\"ok\":true,"
                 + "\"active\":" + active + ","
+                + "\"mingleMode\":" + canonEngine.isMingleListenMode() + ","
+                + "\"physicalCaptureSeq\":" + physicalSeq + ","
+                + "\"physicalCaptureSource\":\"" + escapeJson(canonEngine.getLastPhysicalCaptureSource()) + "\","
+                + "\"physicalPhotoUrl\":\"" + escapeJson(physicalUrl) + "\","
                 + "\"usbAttached\":" + canonEngine.isUsbPtpAttached() + ","
                 + "\"usbUvcAttached\":" + canonEngine.isUsbUvcAttached() + ","
                 + "\"usbUvcCamera\":\"" + escapeJson(canonEngine.getUsbUvcDeviceName()) + "\","

@@ -6,12 +6,14 @@
  * dan tetap bisa dibuka kembali saat di-refresh (F5 / reload).
  */
 
-const CACHE_NAME = 'mafaza-offline-v3.58';
+const CACHE_NAME = 'mafaza-offline-v3.62';
 
 const PRECACHE_ASSETS = [
   '/',
   '/kiosk',
   '/kiosk.html',
+  '/mingle',
+  '/mingle.html',
   '/admin',
   '/admin.html',
   '/admin-login.html',
@@ -19,6 +21,7 @@ const PRECACHE_ASSETS = [
   '/manifest.json',
   '/manifest-kiosk.json',
   '/js/kiosk.js',
+  '/js/mingle.js',
   '/js/admin.js',
   '/js/notify.js',
   '/js/print-client.js',
@@ -123,6 +126,11 @@ self.addEventListener('fetch', (event) => {
         if (url.pathname.startsWith('/kiosk')) {
           const ksk = await caches.match('/kiosk') || await caches.match('/kiosk.html');
           if (ksk) return ksk;
+        }
+
+        if (url.pathname.startsWith('/mingle')) {
+          const mgl = await caches.match('/mingle') || await caches.match('/mingle.html');
+          if (mgl) return mgl;
         }
 
         if (url.pathname.startsWith('/gallery')) {

@@ -644,6 +644,9 @@
           <a href="/kiosk?fullscreen=1" target="_blank" class="btn btn-coral topbar-kiosk-btn">
             🖥️ Buka Kiosk Full-Screen ➔
           </a>
+          <a href="/mingle?fullscreen=1" target="_blank" class="btn btn-secondary topbar-kiosk-btn" style="border-color: rgba(95, 143, 138, 0.55); color: #2E6F69; background: rgba(95, 143, 138, 0.12);">
+            📸 Buka Mingle Booth ➔
+          </a>
           <button type="button" onclick="logoutAdmin()" class="btn btn-secondary topbar-logout-btn" title="Kunci Dashboard &amp; Keluar">
             <span>🔒</span> Keluar
           </button>
@@ -727,8 +730,8 @@
             </p>
           </div>
           <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-            <a id="quickDownloadAndroidApkBtn" href="/Mafaza-Photobooth-Kiosk.apk?v=2.5.4" download="Mafaza-Photobooth-Kiosk-v2.5.4.apk" class="btn btn-coral" style="padding: 10px 18px; font-size: 13.5px; font-weight: 800; text-decoration: none; background: #27ae60; border-color: #219653; box-shadow: 0 4px 12px rgba(39, 174, 96, 0.35);">
-              🤖 Download APK Android v2.5.4
+            <a id="quickDownloadAndroidApkBtn" href="/Mafaza-Photobooth-Kiosk.apk?v=2.5.6" download="Mafaza-Photobooth-Kiosk-v2.5.6.apk" class="btn btn-coral" style="padding: 10px 18px; font-size: 13.5px; font-weight: 800; text-decoration: none; background: #27ae60; border-color: #219653; box-shadow: 0 4px 12px rgba(39, 174, 96, 0.35);">
+              🤖 Download APK Android v2.5.6
             </a>
             <a id="quickDownloadWinBtn" href="/api/apps/download/windows" class="btn btn-secondary" style="padding: 10px 16px; font-size: 13px; text-decoration: none; background: #FFF8EF; color: #381E11;">
               🪟 Windows (.zip)
@@ -1265,8 +1268,9 @@
               <span style="font-size: 13px; color: var(--text-muted);">Pilih template di bawah untuk melihat preview atau menyesuaikan slot foto di Canvas Editor</span>
             </div>
             <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-              <div style="display: flex; background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 999px; padding: 3px; gap: 4px;">
+              <div style="display: flex; background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 999px; padding: 3px; gap: 4px; flex-wrap: wrap;">
                 <button id="btnFilterEventTemplates" class="btn" style="border-radius: 999px; padding: 5px 14px; font-size: 12px; font-weight: 700; background: var(--coral); color: white;" onclick="setTemplateFilter('event')">📌 Event Ini</button>
+                <button id="btnFilterMingleTemplates" class="btn" style="border-radius: 999px; padding: 5px 14px; font-size: 12px; font-weight: 700; background: transparent; color: var(--caramel-brown);" onclick="setTemplateFilter('mingle')">📸 Khusus Mingle</button>
                 <button id="btnFilterAllTemplates" class="btn" style="border-radius: 999px; padding: 5px 14px; font-size: 12px; font-weight: 700; background: transparent; color: var(--caramel-brown);" onclick="setTemplateFilter('all')">🌐 Semua Template</button>
               </div>
               <button class="btn btn-secondary" style="font-size: 12.5px; padding: 6px 14px;" onclick="loadTemplates()">🔄 Refresh</button>
@@ -1293,9 +1297,9 @@
             <span class="sticker-badge sticker-teal" style="font-size: 12px;">Smart Green Chroma Connected 2D</span>
           </div>
 
-          <div class="template-editor-grid" style="display: grid; grid-template-columns: 360px 1fr; gap: 24px;">
-            <div style="background: var(--cream-bg); border: 2px solid var(--border-soft); border-radius: 18px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
-              <div>
+          <div class="template-editor-grid" style="display: grid; grid-template-columns: minmax(320px, 370px) minmax(0, 1fr); gap: 24px; align-items: start;">
+            <div style="background: var(--cream-bg); border: 2px solid var(--border-soft); border-radius: 18px; padding: 16px; display: flex; flex-direction: column; gap: 14px; min-width: 0; box-sizing: border-box;">
+              <div style="min-width: 0;">
                 <h4 style="font-size: 16px; font-weight: 800; margin-bottom: 8px; color: var(--caramel-brown);">Daftar Slot Pose</h4>
                 <div id="detectedSlotsList" style="max-height: 180px; overflow-y: auto;">
                   <!-- Slot list -->
@@ -1303,27 +1307,27 @@
               </div>
 
               <!-- Interactive Slot Dimension & Precision Inspector -->
-              <div id="slotInspectorCard" style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                  <strong id="inspectorSlotTitle" style="color: #ec4899; font-size: 13.5px; font-weight: 800;">📐 Penyesuaian Presisi Slot</strong>
-                  <span id="inspectorSlotBadge" class="sticker-badge sticker-mustard" style="font-size: 10px;">Pilih Slot</span>
+              <div id="slotInspectorCard" style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px; min-width: 0; box-sizing: border-box;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 10px;">
+                  <strong id="inspectorSlotTitle" style="color: #ec4899; font-size: 13px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">📐 Penyesuaian Presisi Slot</strong>
+                  <span id="inspectorSlotBadge" class="sticker-badge sticker-mustard" style="font-size: 10px; flex-shrink: 0;">Pilih Slot</span>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
-                  <div>
+                <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-bottom: 10px;">
+                  <div style="min-width: 0;">
                     <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Posisi X (px)</label>
-                    <input type="number" id="inpSlotX" class="form-control" style="padding: 6px 8px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
+                    <input type="number" id="inpSlotX" class="form-control" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 7px 9px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
                   </div>
-                  <div>
+                  <div style="min-width: 0;">
                     <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Posisi Y (px)</label>
-                    <input type="number" id="inpSlotY" class="form-control" style="padding: 6px 8px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
+                    <input type="number" id="inpSlotY" class="form-control" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 7px 9px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
                   </div>
-                  <div>
+                  <div style="min-width: 0;">
                     <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Lebar / W (px)</label>
-                    <input type="number" id="inpSlotW" class="form-control" style="padding: 6px 8px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
+                    <input type="number" id="inpSlotW" class="form-control" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 7px 9px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
                   </div>
-                  <div>
+                  <div style="min-width: 0;">
                     <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Tinggi / H (px)</label>
-                    <input type="number" id="inpSlotH" class="form-control" style="padding: 6px 8px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
+                    <input type="number" id="inpSlotH" class="form-control" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 7px 9px; font-size: 13px; font-family: monospace;" oninput="onSlotParamChange()">
                   </div>
                 </div>
                 <div style="display: flex; gap: 6px; flex-wrap: wrap;">
@@ -1335,14 +1339,48 @@
                 </div>
               </div>
 
+              <!-- Pengaturan Format Ukuran & Orientasi (Potret / Lanskap, 4R / 5R) -->
+              <div style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px; min-width: 0; box-sizing: border-box;">
+                <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">
+                  📐 Format Ukuran &amp; Orientasi Frame:
+                </label>
+                <select id="editorTemplateFormat" class="form-control" style="width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; font-size: 12.5px; font-weight: 700; padding: 7px 10px; border-radius: 8px;" onchange="onEditorFormatChange(this.value)">
+                  <option value="portrait">4R Potret / Tegak (1200×1800 px)</option>
+                  <option value="landscape">4R Lanskap / Mendatar (1800×1200 px)</option>
+                  <option value="portrait_5r">5R Potret / Tegak (1500×2100 px)</option>
+                  <option value="landscape_5r">5R Lanskap / Mendatar (2100×1500 px)</option>
+                  <option value="strip">Photo Strip 2×6 (600×1800 px)</option>
+                  <option value="square">Square 4×4 (1200×1200 px)</option>
+                </select>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; line-height: 1.35;">
+                  * Jika pilih <strong>Lanskap</strong>, tampilan hasil di Kiosk &amp; Mingle otomatis berbentuk mendatar.
+                </div>
+              </div>
+
+              <!-- Pengaturan Jenis Booth (Kiosk Statis vs Mingle Keliling) -->
+              <div style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px; min-width: 0; box-sizing: border-box;">
+                <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">
+                  🎯 Pemakaian Frame (Jenis Booth):
+                </label>
+                <select id="editorTemplateBoothMode" class="form-control" style="width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; font-size: 12.5px; font-weight: 700; padding: 7px 10px; border-radius: 8px;" onchange="onEditorBoothModeChange(this.value)">
+                  <option value="kiosk">🖥️ Kiosk Photobooth (/kiosk)</option>
+                  <option value="mingle">📸 Khusus Mingle Booth (/mingle)</option>
+                  <option value="both">✨ Keduanya (/kiosk &amp; /mingle)</option>
+                </select>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; line-height: 1.35;">
+                  * Pilih <strong>Khusus Mingle</strong> untuk foto keliling pakai shutter kamera (bisa 1×, multi-pose, atau banyak foto).
+                </div>
+              </div>
+
               <!-- Pengaturan Berapa Kali Pose / Cekrek untuk Template Ini -->
-              <div style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px;">
+              <div style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px; min-width: 0; box-sizing: border-box;">
                 <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">
                   📸 Berapa Kali Pose / Cekrek (Sesi Foto):
                 </label>
-                <select id="editorTemplateShotsMode" class="form-control" style="width: 100%; font-size: 12.5px; font-weight: 700; padding: 7px 10px; border-radius: 8px;" onchange="onEditorShotsModeChange(this.value)">
+                <select id="editorTemplateShotsMode" class="form-control" style="width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; font-size: 12.5px; font-weight: 700; padding: 7px 10px; border-radius: 8px;" onchange="onEditorShotsModeChange(this.value)">
                   <option value="event" id="editorTemplateShotsEventOpt">📌 Ikut Pengaturan Event (Otomatis)</option>
-                  <option value="slots">🟩 Otomatis Sesuai Jumlah Lubang Hijau Frame</option>
+                  <option value="slots">🟩 Sesuai Jumlah Lubang Hijau</option>
+                  <option value="unlimited">♾️ Banyak Foto / Jual File (Bebas Cekrek)</option>
                   <option value="1">📸 1 Kali Pose / Cekrek</option>
                   <option value="2">📸 2 Kali Pose / Cekrek</option>
                   <option value="3">📸 3 Kali Pose / Cekrek</option>
@@ -1351,42 +1389,80 @@
                   <option value="6">📸 6 Kali Pose / Cekrek</option>
                   <option value="8">📸 8 Kali Pose / Cekrek</option>
                 </select>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                  * Jika pilih "Ikut Pengaturan Event" &amp; di Event disetel 4x Pose, maka Kiosk otomatis mengambil 4x cekrek.
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; line-height: 1.35;">
+                  * Untuk frame <strong>Potong Tengah 2-Up</strong> 1 foto kembar kiri-kanan, pilih <strong>1 Kali Pose</strong>.
                 </div>
               </div>
 
-              <!-- Pengaturan Posisi QR Cetak untuk Template Ini -->
-              <div style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px;">
-                <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">
-                  🎟️ Posisi QR Galeri saat Dicetak (Print):
-                </label>
-                <select id="editorTemplateQrPos" class="form-control" style="width: 100%; font-size: 12.5px; font-weight: 700; padding: 7px 10px; border-radius: 8px;" onchange="onEditorQrPositionChange(this.value)">
-                  <option value="bottom-right">↘️ Pojok Kanan Bawah (Bawaan)</option>
-                  <option value="bottom-left">↙️ Pojok Kiri Bawah</option>
-                  <option value="top-right">↗️ Pojok Kanan Atas</option>
-                  <option value="top-left">↖️ Pojok Kiri Atas</option>
-                  <option value="none">🚫 Tanpa QR pada Hasil Cetak</option>
+              <!-- Pengaturan Jumlah & Posisi QR Cetak (1 atau 2 QR + Bisa Digeser) -->
+              <div style="background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 14px; min-width: 0; box-sizing: border-box;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 8px;">
+                  <label style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin: 0;">
+                    🎟️ QR Galeri saat Dicetak (Print):
+                  </label>
+                  <span id="inspectorQrCountBadge" class="sticker-badge sticker-mustard" style="font-size: 10px; flex-shrink: 0;">1 QR</span>
+                </div>
+
+                <select id="editorTemplateQrCount" class="form-control" style="width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; font-size: 12.5px; font-weight: 700; padding: 7px 10px; border-radius: 8px; margin-bottom: 8px;" onchange="onEditorQrCountChange(this.value)">
+                  <option value="0">🚫 Tanpa QR pada Hasil Cetak</option>
+                  <option value="1">1️⃣ 1 QR Cetak (Geser Bebas di Kanvas)</option>
+                  <option value="2">2️⃣ 2 QR Cetak (Kiri &amp; Kanan · Potong Tengah)</option>
                 </select>
-                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                  * Tampil otomatis di kertas cetak; foto digital tetap bersih.
+
+                <div id="editorQrControlsWrap">
+                  <div id="editorQrSelectorTabs" style="display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap;"></div>
+
+                  <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); gap: 6px; margin-bottom: 8px;">
+                    <div style="min-width: 0;">
+                      <label style="font-size: 10.5px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">QR X (px)</label>
+                      <input type="number" id="inpQrX" class="form-control" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 6px 7px; font-size: 12px; font-family: monospace;" oninput="onQrParamChange()">
+                    </div>
+                    <div style="min-width: 0;">
+                      <label style="font-size: 10.5px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">QR Y (px)</label>
+                      <input type="number" id="inpQrY" class="form-control" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 6px 7px; font-size: 12px; font-family: monospace;" oninput="onQrParamChange()">
+                    </div>
+                    <div style="min-width: 0;">
+                      <label style="font-size: 10.5px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Ukuran</label>
+                      <input type="number" id="inpQrSize" class="form-control" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 6px 7px; font-size: 12px; font-family: monospace;" oninput="onQrParamChange()">
+                    </div>
+                  </div>
+
+                  <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px;">
+                    <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="adjustActiveQrSize(-10)">-10 QR</button>
+                    <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="adjustActiveQrSize(10)">+10 QR</button>
+                    <button type="button" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="resetQrToDualSplitPreset()" title="Atur cepat 2 QR simetris kiri & kanan">✂️ Auto 2 QR Simetris</button>
+                  </div>
+
+                  <select id="editorTemplateQrPos" class="form-control" style="width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; font-size: 11.5px; font-weight: 700; padding: 6px 8px; border-radius: 8px;" onchange="onEditorQrPositionChange(this.value)">
+                    <option value="bottom-right">↘️ Preset: Pojok Kanan Bawah</option>
+                    <option value="bottom-left">↙️ Preset: Pojok Kiri Bawah</option>
+                    <option value="top-right">↗️ Preset: Pojok Kanan Atas</option>
+                    <option value="top-left">↖️ Preset: Pojok Kiri Atas</option>
+                    <option value="dual-bottom-right">✂️ Preset: 2 QR Kiri &amp; Kanan Bawah</option>
+                    <option value="none">🚫 Tanpa QR pada Hasil Cetak</option>
+                  </select>
+                </div>
+
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 5px; line-height: 1.35;">
+                  * Klik &amp; geser kotak <strong>🎟️ QR</strong> langsung di kanvas! Foto digital di galeri tetap 100% bersih tanpa QR.
                 </div>
               </div>
 
               <div style="display: flex; flex-direction: column; gap: 8px;">
                 <button class="btn btn-teal" style="font-size: 13px; width: 100%;" onclick="runAutoGreenDetection()">🔍 Jalankan Deteksi Hijau Otomatis</button>
                 <button class="btn btn-secondary" style="font-size: 13px; width: 100%;" onclick="addManualSlot()">+ Tambah Slot Pose Manual</button>
+                <button class="btn btn-secondary" style="font-size: 13px; width: 100%;" onclick="applySplit2UpLandscapeHelper()">✂️ Atur Cepat Split 2-Up (Potong Tengah)</button>
                 <button class="btn btn-coral" style="font-size: 13px; width: 100%;" onclick="saveTemplateVersion()">💾 Simpan &amp; Publikasikan untuk Kiosk</button>
               </div>
             </div>
 
-            <div style="background: #2E2A3B; border-radius: 18px; padding: 24px; text-align: center; border: 2px solid var(--border-soft); box-shadow: inset 0 2px 10px rgba(0,0,0,0.4);">
-              <div style="margin-bottom: 12px; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 12px;">
-                <span>🖱️ <strong>Klik</strong> slot untuk memilih</span>
+            <div style="background: #2E2A3B; border-radius: 18px; padding: 24px; text-align: center; border: 2px solid var(--border-soft); box-shadow: inset 0 2px 10px rgba(0,0,0,0.4); min-width: 0; box-sizing: border-box;">
+              <div style="margin-bottom: 12px; color: rgba(255,255,255,0.85); font-size: 12px; font-weight: 600; display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <span>🖱️ <strong>Klik</strong> Slot / QR untuk memilih</span>
                 <span>✋ <strong>Geser</strong> kotak untuk pindah posisi</span>
-                <span>📐 <strong>Tarik titik sudut/sisi</strong> untuk ubah ukuran (resize)</span>
+                <span>📐 <strong>Tarik titik sudut/sisi</strong> untuk ubah ukuran</span>
               </div>
-              <canvas id="templateEditorCanvas" width="600" height="1800" style="max-height: 540px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); cursor: default;"></canvas>
+              <canvas id="templateEditorCanvas" width="600" height="1800" style="max-height: 540px; max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); cursor: default;"></canvas>
             </div>
           </div>
         </div>
@@ -1701,8 +1777,8 @@
               <label style="display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px;">Ukuran Kertas Bawaan</label>
               <select id="prtPaperSize" style="width: 100%; padding: 11px; background: var(--cream-white); border: 2px solid var(--soft-gray); border-radius: 10px; font-size: 15px; font-weight: 600;">
                 <option value="2x6" selected>Photo Strip 2×6 inch (2 strip per lembar kertas 4R / 102×152 mm)</option>
-                <option value="4x6">Photo 4R Penuh (102×152 mm / 4×6 inch Postcard)</option>
-                <option value="5x7">Photo 5×7 inch</option>
+                <option value="4x6">Photo 4R Penuh (102×152 mm / 4×6 inch)</option>
+                <option value="5x7">Photo 5R Penuh (127×178 mm / 5×7 inch)</option>
                 <option value="6x8">Photo 6×8 inch (Square Studio)</option>
                 <option value="A4">A4 Glossy Photo Paper</option>
               </select>
@@ -1910,7 +1986,7 @@
               </div>
 
               <h3 style="font-size: 21px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">APK Android (Kamera Bawaan &amp; USB)</h3>
-              <p id="androidApkReleaseText" style="font-size: 13px; font-weight: 800; color: #219653; margin-bottom: 8px;">Versi 2.5.4</p>
+              <p id="androidApkReleaseText" style="font-size: 13px; font-weight: 800; color: #219653; margin-bottom: 8px;">Versi 2.5.6</p>
               <p style="font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-bottom: 12px;">
                 Aplikasi untuk Redmi Pad 2 &amp; tablet Android, mendukung <strong>Kamera Bawaan Tablet, Sony A7 III, Canon EOS, Nikon, Fujifilm &amp; Kamera USB/UVC</strong>. Otomatis berpindah saat kabel USB dicolok/dicabut.
               </p>
@@ -1933,8 +2009,8 @@
                   <strong style="color: #219653; display: block; margin-bottom: 3px;">📱 Scan untuk Download APK Langsung:</strong>
                   Scan QR ini dari kamera tablet/HP Android untuk download file installer APK secara instan:
                   <div style="margin-top: 4px;">
-                    <a id="androidApkDirectLink" href="/Mafaza-Photobooth-Kiosk.apk?v=2.5.4" download="Mafaza-Photobooth-Kiosk-v2.5.4.apk" style="font-family: monospace; font-size: 11.5px; color: #219653; font-weight: 700; word-break: break-all; text-decoration: underline;">
-                      Mafaza-Photobooth-Kiosk-v2.5.4.apk
+                    <a id="androidApkDirectLink" href="/Mafaza-Photobooth-Kiosk.apk?v=2.5.6" download="Mafaza-Photobooth-Kiosk-v2.5.6.apk" style="font-family: monospace; font-size: 11.5px; color: #219653; font-weight: 700; word-break: break-all; text-decoration: underline;">
+                      Mafaza-Photobooth-Kiosk-v2.5.6.apk
                     </a>
                   </div>
                 </div>
@@ -1942,8 +2018,8 @@
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 8px;">
-              <a id="btnDownloadAndroidApk" href="/Mafaza-Photobooth-Kiosk.apk?v=2.5.4" download="Mafaza-Photobooth-Kiosk-v2.5.4.apk" class="btn btn-coral" style="width: 100%; padding: 13px; font-size: 14.5px; font-weight: 800; text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; background: #27ae60; border-color: #219653; box-shadow: 0 4px 12px rgba(39, 174, 96, 0.35);">
-                ⬇️ Download APK Android v2.5.4
+              <a id="btnDownloadAndroidApk" href="/Mafaza-Photobooth-Kiosk.apk?v=2.5.6" download="Mafaza-Photobooth-Kiosk-v2.5.6.apk" class="btn btn-coral" style="width: 100%; padding: 13px; font-size: 14.5px; font-weight: 800; text-align: center; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 8px; background: #27ae60; border-color: #219653; box-shadow: 0 4px 12px rgba(39, 174, 96, 0.35);">
+                ⬇️ Download APK Android v2.5.6
               </a>
               <p style="font-size: 12px; color: var(--text-muted); line-height: 1.5; margin: 0;">Pasang sebagai pembaruan aplikasi lama, lalu buka ulang aplikasi dan sambungkan kembali kamera.</p>
               <div style="display: flex; gap: 8px;">
@@ -2269,13 +2345,28 @@
             </select>
           </div>
           <div>
-            <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Format Ukuran</label>
+            <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">Format Ukuran &amp; Orientasi</label>
             <select id="tplModalFormat" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--dark-roast);">
-              <option value="strip" selected>Photo Strip 2×6 (600×1800 px)</option>
-              <option value="portrait">Single Photo 4×6 (1200×1800 px)</option>
+              <option value="portrait" selected>4R Potret / Tegak (1200×1800 px)</option>
+              <option value="landscape">4R Lanskap / Mendatar (1800×1200 px)</option>
+              <option value="portrait_5r">5R Potret / Tegak (1500×2100 px)</option>
+              <option value="landscape_5r">5R Lanskap / Mendatar (2100×1500 px)</option>
+              <option value="strip">Photo Strip 2×6 (600×1800 px)</option>
               <option value="square">Square 4×4 (1200×1200 px)</option>
             </select>
           </div>
+        </div>
+
+        <!-- Pilihan Pemakaian Booth (Kiosk vs Mingle) -->
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-size: 13px; font-weight: 700; color: var(--caramel-brown); margin-bottom: 6px;">
+            🎯 Jenis Booth untuk Template Ini:
+          </label>
+          <select id="tplModalBoothMode" onchange="onUploadModalBoothModeChange(this.value)" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--dark-roast);">
+            <option value="kiosk" selected>🖥️ Kiosk Photobooth Biasa (/kiosk)</option>
+            <option value="mingle">📸 Khusus Mingle Booth Keliling (/mingle)</option>
+            <option value="both">✨ Keduanya (/kiosk &amp; /mingle)</option>
+          </select>
         </div>
 
         <!-- Pilihan Berapa Kali Pose / Cekrek saat Unggah Template -->
@@ -2286,6 +2377,7 @@
           <select id="tplModalShotsMode" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--dark-roast);">
             <option value="event" id="tplModalShotsEventOpt" selected>📌 Ikut Pengaturan Event (Otomatis)</option>
             <option value="slots">🟩 Otomatis Sesuai Jumlah Lubang Hijau Frame</option>
+            <option value="unlimited">♾️ Banyak Foto / Jual File (Bebas Cekrek)</option>
             <option value="1">📸 1 Kali Pose / Cekrek</option>
             <option value="2">📸 2 Kali Pose / Cekrek</option>
             <option value="3">📸 3 Kali Pose / Cekrek</option>
@@ -2305,10 +2397,11 @@
             🎟️ Posisi QR Galeri pada Hasil Cetak (Print)
           </label>
           <select id="tplModalQrPosition" style="width: 100%; padding: 11px 12px; background: var(--cream-card); border: 2px solid var(--border-soft); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--dark-roast);">
-            <option value="bottom-right" selected>↘️ Pojok Kanan Bawah (Rekomendasi / Bawaan)</option>
-            <option value="bottom-left">↙️ Pojok Kiri Bawah</option>
-            <option value="top-right">↗️ Pojok Kanan Atas</option>
-            <option value="top-left">↖️ Pojok Kiri Atas</option>
+            <option value="bottom-right" selected>↘️ 1 QR · Pojok Kanan Bawah (Rekomendasi / Bawaan)</option>
+            <option value="dual-bottom-right">✂️ 2 QR · Kiri &amp; Kanan Bawah (Untuk Lanskap Potong Tengah)</option>
+            <option value="bottom-left">↙️ 1 QR · Pojok Kiri Bawah</option>
+            <option value="top-right">↗️ 1 QR · Pojok Kanan Atas</option>
+            <option value="top-left">↖️ 1 QR · Pojok Kiri Atas</option>
             <option value="none">🚫 Tanpa QR pada Hasil Cetak</option>
           </select>
           <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 5px;">
@@ -2589,6 +2682,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
   <script src="/js/print-client.js?v=1.3"></script>
-  <script src="/js/admin.js?v=responsive-v6.2"></script>
+  <script src="/js/admin.js?v=responsive-v6.5"></script>
 </body>
 </html>

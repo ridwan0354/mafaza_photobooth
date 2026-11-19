@@ -701,24 +701,30 @@ apiRouter.get('/templates', (req, res) => {
   }
   const eventId = req.query.eventId || null;
   const scope = req.query.scope || null;
-  const templates = templateService.getTemplates(tenantId, eventId, scope);
+  const booth = req.query.booth || null;
+  const templates = templateService.getTemplates(tenantId, eventId, scope, booth);
   res.json(templates);
 });
 
 apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (req, res) => {
   try {
-    const { name, eventId, width, height, orientation, slotsJson, qrPosition, shotsMode } = req.body;
+    const { name, eventId, width, height, orientation, paperSize, formatPreset, slotsJson, qrPosition, qrCoordsJson, qrCoords, shotsMode, boothMode } = req.body;
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : '/assets/templates/single-green-template.svg';
     const slots = slotsJson ? JSON.parse(slotsJson) : [];
+    const parsedQrCoords = qrCoords || (qrCoordsJson ? JSON.parse(qrCoordsJson) : undefined);
 
     const tpl = templateService.createTemplate(req.user.tenantId, {
       name,
       eventId,
-      width: parseInt(width) || 1200,
-      height: parseInt(height) || 1800,
+      width: parseInt(width) || undefined,
+      height: parseInt(height) || undefined,
       orientation: orientation || 'portrait',
+      paperSize: paperSize || undefined,
+      formatPreset: formatPreset || undefined,
       qrPosition: qrPosition || 'bottom-right',
+      qrCoords: parsedQrCoords,
       shotsMode: shotsMode || 'event',
+      boothMode: boothMode || 'kiosk',
       imageUrl,
       slots
     });
@@ -730,8 +736,8 @@ apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (r
 
 apiRouter.patch('/templates/:id/slots', authMiddleware(), (req, res) => {
   try {
-    const { slots, layers, qrPosition, width, height, shotsMode } = req.body;
-    const updated = templateService.updateTemplateSlots(req.params.id, req.user.tenantId, slots, layers, qrPosition, width, height, shotsMode);
+    const { slots, layers, qrPosition, width, height, shotsMode, boothMode, orientation, paperSize, qrCoords } = req.body;
+    const updated = templateService.updateTemplateSlots(req.params.id, req.user.tenantId, slots, layers, qrPosition, width, height, shotsMode, boothMode, orientation, paperSize, qrCoords);
     res.json(updated);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -839,8 +845,8 @@ apiRouter.post('/kiosk/sessions', (req, res) => {
 // Save photo capture & final render
 apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
   { name: 'finalImage', maxCount: 1 }, 
-  { name: 'captures', maxCount: 20 },
-  { name: 'liveClips', maxCount: 20 },
+  { name: 'captures', maxCount: 100 },
+  { name: 'liveClips', maxCount: 100 },
   { name: 'livePhoto', maxCount: 1 },
   { name: 'boomerang', maxCount: 1 }
 ]), (req, res) => {
@@ -911,10 +917,11 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
     }
 
     // SIMPAN SEMUA FOTO ASLI TANPA FRAME (RAW CAPTURES)
-    // Mendukung simpan baru maupun pembaruan pose jika tamu kembali ke kamera untuk foto ulang / tambah pose
+    // Mendukung simpan baru, pembaruan pose, maupun batching untuk mode banyak foto (Mingle / Jual File)
     if (req.files && req.files['captures'] && req.files['captures'].length > 0) {
+      const startIdx = Math.max(0, parseInt((req.body && req.body.captureStartIndex) || '0', 10) || 0);
       req.files['captures'].forEach((captureFile, idx) => {
-        const variantKey = `pose_${idx + 1}`;
+        const variantKey = `pose_${startIdx + idx + 1}`;
         const opt = optimizePhotoFile(captureFile.path, { quality: 88, maxDimension: 1920 });
         const rawFileName = opt ? path.basename(opt.path) : captureFile.filename;
         const rawFileSize = opt ? opt.size : captureFile.size;

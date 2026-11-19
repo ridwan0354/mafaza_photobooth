@@ -17,12 +17,15 @@ import android.os.Looper;
 import android.util.Log;
 import android.widget.Toast;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -59,12 +62,14 @@ public class CanonUsbPtpEngine {
     private static final int PTP_OC_SET_DEVICE_PROP_VALUE = 0x1016;
 
     // Canon EOS Vendor PTP Operation Codes (0x91xx)
+    private static final int PTP_OC_CANON_GET_PARTIAL_OBJECT = 0x9107;
     private static final int PTP_OC_CANON_CAPTURE = 0x910F;
     private static final int PTP_OC_CANON_SET_PROP_EX = 0x9110;
     private static final int PTP_OC_CANON_SET_REMOTE_MODE = 0x9114;
     private static final int PTP_OC_CANON_SET_EVENT_MODE = 0x9115;
     private static final int PTP_OC_CANON_GET_EVENT = 0x9116;
     private static final int PTP_OC_CANON_TRANSFER_COMPLETE = 0x9117;
+    private static final int PTP_OC_CANON_PCHDD_CAPACITY = 0x911A;
     private static final int PTP_OC_CANON_KEEP_DEVICE_ON = 0x911D;
     private static final int PTP_OC_CANON_REMOTE_RELEASE_ON = 0x9128;
     private static final int PTP_OC_CANON_REMOTE_RELEASE_OFF = 0x9129;
@@ -73,6 +78,13 @@ public class CanonUsbPtpEngine {
     private static final int PTP_OC_CANON_GET_VIEWFINDER_DATA = 0x9153;
     private static final int PTP_OC_CANON_DO_AF = 0x9154;
     private static final int PTP_OC_CANON_DRIVE_LENS = 0x9155;
+
+    // Canon EOS Event Codes
+    private static final int PTP_EC_CANON_OBJECT_ADDED_EX = 0xC181;
+    private static final int PTP_EC_CANON_REQUEST_OBJECT_TRANSFER = 0xC186;
+    private static final int PTP_EC_CANON_PROP_CHANGED = 0xC189;
+    private static final int PTP_EC_CANON_OBJECT_ADDED_EX2 = 0xC1A5;
+    private static final int PTP_EC_CANON_OBJECT_ADDED_EX64 = 0xC1A7;
 
     // Canon EOS Property Codes
     public static final int PROP_APERTURE = 0xD101;
@@ -137,6 +149,7 @@ public class CanonUsbPtpEngine {
         void onCameraDisconnected();
         void onStatusMessage(String message);
         default void onUsbUvcChanged(boolean attached, String deviceName) {}
+        default void onPhysicalShutterCaptured(long seq, String source) {}
     }
 
     private final Context context;
@@ -167,6 +180,10 @@ public class CanonUsbPtpEngine {
     private volatile long totalFramesReceived = 0;
     private volatile byte[] lastCapturedFullJpeg = null;
     private volatile String lastSonyDiag = "Belum dimulai";
+    private volatile String lastCanonEventSummary = "";
+    private volatile String lastCanonDownloadError = "";
+    private volatile boolean sawCanonNonJpegObject = false;
+    private volatile boolean lastObjectWasRaw = false;
     private volatile String lastCaptureError = "";
     private volatile String lastConnectionError = "";
     private volatile String lastTransportDiagnostic = "";
@@ -174,6 +191,14 @@ public class CanonUsbPtpEngine {
     private volatile boolean isConnecting = false;
     private volatile boolean isCapturingPhoto = false;
     private volatile long lastKeepAliveMs = 0;
+    private volatile boolean mingleListenMode = false;
+    private volatile boolean mingleCanonLiveView = false;
+    private volatile long physicalCaptureSeq = 0;
+    private volatile byte[] lastPhysicalCapturedJpeg = null;
+    private volatile String lastPhysicalCaptureSource = "";
+    private volatile long lastMinglePollMs = 0;
+    private volatile long lastPhysicalCooldownMs = 0;
+    private final Set<Integer> mingleKnownHandles = new HashSet<>();
     private int transactionId = 0;
     private int canonEvfParamIndex = 0;
 
@@ -580,12 +605,15 @@ public class CanonUsbPtpEngine {
                     synchronized (usbLock) {
                         if (!isConnected || isCapturingPhoto) continue;
                         long now = System.currentTimeMillis();
-                        if (now - lastKeepAliveMs > 4000) {
+                        if (mingleListenMode && now - lastMinglePollMs >= 160) {
+                            pollPhysicalShutterEventsLocked();
+                            lastMinglePollMs = System.currentTimeMillis();
+                        } else if (now - lastKeepAliveMs > 4000) {
                             sendPtpCommandLocked(PTP_OC_GET_STORAGE_IDS, new int[0], null);
                             lastKeepAliveMs = now;
                         }
                     }
-                    Thread.sleep(400);
+                    Thread.sleep(mingleListenMode ? 150 : 400);
                     continue;
                 }
 
@@ -594,9 +622,28 @@ public class CanonUsbPtpEngine {
                     if (!isConnected || isCapturingPhoto) continue;
 
                     long now = System.currentTimeMillis();
+                    if (mingleListenMode && now - lastMinglePollMs >= 220) {
+                        pollPhysicalShutterEventsLocked();
+                        lastMinglePollMs = System.currentTimeMillis();
+                        if (!isConnected || isCapturingPhoto) continue;
+                    }
+
+                    now = System.currentTimeMillis();
                     if (now - lastKeepAliveMs > 3500) {
                         if (driverType == DriverType.SONY) {
-                            executePtpTransactionLocked(PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 1500);
+                            PtpTransactionResult keepProps = executePtpTransactionLocked(
+                                    PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 1500);
+                            if (mingleListenMode && keepProps != null && keepProps.responseCode == PTP_RC_OK && keepProps.dataPayload != null) {
+                                int flag = findSonyObjectInMemoryFlag(keepProps.dataPayload);
+                                if (flag >= 0x8000 && System.currentTimeMillis() - lastPhysicalCooldownMs > 800) {
+                                    byte[] jpg = pollAndDownloadSonyMemoryPhotoLocked(true, 10000);
+                                    if (jpg != null && jpg.length > 2048) {
+                                        recordPhysicalShutterPhoto(jpg);
+                                        setSonyExtPropUInt8Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
+                                        executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 800);
+                                    }
+                                }
+                            }
                             drainSonyInterruptEventsLocked();
                         } else if (driverType == DriverType.CANON) {
                             sendPtpCommandLocked(PTP_OC_CANON_KEEP_DEVICE_ON, new int[0], null);
@@ -604,7 +651,7 @@ public class CanonUsbPtpEngine {
                         } else if (driverType == DriverType.NIKON) {
                             sendPtpCommandLocked(PTP_OC_NIKON_CHECK_EVENT, new int[0], null);
                         }
-                        lastKeepAliveMs = now;
+                        lastKeepAliveMs = System.currentTimeMillis();
                     }
 
                     if (driverType == DriverType.SONY) frame = fetchSonyLiveViewFrameLocked();
@@ -862,8 +909,17 @@ public class CanonUsbPtpEngine {
                 requirePtpOk(setCanonPropExLocked(PROP_CAPTURE_DESTINATION, 6), "Tujuan penyimpanan foto Canon");
             }
         }
+        // Advertise abundant host storage capacity so Canon DIGIC firmware emits
+        // RequestObjectTransfer (0xC186) promptly instead of reporting full host buffer.
+        sendPtpCommandLocked(PTP_OC_CANON_PCHDD_CAPACITY, new int[]{0x7FFFFFFF, 0x1000, 1}, null);
         drainCanonEventsLocked();
-        enableCanonLiveViewOutputLocked();
+        if (mingleListenMode && !mingleCanonLiveView) {
+            setCanonPropExLocked(PROP_EVF_OUTPUT_DEVICE, 0);
+            setCanonPropExLocked(PROP_EVF_MODE, 0);
+            supportsUsbLiveView = false;
+        } else {
+            enableCanonLiveViewOutputLocked();
+        }
     }
 
     private void initAutoDetectedPtpDriverLocked() throws IOException {
@@ -1011,6 +1067,7 @@ public class CanonUsbPtpEngine {
             latestFrameTimeMs = 0;
             lastCapturedFullJpeg = null;
             totalFramesReceived = 0;
+            synchronized (mingleKnownHandles) { mingleKnownHandles.clear(); }
             if (wasConnected && listener != null) {
                 listener.onCameraDisconnected();
             }
@@ -1142,6 +1199,112 @@ public class CanonUsbPtpEngine {
         }
     }
 
+    /** Enables Mingle roaming mode so pressing the camera body shutter button sends photos immediately. */
+    public void setMingleListenMode(boolean enabled, boolean canonLiveView) {
+        this.mingleListenMode = enabled;
+        this.mingleCanonLiveView = canonLiveView;
+        synchronized (usbLock) {
+            if (!isConnected) return;
+            if (driverType == DriverType.CANON) {
+                if (enabled && !canonLiveView) {
+                    // Drop reflex mirror so Canon optical viewfinder and Godox CT-16 hotshoe flash work natively.
+                    setCanonPropExLocked(PROP_EVF_OUTPUT_DEVICE, 0);
+                    setCanonPropExLocked(PROP_EVF_MODE, 0);
+                    supportsUsbLiveView = false;
+                } else {
+                    enableCanonLiveViewOutputLocked();
+                    supportsUsbLiveView = true;
+                }
+            } else if (enabled && (driverType == DriverType.NIKON || driverType == DriverType.GENERIC_PTP)) {
+                synchronized (mingleKnownHandles) {
+                    mingleKnownHandles.clear();
+                    mingleKnownHandles.addAll(queryAllJpegObjectHandlesLocked());
+                }
+            }
+        }
+    }
+
+    public boolean isMingleListenMode() { return mingleListenMode; }
+    public long getPhysicalCaptureSeq() { return physicalCaptureSeq; }
+    public byte[] getLastPhysicalCapturedJpeg() { return lastPhysicalCapturedJpeg; }
+    public String getLastPhysicalCaptureSource() { return lastPhysicalCaptureSource; }
+
+    private void recordPhysicalShutterPhoto(byte[] jpeg) {
+        if (jpeg == null || jpeg.length <= 2048) return;
+        lastPhysicalCapturedJpeg = jpeg;
+        lastPhysicalCaptureSource = getDriverTypeName() + "-physical-shutter";
+        lastPhysicalCooldownMs = System.currentTimeMillis();
+        long nextSeq = ++physicalCaptureSeq;
+        if (listener != null) {
+            listener.onPhysicalShutterCaptured(nextSeq, lastPhysicalCaptureSource);
+        }
+    }
+
+    private void pollPhysicalShutterEventsLocked() {
+        if (!isConnected || isCapturingPhoto) return;
+        try {
+            if (driverType == DriverType.SONY || isSonyCamera) {
+                if (System.currentTimeMillis() - lastPhysicalCooldownMs < 800) return;
+                int ev = pollSonyInterruptEventLocked(8);
+                boolean ready = (ev == PTP_EC_SONY_OBJECT_ADDED || ev == PTP_EC_OBJECT_ADDED || ev == PTP_EC_CAPTURE_COMPLETE);
+                if (!ready && System.currentTimeMillis() - lastKeepAliveMs > 550) {
+                    PtpTransactionResult propsRes = executePtpTransactionLocked(
+                            PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 1800);
+                    lastKeepAliveMs = System.currentTimeMillis();
+                    if (propsRes != null && propsRes.responseCode == PTP_RC_OK && propsRes.dataPayload != null) {
+                        ready = (findSonyObjectInMemoryFlag(propsRes.dataPayload) >= 0x8000);
+                    }
+                }
+                if (ready) {
+                    byte[] jpg = pollAndDownloadSonyMemoryPhotoLocked(true, 10000);
+                    if (jpg != null && jpg.length > 2048) {
+                        recordPhysicalShutterPhoto(jpg);
+                        Thread.sleep(150);
+                        setSonyExtPropUInt8Locked(SONY_PROP_LIVEVIEW_STATUS, 1);
+                        executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_LIVEVIEW_FRAME}, null, 800);
+                        lastKeepAliveMs = System.currentTimeMillis();
+                    }
+                }
+            } else if (driverType == DriverType.CANON) {
+                List<Integer> handles = pollCanonTransferHandlesLocked();
+                for (int objHandle : handles) {
+                    byte[] jpg = downloadCanonObjectJpegLocked(objHandle);
+                    if (jpg != null && jpg.length > 2048) {
+                        recordPhysicalShutterPhoto(jpg);
+                        break;
+                    }
+                }
+            } else if (driverType == DriverType.NIKON || driverType == DriverType.GENERIC_PTP) {
+                if (driverType == DriverType.NIKON) {
+                    sendPtpCommandLocked(PTP_OC_NIKON_CHECK_EVENT, new int[0], null);
+                }
+                Set<Integer> nowHandles = queryAllJpegObjectHandlesLocked();
+                int newHandle = 0;
+                synchronized (mingleKnownHandles) {
+                    for (int h : nowHandles) {
+                        if (!mingleKnownHandles.contains(h)) {
+                            newHandle = h;
+                            mingleKnownHandles.add(h);
+                            break;
+                        }
+                    }
+                }
+                if (newHandle != 0) {
+                    PtpTransactionResult infoRes = executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{newHandle}, null, 600);
+                    if (infoRes != null && infoRes.responseCode == PTP_RC_OK && infoRes.dataPayload != null
+                            && infoRes.dataPayload.length >= 12 && (readShortLE(infoRes.dataPayload, 4) & 0xffff) == 0x3801) {
+                        PtpTransactionResult imgRes = executePtpTransactionLocked(PTP_OC_GET_OBJECT, new int[]{newHandle}, null, 20000);
+                        if (imgRes != null && imgRes.responseCode == PTP_RC_OK && imgRes.dataPayload != null) {
+                            recordPhysicalShutterPhoto(extractJpegFromBuffer(imgRes.dataPayload));
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Mingle physical shutter poll error: " + e.getMessage());
+        }
+    }
+
     /**
      * Triggers the physical shutter over USB (Sony Alpha, Canon EOS, Nikon, or generic PTP camera).
      * Fires the Hotshoe X-Sync pin (Godox CT-16 Flash), downloads the captured JPEG, and resumes Live View.
@@ -1171,6 +1334,10 @@ public class CanonUsbPtpEngine {
 
     private byte[] captureCanonPhotoWithFlashLocked() {
         lastCapturedFullJpeg = null;
+        lastCanonEventSummary = "";
+        lastCanonDownloadError = "";
+        sawCanonNonJpegObject = false;
+        int lastShutterRc = PTP_RC_OK;
 
         try {
             // 1. Fully drop the reflex mirror into optical viewfinder mode:
@@ -1181,15 +1348,22 @@ public class CanonUsbPtpEngine {
             setCanonPropExLocked(PROP_EVF_OUTPUT_DEVICE, 0);
             setCanonPropExLocked(PROP_EVF_MODE, 0);
             sendPtpCommandLocked(PTP_OC_CANON_TERMINATE_VIEWFINDER, new int[0], null);
-            Thread.sleep(400); // 400ms ensures mechanical mirror drops completely into resting position
+            Thread.sleep(320); // Ensures mechanical mirror drops completely into resting position
             drainCanonEventsLocked();
 
             // 2. Fire physical mechanical shutter with flash sync:
             // PTP_OC_CANON_CAPTURE (0x910F) is Canon's native remote release command (TakePicture).
             int rc = sendPtpCommandLocked(PTP_OC_CANON_CAPTURE, new int[0], null);
+            if (rc == PTP_RC_DEVICE_BUSY) {
+                Thread.sleep(220);
+                drainCanonEventsLocked();
+                rc = sendPtpCommandLocked(PTP_OC_CANON_CAPTURE, new int[0], null);
+            }
+            lastShutterRc = rc;
             if (rc != PTP_RC_OK) {
                 // Fallback A: Immediate release with No-AF (3, 1)
                 rc = sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{3, 1}, null);
+                lastShutterRc = rc;
                 if (rc == PTP_RC_OK) {
                     Thread.sleep(150);
                     sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{3}, null);
@@ -1198,6 +1372,7 @@ public class CanonUsbPtpEngine {
                     requirePtpOk(sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{1, 1}, null), "Fokus Canon");
                     Thread.sleep(100);
                     requirePtpOk(sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_ON, new int[]{2, 1}, null), "Shutter Canon");
+                    lastShutterRc = PTP_RC_OK;
                     Thread.sleep(180);
                     sendPtpCommandLocked(PTP_OC_CANON_REMOTE_RELEASE_OFF, new int[]{2}, null);
                     Thread.sleep(50);
@@ -1205,33 +1380,48 @@ public class CanonUsbPtpEngine {
                 }
             }
 
-            // 3. Poll Canon events for up to 2.5 seconds to download the newly captured JPEG object
+            // 3. Poll Canon events cleanly for RequestObjectTransfer (0xC186) / ObjectAddedEx (0xC181)
+            // and download via GetPartialObject (0x9107) chunked or GetObject (0x1009).
             long deadline = System.currentTimeMillis() + 10000;
             while (System.currentTimeMillis() < deadline && lastCapturedFullJpeg == null) {
-                int objHandle = pollCanonTransferObjectHandleLocked();
-                if (objHandle != 0) {
+                List<Integer> handles = pollCanonTransferHandlesLocked();
+                for (int objHandle : handles) {
                     byte[] fullJpeg = downloadCanonObjectJpegLocked(objHandle);
                     if (fullJpeg != null && fullJpeg.length > 2048) {
                         lastCapturedFullJpeg = fullJpeg;
                         break;
                     }
                 }
-                Thread.sleep(90);
+                if (lastCapturedFullJpeg != null) break;
+                Thread.sleep(55);
             }
         } catch (Exception e) {
             Log.w(TAG, "Canon capture error: " + e.getMessage());
             lastCaptureError = "Foto Canon gagal: " + e.getMessage();
         } finally {
-            // 4. Immediately resume Live View for the next pose
-            try { Thread.sleep(300); } catch (InterruptedException ignored) {}
-            enableCanonLiveViewOutputLocked();
+            // 4. Immediately resume Live View for the next pose (unless mingle OVF mode)
+            try { Thread.sleep(240); } catch (InterruptedException ignored) {}
+            if (!mingleListenMode || mingleCanonLiveView) {
+                enableCanonLiveViewOutputLocked();
+            }
             lastKeepAliveMs = System.currentTimeMillis();
         }
 
         if (lastCapturedFullJpeg != null && lastCapturedFullJpeg.length > 2048) {
             return lastCapturedFullJpeg;
         }
-        if (lastCaptureError.isEmpty()) lastCaptureError = "Foto asli Canon belum diterima. Periksa format JPEG dan coba lagi.";
+        if (lastCaptureError.isEmpty()) {
+            if (sawCanonNonJpegObject) {
+                lastCaptureError = "Kamera Canon mengirim RAW (bukan JPEG). Ubah Image Quality ke JPEG (L/M), lalu coba lagi.";
+            } else if (!lastCanonDownloadError.isEmpty()) {
+                lastCaptureError = "Foto Canon gagal diunduh (" + lastCanonDownloadError + "). Periksa format JPEG & kabel USB.";
+            } else if (lastShutterRc != PTP_RC_OK && lastShutterRc > 0) {
+                lastCaptureError = "Shutter Canon gagal (kode 0x" + Integer.toHexString(lastShutterRc) + "). Ubah lensa ke MF & nonaktifkan Wi-Fi.";
+            } else {
+                String evSuffix = lastCanonEventSummary.isEmpty() ? "" : " [" + lastCanonEventSummary + "]";
+                lastCaptureError = "Foto asli Canon belum diterima. Periksa format JPEG dan coba lagi." + evSuffix;
+            }
+        }
         return null;
     }
 
@@ -1266,75 +1456,9 @@ public class CanonUsbPtpEngine {
 
             // 5. Wait for readiness via Interrupt IN (0xC201), property 0xD215 (ObjectInMemory >= 0x8000),
             // or gentle GetObjectInfo(0xFFFFC001) fallback with generous 2500ms timeout.
-            long pollStartMs = System.currentTimeMillis();
-            long deadline = pollStartMs + 12000;
-            boolean skippedNonJpeg = false;
-
-            while (System.currentTimeMillis() < deadline) {
-                if (!eventReady) {
-                    int ev = pollSonyInterruptEventLocked(120);
-                    if (ev == PTP_EC_SONY_OBJECT_ADDED || ev == PTP_EC_OBJECT_ADDED || ev == PTP_EC_CAPTURE_COMPLETE) {
-                        eventReady = true;
-                    }
-                }
-
-                int inMemoryFlag = -1;
-                if (!eventReady) {
-                    PtpTransactionResult propsRes = executePtpTransactionLocked(
-                            PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 2000);
-                    if (propsRes != null && propsRes.responseCode == PTP_RC_OK && propsRes.dataPayload != null) {
-                        inMemoryFlag = findSonyObjectInMemoryFlag(propsRes.dataPayload);
-                        if (inMemoryFlag >= 0x8000) {
-                            eventReady = true;
-                        }
-                    }
-                }
-
-                boolean allowObjectInfoProbe = eventReady
-                        || inMemoryFlag < 0
-                        || (System.currentTimeMillis() - pollStartMs) >= 3000;
-
-                if (allowObjectInfoProbe) {
-                    PtpTransactionResult infoRes = executePtpTransactionLocked(
-                            PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 2500);
-                    if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
-                        if (infoRes.dataPayload == null || infoRes.dataPayload.length < 12) {
-                            throw new IOException("Informasi foto Sony tidak lengkap.");
-                        }
-                        int objectFormat = readShortLE(infoRes.dataPayload, 4) & 0xffff;
-                        long compressedSize = readIntLE(infoRes.dataPayload, 8) & 0xffffffffL;
-                        if (compressedSize == 0xffffffffL) compressedSize = 0;
-                        if (compressedSize > 64L * 1024 * 1024) {
-                            throw new IOException("Ukuran foto Sony melebihi 64 MB. Pilih format JPEG.");
-                        }
-
-                        PtpTransactionResult imgRes = executePtpTransactionLocked(
-                                PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 25000);
-                        requirePtpOk(imgRes == null ? -1 : imgRes.responseCode, "Mengunduh foto Sony");
-
-                        if (objectFormat != 0x3801) {
-                            // If Sony was left in RAW+JPEG, consume the non-JPEG object once so JPEG follows without stalling FIFO.
-                            if (!skippedNonJpeg) {
-                                skippedNonJpeg = true;
-                                eventReady = false;
-                                Thread.sleep(250);
-                                continue;
-                            }
-                            throw new IOException("Foto bukan JPEG. Pilih JPEG atau RAW+JPEG dengan transfer JPEG Only.");
-                        }
-                        if (imgRes.dataPayload == null || (compressedSize > 0 && imgRes.dataPayload.length != compressedSize)) {
-                            throw new IOException("Unduhan foto Sony tidak lengkap. Periksa kabel USB-C data.");
-                        }
-                        lastCapturedFullJpeg = extractJpegFromBuffer(imgRes.dataPayload);
-                        if (lastCapturedFullJpeg == null || lastCapturedFullJpeg.length <= 2048) {
-                            throw new IOException("Foto JPEG Sony tidak lengkap. Coba ambil ulang.");
-                        }
-                        photoPending = false;
-                        break;
-                    }
-                }
-                eventReady = false;
-                Thread.sleep(350);
+            lastCapturedFullJpeg = pollAndDownloadSonyMemoryPhotoLocked(eventReady, 12000);
+            if (lastCapturedFullJpeg != null && lastCapturedFullJpeg.length > 2048) {
+                photoPending = false;
             }
             drainSonyInterruptEventsLocked();
 
@@ -1369,6 +1493,81 @@ public class CanonUsbPtpEngine {
             return lastCapturedFullJpeg;
         }
         if (lastCaptureError.isEmpty()) lastCaptureError = "Foto asli Sony belum diterima. Periksa JPEG, PC Remote, lalu ambil ulang pose ini.";
+        return null;
+    }
+
+    /** Waits cleanly for Sony 0xFFFFC001 via epInt/0xD215/GetObjectInfo and returns the extracted JPEG. */
+    private byte[] pollAndDownloadSonyMemoryPhotoLocked(boolean initialEventReady, int maxWaitMs)
+            throws IOException, InterruptedException {
+        boolean eventReady = initialEventReady;
+        long pollStartMs = System.currentTimeMillis();
+        long deadline = pollStartMs + maxWaitMs;
+        boolean skippedNonJpeg = false;
+
+        while (System.currentTimeMillis() < deadline) {
+            if (!eventReady) {
+                int ev = pollSonyInterruptEventLocked(120);
+                if (ev == PTP_EC_SONY_OBJECT_ADDED || ev == PTP_EC_OBJECT_ADDED || ev == PTP_EC_CAPTURE_COMPLETE) {
+                    eventReady = true;
+                }
+            }
+
+            int inMemoryFlag = -1;
+            if (!eventReady) {
+                PtpTransactionResult propsRes = executePtpTransactionLocked(
+                        PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 2000);
+                if (propsRes != null && propsRes.responseCode == PTP_RC_OK && propsRes.dataPayload != null) {
+                    inMemoryFlag = findSonyObjectInMemoryFlag(propsRes.dataPayload);
+                    if (inMemoryFlag >= 0x8000) {
+                        eventReady = true;
+                    }
+                }
+            }
+
+            boolean allowObjectInfoProbe = eventReady
+                    || inMemoryFlag < 0
+                    || (System.currentTimeMillis() - pollStartMs) >= 3000;
+
+            if (allowObjectInfoProbe) {
+                PtpTransactionResult infoRes = executePtpTransactionLocked(
+                        PTP_OC_GET_OBJECT_INFO, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 2500);
+                if (infoRes != null && infoRes.responseCode == PTP_RC_OK) {
+                    if (infoRes.dataPayload == null || infoRes.dataPayload.length < 12) {
+                        throw new IOException("Informasi foto Sony tidak lengkap.");
+                    }
+                    int objectFormat = readShortLE(infoRes.dataPayload, 4) & 0xffff;
+                    long compressedSize = readIntLE(infoRes.dataPayload, 8) & 0xffffffffL;
+                    if (compressedSize == 0xffffffffL) compressedSize = 0;
+                    if (compressedSize > 64L * 1024 * 1024) {
+                        throw new IOException("Ukuran foto Sony melebihi 64 MB. Pilih format JPEG.");
+                    }
+
+                    PtpTransactionResult imgRes = executePtpTransactionLocked(
+                            PTP_OC_GET_OBJECT, new int[]{SONY_HANDLE_IN_MEMORY_IMAGE}, null, 25000);
+                    requirePtpOk(imgRes == null ? -1 : imgRes.responseCode, "Mengunduh foto Sony");
+
+                    if (objectFormat != 0x3801) {
+                        if (!skippedNonJpeg) {
+                            skippedNonJpeg = true;
+                            eventReady = false;
+                            Thread.sleep(250);
+                            continue;
+                        }
+                        throw new IOException("Foto bukan JPEG. Pilih JPEG atau RAW+JPEG dengan transfer JPEG Only.");
+                    }
+                    if (imgRes.dataPayload == null || (compressedSize > 0 && imgRes.dataPayload.length != compressedSize)) {
+                        throw new IOException("Unduhan foto Sony tidak lengkap. Periksa kabel USB-C data.");
+                    }
+                    byte[] extracted = extractJpegFromBuffer(imgRes.dataPayload);
+                    if (extracted == null || extracted.length <= 2048) {
+                        throw new IOException("Foto JPEG Sony tidak lengkap. Coba ambil ulang.");
+                    }
+                    return extracted;
+                }
+            }
+            eventReady = false;
+            Thread.sleep(350);
+        }
         return null;
     }
 
@@ -1602,16 +1801,19 @@ public class CanonUsbPtpEngine {
     }
 
     private void drainCanonEventsLocked() {
-        PtpTransactionResult res = executePtpTransactionLocked(PTP_OC_CANON_GET_EVENT, new int[0], null, 600);
-        if (res != null && res.dataPayload != null && res.dataPayload.length >= 8) {
-            parseCanonEventsForPropertiesLocked(res.dataPayload);
-        }
+        pollCanonEventsInternalLocked(false);
     }
 
-    private int pollCanonTransferObjectHandleLocked() {
-        PtpTransactionResult res = executePtpTransactionLocked(PTP_OC_CANON_GET_EVENT, new int[0], null, 600);
-        if (res == null || res.dataPayload == null || res.dataPayload.length < 8) return 0;
+    private List<Integer> pollCanonTransferHandlesLocked() {
+        return pollCanonEventsInternalLocked(true);
+    }
 
+    private List<Integer> pollCanonEventsInternalLocked(boolean collectHandles) {
+        List<Integer> handles = new ArrayList<>();
+        PtpTransactionResult res = executePtpTransactionLocked(PTP_OC_CANON_GET_EVENT, new int[0], null, 600);
+        if (res == null || res.dataPayload == null || res.dataPayload.length < 8) return handles;
+
+        List<Integer> sdCardHandles = new ArrayList<>();
         byte[] buf = res.dataPayload;
         int offset = 0;
         while (offset + 8 <= buf.length) {
@@ -1619,42 +1821,133 @@ public class CanonUsbPtpEngine {
             int eventCode = readIntLE(buf, offset + 4);
             if (recordSize < 8 || offset + recordSize > buf.length) break;
 
-            if ((eventCode == 0xC186 || eventCode == 0xC1A7 || eventCode == 0x4002) && recordSize >= 12) {
-                int objectHandle = readIntLE(buf, offset + 8);
-                if (objectHandle != 0) return objectHandle;
+            if (eventCode == PTP_EC_CANON_PROP_CHANGED && recordSize >= 16) {
+                int propCode = readIntLE(buf, offset + 8);
+                int propVal = readIntLE(buf, offset + 12);
+                if (propCode == PROP_ISO) currentIso = propVal;
+                else if (propCode == PROP_SHUTTER_SPEED) currentTv = propVal;
+                else if (propCode == PROP_APERTURE) currentAv = propVal;
+                else if (propCode == PROP_WHITE_BALANCE) currentWb = propVal;
+            } else if (collectHandles && recordSize >= 12) {
+                if (eventCode == PTP_EC_CANON_REQUEST_OBJECT_TRANSFER
+                        || eventCode == PTP_EC_CANON_OBJECT_ADDED_EX64
+                        || eventCode == PTP_EC_CANON_OBJECT_ADDED_EX2
+                        || eventCode == PTP_EC_OBJECT_ADDED) {
+                    int objectHandle = readIntLE(buf, offset + 8);
+                    lastCanonEventSummary = "ev=0x" + Integer.toHexString(eventCode);
+                    if (objectHandle != 0 && !handles.contains(objectHandle)) {
+                        handles.add(objectHandle);
+                    }
+                } else if (eventCode == PTP_EC_CANON_OBJECT_ADDED_EX) {
+                    int objectHandle = readIntLE(buf, offset + 8);
+                    int ofc = (recordSize >= 20) ? (readShortLE(buf, offset + 16) & 0xFFFF) : 0;
+                    lastCanonEventSummary = "ev=0xc181" + (ofc != 0 ? ",ofc=0x" + Integer.toHexString(ofc) : "");
+                    // Skip folder/directory associations (0x3001) on SD card
+                    if (objectHandle != 0 && ofc != 0x3001 && !sdCardHandles.contains(objectHandle)) {
+                        sdCardHandles.add(objectHandle);
+                    }
+                }
             }
             offset += recordSize;
         }
-        return 0;
+        for (int h : sdCardHandles) {
+            if (!handles.contains(h)) handles.add(h);
+        }
+        return handles;
     }
 
-    private void parseCanonEventsForPropertiesLocked(byte[] buf) {
-        try {
-            int offset = 0;
-            while (offset + 8 <= buf.length) {
-                int recordSize = readIntLE(buf, offset);
-                int eventCode = readIntLE(buf, offset + 4);
-                if (recordSize < 8 || offset + recordSize > buf.length) break;
+    private static boolean isTiffOrRawBuffer(byte[] data) {
+        if (data == null || data.length < 4) return false;
+        // CR2 / TIFF starts with "II*\0" (0x49 0x49 0x2A 0x00) or "MM\0*" (0x4D 0x4D 0x00 0x2A)
+        return ((data[0] == 0x49 && data[1] == 0x49 && data[2] == 0x2A && data[3] == 0x00)
+                || (data[0] == 0x4D && data[1] == 0x4D && data[2] == 0x00 && data[3] == 0x2A));
+    }
 
-                if (eventCode == 0xC189 && recordSize >= 16) {
-                    int propCode = readIntLE(buf, offset + 8);
-                    int propVal = readIntLE(buf, offset + 12);
-                    if (propCode == PROP_ISO) currentIso = propVal;
-                    else if (propCode == PROP_SHUTTER_SPEED) currentTv = propVal;
-                    else if (propCode == PROP_APERTURE) currentAv = propVal;
-                    else if (propCode == PROP_WHITE_BALANCE) currentWb = propVal;
-                }
-                offset += recordSize;
+    private byte[] downloadCanonPartialObjectLocked(int objectHandle) {
+        final int CHUNK_SIZE = 1048576; // 1 MB chunks fit comfortably inside Android USB URB limits
+        final int MAX_SIZE = 32 * 1024 * 1024;
+        lastObjectWasRaw = false;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int offset = 0;
+        while (offset < MAX_SIZE) {
+            PtpTransactionResult chunkRes = executePtpTransactionLocked(
+                    PTP_OC_CANON_GET_PARTIAL_OBJECT,
+                    new int[]{objectHandle, offset, CHUNK_SIZE},
+                    null,
+                    7000
+            );
+            if (chunkRes == null) {
+                if (offset == 0) lastCanonDownloadError = "0x9107 timeout";
+                return null;
             }
-        } catch (Exception ignored) {}
+            if (chunkRes.responseCode != PTP_RC_OK || chunkRes.dataPayload == null || chunkRes.dataPayload.length == 0) {
+                if (offset == 0) {
+                    lastCanonDownloadError = "0x9107 rc=0x" + Integer.toHexString(chunkRes.responseCode);
+                    return null;
+                }
+                break;
+            }
+            byte[] part = chunkRes.dataPayload;
+            if (offset == 0 && isTiffOrRawBuffer(part)) {
+                sawCanonNonJpegObject = true;
+                lastObjectWasRaw = true;
+                sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objectHandle}, null);
+                return null;
+            }
+            out.write(part, 0, part.length);
+            offset += part.length;
+            if (part.length < CHUNK_SIZE) {
+                break; // Final partial chunk reached
+            }
+        }
+        if (out.size() > 1024) {
+            byte[] extracted = extractJpegFromBuffer(out.toByteArray());
+            if (extracted != null && extracted.length > 2048) {
+                sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objectHandle}, null);
+                return extracted;
+            }
+        }
+        return null;
     }
 
     private byte[] downloadCanonObjectJpegLocked(int objectHandle) {
-        PtpTransactionResult res = executePtpTransactionLocked(PTP_OC_GET_OBJECT, new int[]{objectHandle}, null, 20000);
+        lastObjectWasRaw = false;
+        // Optional format check (works for SD card handles; 0xC186 RAM handles may return 0x2005/0x2009)
+        PtpTransactionResult infoRes = executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{objectHandle}, null, 600);
+        if (infoRes != null && infoRes.responseCode == PTP_RC_OK && infoRes.dataPayload != null && infoRes.dataPayload.length >= 12) {
+            int format = readShortLE(infoRes.dataPayload, 4) & 0xFFFF;
+            if (format == 0x3001) return null; // Directory handle
+            if (format != 0 && format != 0x3801) {
+                sawCanonNonJpegObject = true;
+                lastObjectWasRaw = true;
+                sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objectHandle}, null);
+                return null;
+            }
+        }
+
+        // 1. Prefer Canon native chunked transfer (0x9107 GetPartialObject) for fast & stable OTG downloads
+        byte[] partialJpeg = downloadCanonPartialObjectLocked(objectHandle);
+        if (partialJpeg != null && partialJpeg.length > 2048) {
+            return partialJpeg;
+        }
+        if (lastObjectWasRaw) return null;
+
+        // 2. Fallback to standard PTP GetObject (0x1009)
+        PtpTransactionResult res = executePtpTransactionLocked(PTP_OC_GET_OBJECT, new int[]{objectHandle}, null, 15000);
         if (res != null && res.responseCode == PTP_RC_OK && res.dataPayload != null && res.dataPayload.length > 1024) {
+            if (isTiffOrRawBuffer(res.dataPayload)) {
+                sawCanonNonJpegObject = true;
+                sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objectHandle}, null);
+                return null;
+            }
             byte[] extracted = extractJpegFromBuffer(res.dataPayload);
-            if (extracted != null) sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objectHandle}, null);
-            return extracted;
+            if (extracted != null && extracted.length > 2048) {
+                sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objectHandle}, null);
+                return extracted;
+            }
+            lastCanonDownloadError = "JPEG marker tidak lengkap";
+        } else if (res != null) {
+            lastCanonDownloadError = "0x1009 rc=0x" + Integer.toHexString(res.responseCode);
         }
         return null;
     }

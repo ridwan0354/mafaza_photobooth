@@ -415,7 +415,7 @@ export function getGuestGalleryData(token) {
             WHEN type = 'live_photo' THEN 4 
             WHEN type = 'raw_capture' THEN 5 
             ELSE 6 
-          END ASC, variant ASC
+          END ASC, LENGTH(variant) ASC, variant ASC
         `).all(session.id).map(ma => ({
           id: ma.id,
           type: ma.type,
@@ -464,7 +464,7 @@ export function getGuestGalleryData(token) {
                 WHEN type = 'live_photo' THEN 4 
                 WHEN type = 'raw_capture' THEN 5 
                 ELSE 6 
-              END ASC, variant ASC
+              END ASC, LENGTH(variant) ASC, variant ASC
             ) ma) as media_json
     FROM photo_sessions ps
     WHERE ps.guest_pass_id = ?
@@ -562,7 +562,7 @@ export function getEventGalleryData(eventId, options = {}) {
                 WHEN type = 'live_photo' THEN 4 
                 WHEN type = 'raw_capture' THEN 5 
                 ELSE 6 
-              END ASC, variant ASC
+              END ASC, LENGTH(variant) ASC, variant ASC
             ) ma) as media_json
     FROM photo_sessions ps
     WHERE ps.event_id = ?
