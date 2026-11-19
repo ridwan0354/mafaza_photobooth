@@ -266,3 +266,61 @@ test('Mingle supports unlimited / multi-shot digital-files mode and numeric pose
     db.prepare('DELETE FROM templates WHERE id = ?').run(tpl.id);
   }
 });
+
+test('Print sheet & client print orientation match portrait vs landscape frames cleanly without borders', async () => {
+  const sheet = await import('../src/services/sheet.js');
+  const os = await import('node:os');
+  const root = process.cwd();
+
+  const tmpPort = path.join(os.default.tmpdir(), `test_port_${Date.now()}.png`);
+  const tmpLand = path.join(os.default.tmpdir(), `test_land_${Date.now()}.png`);
+  fs.writeFileSync(tmpPort, sheet.encodePng({
+    width: 1200,
+    height: 1800,
+    channels: 4,
+    data: Buffer.alloc(1200 * 1800 * 4, 210)
+  }));
+  fs.writeFileSync(tmpLand, sheet.encodePng({
+    width: 1800,
+    height: 1200,
+    channels: 4,
+    data: Buffer.alloc(1800 * 1200 * 4, 190)
+  }));
+
+  try {
+    assert.equal(sheet.detectImageOrientation(tmpPort), 'portrait');
+    assert.equal(sheet.detectImageOrientation(tmpLand), 'landscape');
+
+    const sheetPort = sheet.buildPrintSheetFile(tmpPort, { paperSize: '4x6', safeMargin: 100, borderless: true }, `t_p_${Date.now()}`);
+    const sheetLand = sheet.buildPrintSheetFile(tmpLand, { paperSize: '4x6', safeMargin: 100, borderless: true }, `t_l_${Date.now()}`);
+
+    const decPort = sheet.decodePng(fs.readFileSync(sheetPort));
+    const decLand = sheet.decodePng(fs.readFileSync(sheetLand));
+    assert.equal(decPort.width, 1200);
+    assert.equal(decPort.height, 1800);
+    assert.equal(decLand.width, 1800);
+    assert.equal(decLand.height, 1200);
+
+    try { fs.unlinkSync(sheetPort); } catch (e) {}
+    try { fs.unlinkSync(sheetLand); } catch (e) {}
+
+    const printClientJs = fs.readFileSync(path.join(root, 'public/js/print-client.js'), 'utf8');
+    const printServiceJs = fs.readFileSync(path.join(root, 'src/services/print.js'), 'utf8');
+    const agentJs = fs.readFileSync(path.join(root, 'print-agent/mafaza-print-agent.mjs'), 'utf8');
+    const mingleHtml = fs.readFileSync(path.join(root, 'public/mingle.html'), 'utf8');
+    const mingleJs = fs.readFileSync(path.join(root, 'public/js/mingle.js'), 'utf8');
+
+    assert.match(printClientJs, /resolvePageDimensions/);
+    assert.match(printClientJs, /naturalWidth > naturalHeight/);
+    assert.match(printServiceJs, /detectImageOrientation/);
+    assert.match(printServiceJs, /orientation-requested=4/);
+    assert.match(agentJs, /orientation-requested=4/);
+    assert.match(agentJs, /DefaultPageSettings\.Landscape = \$true \} else \{ \$doc\.DefaultPageSettings\.Landscape = \$false \}/);
+    assert.match(mingleHtml, /pbPrintPortal/);
+    assert.match(mingleHtml, /print-client\.js/);
+    assert.match(mingleJs, /pbPrintViaBrowser/);
+  } finally {
+    try { fs.unlinkSync(tmpPort); } catch (e) {}
+    try { fs.unlinkSync(tmpLand); } catch (e) {}
+  }
+});

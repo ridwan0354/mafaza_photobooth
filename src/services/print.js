@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from '../db/database.js';
-import { resolvePaper, buildPrintSheetFile } from './sheet.js';
+import { resolvePaper, buildPrintSheetFile, detectImageOrientation } from './sheet.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -551,6 +551,24 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
   const mediaType = options.mediaType;
   const spoolerJobId = 'EPSON_SPOOL_' + Math.floor(100000 + Math.random() * 900000);
 
+  // Check if we have a real image file on disk and a non-simulator printer
+  const asset = db.prepare('SELECT * FROM media_assets WHERE id = ?').get(mediaAssetId);
+  const isUnitTestSession = String(photoSessionId || '').startsWith('sess_print_test_') || String(photoSessionId || '').startsWith('sess_test_0');
+  const isSimulator = /simulator|virtual/i.test(printerName) || /simulator|virtual/i.test(driverName);
+
+  let absFilePath = null;
+  if (asset && asset.file_path) {
+    const candidate = path.join(publicDir, asset.file_path.replace(/^\//, ''));
+    if (fs.existsSync(candidate)) {
+      absFilePath = candidate;
+    }
+  }
+
+  // File lembar siap cetak (mis. 2 strip 2x6 disusun berdampingan di kertas 4x6, portrait/landscape sesuai frame)
+  const printFilePath = absFilePath ? buildPrintSheetFile(absFilePath, options, printJobId) : null;
+  const sheetOrientation = detectImageOrientation(printFilePath || absFilePath);
+  options.orientation = sheetOrientation;
+
   db.prepare(`
     INSERT INTO print_jobs (id, tenant_id, event_id, device_id, photo_session_id, media_asset_id, copies, state, spooler_job_id, idempotency_key, options_json)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
@@ -566,22 +584,6 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
     idempotencyKey,
     JSON.stringify(options)
   );
-
-  // Check if we have a real image file on disk and a non-simulator printer
-  const asset = db.prepare('SELECT * FROM media_assets WHERE id = ?').get(mediaAssetId);
-  const isUnitTestSession = String(photoSessionId || '').startsWith('sess_print_test_') || String(photoSessionId || '').startsWith('sess_test_0');
-  const isSimulator = /simulator|virtual/i.test(printerName) || /simulator|virtual/i.test(driverName);
-
-  let absFilePath = null;
-  if (asset && asset.file_path) {
-    const candidate = path.join(publicDir, asset.file_path.replace(/^\//, ''));
-    if (fs.existsSync(candidate)) {
-      absFilePath = candidate;
-    }
-  }
-
-  // File lembar siap cetak (mis. 2 strip 2x6 disusun berdampingan di kertas 4x6)
-  const printFilePath = absFilePath ? buildPrintSheetFile(absFilePath, options, printJobId) : null;
 
   const platform = os.platform();
   let dispatchedToOs = false;
@@ -601,7 +603,12 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
             resolvedPrinterName = printerObj.name;
           }
           dispatchedToOs = true;
-          const lpArgs = ['-d', cupsQueueId, '-n', String(copies), '-o', 'fit-to-page'];
+          const lpArgs = [
+            '-d', cupsQueueId,
+            '-n', String(copies),
+            '-o', 'fit-to-page',
+            '-o', sheetOrientation === 'landscape' ? 'orientation-requested=4' : 'orientation-requested=3'
+          ];
           if (mediaType && mediaType !== 'auto' && mediaType !== 'any') {
             lpArgs.push('-o', `MediaType=${mediaType}`);
           }
@@ -670,7 +677,8 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
           if ($env:PB_PRINTER) { $doc.PrinterSettings.PrinterName = $env:PB_PRINTER };
           $doc.PrinterSettings.Copies = [int]$env:PB_COPIES;
           $doc.OriginAtMargins = $false;
-          if ($img.Width -gt $img.Height) { $doc.DefaultPageSettings.Landscape = $true };
+          $doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0,0,0,0);
+          if ($img.Width -gt $img.Height) { $doc.DefaultPageSettings.Landscape = $true } else { $doc.DefaultPageSettings.Landscape = $false };
           $doc.add_PrintPage({
             param($sender, $e)
             $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic;
@@ -747,6 +755,7 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
     paperWidthIn: options.paperWidthIn,
     paperHeightIn: options.paperHeightIn,
     layout: options.layout,
+    orientation: sheetOrientation,
     borderless: options.borderless,
     sheetUrl: `/api/print-jobs/${printJobId}/sheet`,
     state: 'queued',

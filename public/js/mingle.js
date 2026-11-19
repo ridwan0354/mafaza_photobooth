@@ -1628,14 +1628,16 @@ class MingleBoothEngine {
         if (this.guestPass && this.guestPass.id) formData.append('guestPassId', this.guestPass.id);
         if (this.selectedTemplate && this.selectedTemplate.id) formData.append('templateId', this.selectedTemplate.id);
         const res = await fetch(`/api/kiosk/sessions/${this.sessionId}/complete`, { method: 'POST', body: formData });
+        const data = res.ok ? await res.json().catch(() => null) : null;
         if (res.ok && statusEl) {
           statusEl.innerText = printRequested
             ? '✅ Foto tersimpan & dikirim ke printer!'
             : `✅ Siap! ${totalPhotos} file foto siap diunduh lewat QR.`;
         }
-        return;
+        return data;
       }
 
+      let lastData = null;
       for (let offset = startOffset; offset < totalPhotos; offset += batchSize) {
         const end = Math.min(totalPhotos, offset + batchSize);
         if (statusEl) statusEl.innerText = `⏳ Mengunggah foto ${end}/${totalPhotos}...`;
@@ -1660,6 +1662,7 @@ class MingleBoothEngine {
 
         const res = await fetch(`/api/kiosk/sessions/${this.sessionId}/complete`, { method: 'POST', body: formData });
         if (!res.ok) throw new Error('Gagal mengunggah batch foto');
+        lastData = await res.json().catch(() => lastData);
         this.syncedCaptureCount = end;
       }
 
@@ -1668,8 +1671,10 @@ class MingleBoothEngine {
           ? `✅ ${totalPhotos} foto tersimpan & dikirim ke printer!`
           : `✅ Siap! Semua ${totalPhotos} foto tersedia di QR Code.`;
       }
+      return lastData;
     } catch (e) {
       if (statusEl) statusEl.innerText = '⚠️ Gagal mengunggah ke server, mencoba ulang nanti.';
+      return null;
     }
   }
 
@@ -1678,8 +1683,18 @@ class MingleBoothEngine {
       this.showToast('Mode Jual File tidak memakai bingkai cetak.', 'ℹ️', 2200);
       return;
     }
-    await this.syncFinalImageOnly(false, true);
-    this.showToast('🖨️ Permintaan cetak dikirim ke printer!', '🖨️', 2500);
+    const resData = await this.syncFinalImageOnly(false, true);
+    const job = resData && resData.printJob ? resData.printJob : null;
+    if (job && (job.dispatchedToOs || job.awaitingAgent)) {
+      this.showToast('🖨️ Permintaan cetak dikirim ke printer!', '🖨️', 2500);
+      return;
+    }
+    const canvas = document.getElementById('mingleFinalCanvas');
+    if (window.pbPrintViaBrowser && canvas) {
+      window.pbPrintViaBrowser({ imageUrl: canvas.toDataURL('image/png'), copies: 1, job });
+    } else {
+      this.showToast('🖨️ Permintaan cetak dikirim ke printer!', '🖨️', 2500);
+    }
   }
 
   async addMorePhotos() {

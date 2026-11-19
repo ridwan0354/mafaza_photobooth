@@ -180,6 +180,23 @@ export function isStripShaped(width, height) {
   return ratio >= 2.4 && ratio <= 3.6;
 }
 
+export function detectImageOrientation(filePath) {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) return 'portrait';
+    const buf = fs.readFileSync(filePath);
+    if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+      const w = buf.readUInt32BE(16);
+      const h = buf.readUInt32BE(20);
+      if (w > 0 && h > 0) return (!isStripShaped(w, h) && w > h) ? 'landscape' : 'portrait';
+    }
+    const decoded = decodeImage(buf);
+    if (decoded && decoded.width > 0 && decoded.height > 0) {
+      return (!isStripShaped(decoded.width, decoded.height) && decoded.width > decoded.height) ? 'landscape' : 'portrait';
+    }
+  } catch (e) {}
+  return 'portrait';
+}
+
 /**
  * Susun 2 strip berdampingan pada satu lembar (lebar = 2x lebar strip).
  * Dengan strip 600x1800 hasilnya 1200x1800 = rasio kertas 4x6 persis.
@@ -566,7 +583,11 @@ export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
     // Terapkan Auto Safe Margin dengan edge-clamping agar teks & objek di tepi tidak terpotong hardware bleed printer
     let finalImg = baseImg;
     if (isBorderless) {
-      finalImg = applySafeMargin(baseImg, targetW, targetH, scale);
+      if (scale >= 0.999 && baseImg.width === targetW && baseImg.height === targetH) {
+        finalImg = baseImg;
+      } else {
+        finalImg = applySafeMargin(baseImg, targetW, targetH, scale);
+      }
     } else if (baseImg.width !== targetW || baseImg.height !== targetH) {
       finalImg = applySafeMargin(baseImg, targetW, targetH, 1.0);
     }

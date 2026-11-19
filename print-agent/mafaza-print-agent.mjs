@@ -228,12 +228,42 @@ function findOptionByLabel(lpOpts, re) {
   return Object.entries(lpOpts).find(([key, o]) => re.test(key) || re.test(o.label)) || null;
 }
 
+function readImageDimensions(filePath) {
+  try {
+    const buf = fs.readFileSync(filePath);
+    if (buf.length >= 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+    }
+    if (buf.length >= 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+      let i = 2;
+      while (i + 9 < buf.length) {
+        if (buf[i] !== 0xff) { i++; continue; }
+        const marker = buf[i + 1];
+        if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+          return { width: buf.readUInt16BE(i + 7), height: buf.readUInt16BE(i + 5) };
+        }
+        const segLen = buf.readUInt16BE(i + 2);
+        if (segLen < 2) break;
+        i += 2 + segLen;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
 async function printUnix(file, job, printer) {
   const o = job.options;
   const queue = printer.id;
   const lpOpts = await readLpOptions(queue);
-  const args = ['-d', queue, '-n', String(job.copies || 1), '-o', 'fit-to-page'];
-  const notes = [];
+  const dims = readImageDimensions(file);
+  const isLandscape = dims ? (dims.width > dims.height) : (o.orientation === 'landscape');
+  const args = [
+    '-d', queue,
+    '-n', String(job.copies || 1),
+    '-o', 'fit-to-page',
+    '-o', isLandscape ? 'orientation-requested=4' : 'orientation-requested=3'
+  ];
+  const notes = [`orientasi=${isLandscape ? 'landscape' : 'portrait'}`];
 
   // 1) Ukuran kertas (+ varian tanpa tepi / borderless)
   const pageOpt = lpOpts.PageSize || lpOpts.media || null;
@@ -393,7 +423,7 @@ try {
   if (-not $paper) { $paper = New-Object System.Drawing.Printing.PaperSize('MafazaCustom', [int]($wIn * 100), [int]($hIn * 100)) }
   $doc.DefaultPageSettings.PaperSize = $paper
 
-  if ($img.Width -gt $img.Height) { $doc.DefaultPageSettings.Landscape = $true }
+  if ($img.Width -gt $img.Height) { $doc.DefaultPageSettings.Landscape = $true } else { $doc.DefaultPageSettings.Landscape = $false }
 
   if ($env:PB_HIGH -eq '1') {
     try {

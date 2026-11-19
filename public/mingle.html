@@ -634,6 +634,31 @@
       overflow-y: auto;
       padding: 2px;
     }
+
+    @media print {
+      body.pb-printing > *:not(#pbPrintPortal) {
+        display: none !important;
+      }
+      body.pb-printing #pbPrintPortal {
+        display: block !important;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+        background: #fff;
+        z-index: 99999999;
+      }
+      @page {
+        margin: 0;
+        size: auto;
+      }
+    }
+    #pbPrintPortal {
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -920,6 +945,7 @@
 
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
-  <script src="/js/mingle.js?v=1.7"></script>
+  <script src="/js/print-client.js?v=1.4"></script>
+  <script src="/js/mingle.js?v=1.8"></script>
 </body>
 </html>

@@ -75,7 +75,20 @@
     return { w: p.w, h: p.h, borderless: s.borderless !== false };
   }
 
-  // Dialog cetak browser (cadangan). Ukuran kertas dipaksa sesuai pengaturan lewat @page.
+  function resolvePageDimensions(paper, isLandscape) {
+    const baseW = Number(paper && paper.w) || 4;
+    const baseH = Number(paper && paper.h) || 6;
+    const shortSide = Math.min(baseW, baseH);
+    const longSide = Math.max(baseW, baseH);
+    return {
+      w: isLandscape ? longSide : shortSide,
+      h: isLandscape ? shortSide : longSide,
+      orientation: isLandscape ? 'landscape' : 'portrait',
+      borderless: !paper || paper.borderless !== false
+    };
+  }
+
+  // Dialog cetak browser (cadangan). Ukuran & orientasi kertas otomatis mengikuti frame (portrait / landscape) tanpa tepian.
   async function printViaBrowser({ imageUrl, copies = 1, job = null }) {
     const paper = await resolvePaper(job);
     const src = (job && job.sheetUrl) ? `${job.sheetUrl}?t=${Date.now()}` : imageUrl;
@@ -97,50 +110,54 @@
       pageStyle.id = 'pbPageStyle';
       document.head.appendChild(pageStyle);
     }
-    pageStyle.textContent = `
-      @media print {
-        @page {
-          size: ${paper.w}in ${paper.h}in;
-          margin: 0 !important;
-        }
-        html, body {
-          width: ${paper.w}in !important;
-          height: ${paper.h}in !important;
-          margin: 0 !important;
-          padding: 0 !important;
-          background: #fff !important;
-          overflow: hidden !important;
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-          color-adjust: exact !important;
-        }
-        #pbPrintPortal, #pbPrintPortal * {
-          visibility: visible !important;
-          -webkit-print-color-adjust: exact !important;
-          print-color-adjust: exact !important;
-        }
-      }
-    `;
 
-    const total = Math.max(1, parseInt(copies, 10) || 1);
-    const fit = paper.borderless ? 'cover' : 'contain';
-    const imgStyle = 'display: block; width: 100%; height: 100%; object-fit: ' + fit + '; image-rendering: -webkit-optimize-contrast; image-rendering: high-quality;';
-
-    // File lembar cetak (sheetUrl) sudah secara otomatis diberi Auto Safe Margin (94%) dan edge-clamping 300 DPI
-    // di server, sehingga teks dan objek di tepi aman dari hardware bleed printer Epson (Mac & Windows).
-    portal.innerHTML = Array.from({ length: total }).map(() => `
-      <div style="width: ${paper.w}in; height: ${paper.h}in; max-width: ${paper.w}in; max-height: ${paper.h}in; page-break-after: always; break-after: page; overflow: hidden; margin: 0; padding: 0; display: block; background: #fff;">
-        <img src="${src}" style="${imgStyle}" />
-      </div>
-    `).join('');
-    document.body.classList.add('pb-printing');
-
-    const img = portal.querySelector('img');
     const cleanup = () => {
       document.body.classList.remove('pb-printing');
       portal.innerHTML = '';
     };
-    const doPrint = () => {
+
+    const runWithDimensions = (naturalWidth, naturalHeight) => {
+      const isLandscape = (naturalWidth > 0 && naturalHeight > 0)
+        ? (naturalWidth > naturalHeight)
+        : (job && job.orientation === 'landscape');
+      const page = resolvePageDimensions(paper, isLandscape);
+
+      pageStyle.textContent = `
+        @media print {
+          @page {
+            size: ${page.w}in ${page.h}in;
+            margin: 0 !important;
+          }
+          html, body {
+            width: ${page.w}in !important;
+            height: ${page.h}in !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            overflow: hidden !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
+          #pbPrintPortal, #pbPrintPortal * {
+            visibility: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+        }
+      `;
+
+      const total = Math.max(1, parseInt(copies, 10) || 1);
+      const fit = page.borderless ? 'cover' : 'contain';
+      const imgStyle = 'display: block; width: 100%; height: 100%; object-fit: ' + fit + '; image-rendering: -webkit-optimize-contrast; image-rendering: high-quality;';
+
+      portal.innerHTML = Array.from({ length: total }).map(() => `
+        <div style="width: ${page.w}in; height: ${page.h}in; max-width: ${page.w}in; max-height: ${page.h}in; page-break-after: always; break-after: page; overflow: hidden; margin: 0; padding: 0; display: block; background: #fff;">
+          <img src="${src}" style="${imgStyle}" />
+        </div>
+      `).join('');
+      document.body.classList.add('pb-printing');
+
       setTimeout(() => {
         window.focus();
         window.print();
@@ -151,14 +168,17 @@
       }, 200);
     };
 
-    if (img.complete && img.naturalWidth > 0) {
-      doPrint();
-    } else {
-      img.onload = doPrint;
-      img.onerror = () => {
-        cleanup();
-        toast('Gagal memuat gambar untuk dicetak.', 'error');
-      };
+    const probe = new Image();
+    probe.onload = () => runWithDimensions(probe.naturalWidth, probe.naturalHeight);
+    probe.onerror = () => {
+      cleanup();
+      toast('Gagal memuat gambar untuk dicetak.', 'error');
+    };
+    probe.src = src;
+    if (probe.complete && probe.naturalWidth > 0) {
+      probe.onload = null;
+      probe.onerror = null;
+      runWithDimensions(probe.naturalWidth, probe.naturalHeight);
     }
   }
 
@@ -188,4 +208,5 @@
   window.pbToast = toast;
   window.pbSmartPrint = smartPrint;
   window.pbPrintViaBrowser = printViaBrowser;
+  window.pbResolvePrintPageDimensions = resolvePageDimensions;
 })();
