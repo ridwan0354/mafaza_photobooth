@@ -352,17 +352,35 @@ export function getActivePrintProfile(tenantId) {
   return profiles.find(p => p.is_default === 1) || profiles[0] || null;
 }
 
+function is5rPaperSize(paperSize) {
+  return /^(5r|5x7)$/i.test(String(paperSize || '').trim());
+}
+
+function formatPaperLabel(paperSize) {
+  const key = String(paperSize || '').trim().toLowerCase();
+  if (key === '5x7' || key === '5r') return '5R';
+  if (key === '2x6') return '4R (Strip 2×6)';
+  if (key === '4x6' || key === '4r') return '4R';
+  if (key === '6x8') return '6×8';
+  if (key === 'a4') return 'A4';
+  return String(paperSize || '4R').toUpperCase();
+}
+
 // Opsi lengkap yang dipakai mencetak (disimpan di job agar cetak ulang tetap konsisten)
-export function buildPrintOptions(tenantId, copies = 1) {
+export function buildPrintOptions(tenantId, copies = 1, paperSizeOverride = null) {
   const profile = getActivePrintProfile(tenantId);
   const settings = normalizePrintSettings(profile?.settings || {});
-  const paper = resolvePaper(settings.paperSize);
+  const chosenPaperSize = (paperSizeOverride && String(paperSizeOverride).trim())
+    ? String(paperSizeOverride).trim()
+    : settings.paperSize;
+  const paper = resolvePaper(chosenPaperSize);
   const printerName = profile ? profile.name : 'Epson L8050 Series';
   return {
     printerName,
     driverName: profile ? (profile.driver_name || profile.name) : printerName,
     mediaType: profile ? (profile.media_type || 'photographic-glossy') : 'photographic-glossy',
-    paperSize: settings.paperSize,
+    paperSize: chosenPaperSize,
+    paperLabel: formatPaperLabel(chosenPaperSize),
     paperWidthIn: paper.widthIn,
     paperHeightIn: paper.heightIn,
     layout: paper.layout,
@@ -487,12 +505,150 @@ export function getPrintSheetForJob(jobId) {
   return { path: buildPrintSheetFile(abs, options, job.id), options };
 }
 
+export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, options, copies = 1, sheetOrientation = 'portrait') {
+  const platform = os.platform();
+  const printerName = options.printerName;
+  const driverName = options.driverName;
+  const mediaType = options.mediaType;
+  let dispatchedToOs = false;
+  let resolvedQueueId = null;
+  let resolvedPrinterName = printerName;
+
+  if (!absFilePath || !printFilePath || process.env.PRINT_MODE === 'agent') {
+    return { dispatchedToOs, resolvedQueueId, resolvedPrinterName };
+  }
+
+  if (platform === 'darwin' || platform === 'linux') {
+    try {
+      const { cupsQueueId, printerObj } = resolveCupsQueueId(printerName, driverName);
+      if (cupsQueueId) {
+        resolvedQueueId = cupsQueueId;
+        if (printerObj && printerObj.name) {
+          resolvedPrinterName = printerObj.name;
+        }
+        dispatchedToOs = true;
+        const lpArgs = [
+          '-d', cupsQueueId,
+          '-n', String(copies),
+          '-o', 'fit-to-page',
+          '-o', sheetOrientation === 'landscape' ? 'orientation-requested=4' : 'orientation-requested=3'
+        ];
+        if (mediaType && mediaType !== 'auto' && mediaType !== 'any') {
+          lpArgs.push('-o', `MediaType=${mediaType}`);
+        }
+        if (options.borderless) {
+          lpArgs.push('-o', 'EPIJ_Bdls=1', '-o', 'EPIJ_exmg=0');
+        }
+        if (options.highDpi) {
+          lpArgs.push('-o', 'EPIJ_Qual=306', '-o', 'Resolution=720x720dpi', '-o', 'EPIJ_Mode=3', '-o', 'EPIJ_OPT_Bi_D=0', '-o', 'print-quality=5');
+        } else {
+          lpArgs.push('-o', 'EPIJ_Qual=303', '-o', 'Resolution=360x360dpi', '-o', 'EPIJ_OPT_Bi_D=1', '-o', 'print-quality=3');
+        }
+        lpArgs.push(printFilePath);
+
+        if (platform === 'darwin') {
+          execFile('open', ['-g', '-a', '/System/Applications/Utilities/Print Center.app'], () => {});
+        }
+
+        db.prepare("UPDATE print_jobs SET state = 'processing' WHERE id = ?").run(printJobId);
+        execFile('lp', lpArgs, { timeout: 10000 }, (err, stdout) => {
+          if (err) {
+            console.warn('CUPS lp warning (falling back to spooled state):', err.message);
+          } else if (stdout) {
+            const m = stdout.trim().match(/(?:request id is|id permintaan adalah)\s+([^\s]+)/i)
+              || stdout.trim().match(/([A-Za-z0-9_]+-\d+)/);
+            const realCupsJobId = m ? (m[1] || m[2]) : null;
+            if (realCupsJobId) {
+              try {
+                db.prepare('UPDATE print_jobs SET spooler_job_id = ? WHERE id = ?').run(realCupsJobId, printJobId);
+              } catch (e) {}
+            }
+          }
+          try {
+            db.prepare("UPDATE print_jobs SET state = 'spooled' WHERE id = ?").run(printJobId);
+            setTimeout(() => {
+              try {
+                db.prepare("UPDATE print_jobs SET state = 'completed' WHERE id = ?").run(printJobId);
+              } catch (e) {}
+            }, 2500);
+          } catch (e) {}
+        });
+      }
+    } catch (e) {
+      console.warn('OS direct print error:', e.message);
+    }
+  } else if (platform === 'win32') {
+    try {
+      const { printerObj, sys } = resolveCupsQueueId(printerName, driverName);
+      const targetWinPrinter = (printerObj && printerObj.name) ? printerObj.name : (sys.defaultPrinter || printerName);
+      resolvedPrinterName = targetWinPrinter;
+      resolvedQueueId = printerObj ? printerObj.id : targetWinPrinter;
+      dispatchedToOs = true;
+
+      db.prepare("UPDATE print_jobs SET state = 'processing' WHERE id = ?").run(printJobId);
+
+      if (targetWinPrinter) {
+        execFile('rundll32.exe', ['printui.dll,PrintUIEntry', '/o', '/n', targetWinPrinter], () => {});
+      }
+
+      const psScript = `
+        Add-Type -AssemblyName System.Drawing;
+        $img = [System.Drawing.Image]::FromFile($env:PB_FILE);
+        $doc = New-Object System.Drawing.Printing.PrintDocument;
+        if ($env:PB_PRINTER) { $doc.PrinterSettings.PrinterName = $env:PB_PRINTER };
+        $doc.PrinterSettings.Copies = [int]$env:PB_COPIES;
+        $doc.OriginAtMargins = $false;
+        $doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0,0,0,0);
+        if ($img.Width -gt $img.Height) { $doc.DefaultPageSettings.Landscape = $true } else { $doc.DefaultPageSettings.Landscape = $false };
+        $doc.add_PrintPage({
+          param($sender, $e)
+          $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic;
+          $bounds = $e.PageBounds;
+          $ratio = [Math]::Min($bounds.Width / $img.Width, $bounds.Height / $img.Height);
+          $w = [int]($img.Width * $ratio);
+          $h = [int]($img.Height * $ratio);
+          $x = [int](($bounds.Width - $w) / 2);
+          $y = [int](($bounds.Height - $h) / 2);
+          $e.Graphics.DrawImage($img, $x, $y, $w, $h);
+          $e.HasMorePages = $false;
+        });
+        $doc.Print();
+        $img.Dispose();
+        Write-Output "WIN_SPOOL_OK";
+      `;
+
+      execFile('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', psScript], {
+        timeout: 15000,
+        env: {
+          ...process.env,
+          PB_FILE: printFilePath,
+          PB_PRINTER: targetWinPrinter || '',
+          PB_COPIES: String(copies || 1)
+        }
+      }, () => {
+        try {
+          db.prepare("UPDATE print_jobs SET state = 'spooled' WHERE id = ?").run(printJobId);
+          setTimeout(() => {
+            try {
+              db.prepare("UPDATE print_jobs SET state = 'completed' WHERE id = ?").run(printJobId);
+            } catch (e) {}
+          }, 2500);
+        } catch (e) {}
+      });
+    } catch (e) {
+      console.warn('Windows direct print error:', e.message);
+    }
+  }
+
+  return { dispatchedToOs, resolvedQueueId, resolvedPrinterName };
+}
+
 export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, mediaAssetId, copies = 1, extraOptions = {}) {
   const printJobId = 'pjob_' + crypto.randomBytes(8).toString('hex');
   const idempotencyKey = `print_${photoSessionId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 
-  // Ambil seluruh pengaturan cetak aktif (printer, jenis kertas, ukuran kertas, borderless, kualitas)
-  const options = buildPrintOptions(tenantId, copies);
+  // Ambil seluruh pengaturan cetak aktif (plus override ukuran kertas 4R/5R bila dipilih tamu/operator)
+  const options = buildPrintOptions(tenantId, copies, extraOptions.paperSize || null);
 
   // Cari token galeri dan posisi QR template untuk ditempelkan khusus pada lembar cetak
   let qrUrl = extraOptions.qrUrl || null;
@@ -556,6 +712,11 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
   const isUnitTestSession = String(photoSessionId || '').startsWith('sess_print_test_') || String(photoSessionId || '').startsWith('sess_test_0');
   const isSimulator = /simulator|virtual/i.test(printerName) || /simulator|virtual/i.test(driverName);
 
+  // 5R (13x18 cm) wajib menunggu konfirmasi pergantian kertas di Laptop Printer / Admin kecuali sudah dicentang siap
+  const requiresPaperConfirm = is5rPaperSize(options.paperSize) && !extraOptions.paperConfirmed && !isUnitTestSession;
+  options.requiresPaperConfirm = requiresPaperConfirm;
+  const initialState = requiresPaperConfirm ? 'awaiting_paper' : 'queued';
+
   let absFilePath = null;
   if (asset && asset.file_path) {
     const candidate = path.join(publicDir, asset.file_path.replace(/^\//, ''));
@@ -571,7 +732,7 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
 
   db.prepare(`
     INSERT INTO print_jobs (id, tenant_id, event_id, device_id, photo_session_id, media_asset_id, copies, state, spooler_job_id, idempotency_key, options_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     printJobId,
     tenantId,
@@ -580,152 +741,29 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
     photoSessionId,
     mediaAssetId,
     copies,
+    initialState,
     spoolerJobId,
     idempotencyKey,
     JSON.stringify(options)
   );
 
-  const platform = os.platform();
   let dispatchedToOs = false;
   let resolvedQueueId = null;
   let resolvedPrinterName = printerName;
 
-  // PRINT_MODE=agent: paksa semua cetak lewat Print Agent (tidak mencetak langsung dari mesin server)
-  const localDispatchAllowed = process.env.PRINT_MODE !== 'agent';
-
-  if (absFilePath && !isUnitTestSession && !isSimulator && localDispatchAllowed) {
-    if (platform === 'darwin' || platform === 'linux') {
-      try {
-        const { cupsQueueId, printerObj } = resolveCupsQueueId(printerName, driverName);
-        if (cupsQueueId) {
-          resolvedQueueId = cupsQueueId;
-          if (printerObj && printerObj.name) {
-            resolvedPrinterName = printerObj.name;
-          }
-          dispatchedToOs = true;
-          const lpArgs = [
-            '-d', cupsQueueId,
-            '-n', String(copies),
-            '-o', 'fit-to-page',
-            '-o', sheetOrientation === 'landscape' ? 'orientation-requested=4' : 'orientation-requested=3'
-          ];
-          if (mediaType && mediaType !== 'auto' && mediaType !== 'any') {
-            lpArgs.push('-o', `MediaType=${mediaType}`);
-          }
-          if (options.borderless) {
-            lpArgs.push('-o', 'EPIJ_Bdls=1', '-o', 'EPIJ_exmg=0');
-          }
-          if (options.highDpi) {
-            lpArgs.push('-o', 'EPIJ_Qual=306', '-o', 'Resolution=720x720dpi', '-o', 'EPIJ_Mode=3', '-o', 'EPIJ_OPT_Bi_D=0', '-o', 'print-quality=5');
-          } else {
-            lpArgs.push('-o', 'EPIJ_Qual=303', '-o', 'Resolution=360x360dpi', '-o', 'EPIJ_OPT_Bi_D=1', '-o', 'print-quality=3');
-          }
-          lpArgs.push(printFilePath);
-
-          // On macOS, launch Print Center.app in background (-g) so the top-right Menu Bar printer status icon appears
-          if (platform === 'darwin') {
-            execFile('open', ['-g', '-a', '/System/Applications/Utilities/Print Center.app'], () => {});
-          }
-
-          db.prepare("UPDATE print_jobs SET state = 'processing' WHERE id = ?").run(printJobId);
-          execFile('lp', lpArgs, { timeout: 10000 }, (err, stdout) => {
-            if (err) {
-              console.warn('CUPS lp warning (falling back to spooled state):', err.message);
-            } else if (stdout) {
-              const m = stdout.trim().match(/(?:request id is|id permintaan adalah)\s+([^\s]+)/i)
-                || stdout.trim().match(/([A-Za-z0-9_]+-\d+)/);
-              const realCupsJobId = m ? (m[1] || m[2]) : null;
-              if (realCupsJobId) {
-                try {
-                  db.prepare('UPDATE print_jobs SET spooler_job_id = ? WHERE id = ?').run(realCupsJobId, printJobId);
-                } catch (e) {}
-              }
-            }
-            try {
-              db.prepare("UPDATE print_jobs SET state = 'spooled' WHERE id = ?").run(printJobId);
-              setTimeout(() => {
-                try {
-                  db.prepare("UPDATE print_jobs SET state = 'completed' WHERE id = ?").run(printJobId);
-                } catch (e) {}
-              }, 2500);
-            } catch (e) {}
-          });
-        }
-      } catch (e) {
-        console.warn('OS direct print error:', e.message);
-      }
-    } else if (platform === 'win32') {
-      try {
-        const { printerObj, sys } = resolveCupsQueueId(printerName, driverName);
-        const targetWinPrinter = (printerObj && printerObj.name) ? printerObj.name : (sys.defaultPrinter || printerName);
-        resolvedPrinterName = targetWinPrinter;
-        resolvedQueueId = printerObj ? printerObj.id : targetWinPrinter;
-        dispatchedToOs = true;
-
-        db.prepare("UPDATE print_jobs SET state = 'processing' WHERE id = ?").run(printJobId);
-
-        // Open Windows Print Queue status monitor in background so the active job appears on taskbar/tray
-        if (targetWinPrinter) {
-          execFile('rundll32.exe', ['printui.dll,PrintUIEntry', '/o', '/n', targetWinPrinter], () => {});
-        }
-
-        // Native .NET PrintDocument script for Windows 10/11 (reliable for PNG/JPG, supports copies & high-DPI fit-to-page)
-        const psScript = `
-          Add-Type -AssemblyName System.Drawing;
-          $img = [System.Drawing.Image]::FromFile($env:PB_FILE);
-          $doc = New-Object System.Drawing.Printing.PrintDocument;
-          if ($env:PB_PRINTER) { $doc.PrinterSettings.PrinterName = $env:PB_PRINTER };
-          $doc.PrinterSettings.Copies = [int]$env:PB_COPIES;
-          $doc.OriginAtMargins = $false;
-          $doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0,0,0,0);
-          if ($img.Width -gt $img.Height) { $doc.DefaultPageSettings.Landscape = $true } else { $doc.DefaultPageSettings.Landscape = $false };
-          $doc.add_PrintPage({
-            param($sender, $e)
-            $e.Graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic;
-            $bounds = $e.PageBounds;
-            $ratio = [Math]::Min($bounds.Width / $img.Width, $bounds.Height / $img.Height);
-            $w = [int]($img.Width * $ratio);
-            $h = [int]($img.Height * $ratio);
-            $x = [int](($bounds.Width - $w) / 2);
-            $y = [int](($bounds.Height - $h) / 2);
-            $e.Graphics.DrawImage($img, $x, $y, $w, $h);
-            $e.HasMorePages = $false;
-          });
-          $doc.Print();
-          $img.Dispose();
-          Write-Output "WIN_SPOOL_OK";
-        `;
-
-        execFile('powershell', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', psScript], {
-          timeout: 15000,
-          env: {
-            ...process.env,
-            PB_FILE: printFilePath,
-            PB_PRINTER: targetWinPrinter || '',
-            PB_COPIES: String(copies || 1)
-          }
-        }, () => {
-          try {
-            db.prepare("UPDATE print_jobs SET state = 'spooled' WHERE id = ?").run(printJobId);
-            setTimeout(() => {
-              try {
-                db.prepare("UPDATE print_jobs SET state = 'completed' WHERE id = ?").run(printJobId);
-              } catch (e) {}
-            }, 2500);
-          } catch (e) {}
-        });
-      } catch (e) {
-        console.warn('Windows direct print error:', e.message);
-      }
-    }
+  if (!requiresPaperConfirm && absFilePath && !isUnitTestSession && !isSimulator) {
+    const disp = dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, options, copies, sheetOrientation);
+    dispatchedToOs = disp.dispatchedToOs;
+    resolvedQueueId = disp.resolvedQueueId;
+    resolvedPrinterName = disp.resolvedPrinterName;
   }
 
   // Server ada di cloud (tanpa printer). Jika Print Agent aktif di komputer studio,
-  // biarkan job berstatus 'queued' agar diambil & dicetak otomatis sesuai pengaturan.
-  const awaitingAgent = !dispatchedToOs && !!absFilePath && !isUnitTestSession && !isSimulator && isAgentOnline(tenantId);
+  // biarkan job berstatus 'queued' (atau 'awaiting_paper' untuk 5R) agar diproses agent setelah siap.
+  const awaitingAgent = !requiresPaperConfirm && !dispatchedToOs && !!absFilePath && !isUnitTestSession && !isSimulator && isAgentOnline(tenantId);
 
-  if (!dispatchedToOs && !awaitingAgent) {
-    // Simulate print spooling progression asynchronously
+  if (!requiresPaperConfirm && !dispatchedToOs && (isUnitTestSession || isSimulator)) {
+    // Simulate print spooling progression asynchronously ONLY for unit tests / virtual simulator printers
     setTimeout(() => {
       try {
         db.prepare("UPDATE print_jobs SET state = 'processing' WHERE id = ?").run(printJobId);
@@ -751,15 +789,77 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
     mediaType,
     dispatchedToOs,
     awaitingAgent,
+    requiresPaperConfirm,
     paperSize: options.paperSize,
+    paperLabel: options.paperLabel,
     paperWidthIn: options.paperWidthIn,
     paperHeightIn: options.paperHeightIn,
     layout: options.layout,
     orientation: sheetOrientation,
     borderless: options.borderless,
     sheetUrl: `/api/print-jobs/${printJobId}/sheet`,
-    state: 'queued',
+    state: initialState,
     copies
+  };
+}
+
+export function confirmPrintJobPaper(printJobId, tenantId, operatorId = null) {
+  const job = db.prepare(`
+    SELECT pj.*, ma.file_path
+    FROM print_jobs pj
+    LEFT JOIN media_assets ma ON pj.media_asset_id = ma.id
+    WHERE pj.id = ? AND pj.tenant_id = ?
+  `).get(printJobId, tenantId);
+  if (!job) throw new Error('Job cetak tidak ditemukan');
+
+  const options = parseJson(job.options_json || '{}', {});
+  options.requiresPaperConfirm = false;
+  options.paperConfirmedAt = new Date().toISOString();
+
+  db.prepare("UPDATE print_jobs SET state = 'queued', options_json = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(JSON.stringify(options), printJobId);
+
+  const isSimulator = /simulator|virtual/i.test(options.printerName || '') || /simulator|virtual/i.test(options.driverName || '');
+  let absFilePath = null;
+  if (job.file_path) {
+    const candidate = path.join(publicDir, job.file_path.replace(/^\//, ''));
+    if (fs.existsSync(candidate)) absFilePath = candidate;
+  }
+
+  let dispatchedToOs = false;
+  if (absFilePath && !isSimulator) {
+    const printFilePath = buildPrintSheetFile(absFilePath, options, printJobId);
+    const sheetOrientation = options.orientation || detectImageOrientation(printFilePath || absFilePath);
+    const disp = dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, options, job.copies || 1, sheetOrientation);
+    dispatchedToOs = disp.dispatchedToOs;
+  }
+
+  const awaitingAgent = !dispatchedToOs && !isSimulator && isAgentOnline(tenantId);
+
+  if (operatorId) {
+    try {
+      db.prepare(`
+        INSERT INTO audit_logs (id, tenant_id, user_id, actor_name, action, details_json)
+        VALUES (?, ?, ?, 'Operator', 'confirm_paper_5r', ?)
+      `).run(
+        'audit_' + crypto.randomBytes(8).toString('hex'),
+        tenantId,
+        operatorId,
+        JSON.stringify({ printJobId, paperSize: options.paperSize })
+      );
+    } catch (e) {}
+  }
+
+  return {
+    success: true,
+    printJobId,
+    state: dispatchedToOs ? 'processing' : 'queued',
+    dispatchedToOs,
+    awaitingAgent,
+    paperSize: options.paperSize,
+    paperLabel: options.paperLabel || formatPaperLabel(options.paperSize),
+    copies: job.copies || 1,
+    sheetUrl: `/api/print-jobs/${printJobId}/sheet`
   };
 }
 
@@ -781,10 +881,11 @@ export function getPrintJobs(tenantId, eventId = null) {
   return db.prepare(query).all(...params);
 }
 
-export function reprintJob(printJobId, tenantId, operatorId, copies = null) {
+export function reprintJob(printJobId, tenantId, operatorId, copies = null, extraOptions = {}) {
   const original = db.prepare('SELECT * FROM print_jobs WHERE id = ? AND tenant_id = ?').get(printJobId, tenantId);
   if (!original) throw new Error('Job cetak tidak ditemukan');
 
+  const origOpts = parseJson(original.options_json || '{}', {});
   const finalCopies = parseInt(copies) || original.copies || 1;
   const newJob = createPrintJob(
     tenantId,
@@ -792,7 +893,11 @@ export function reprintJob(printJobId, tenantId, operatorId, copies = null) {
     original.device_id,
     original.photo_session_id,
     original.media_asset_id,
-    finalCopies
+    finalCopies,
+    {
+      paperSize: extraOptions.paperSize || origOpts.paperSize || null,
+      paperConfirmed: !!extraOptions.paperConfirmed
+    }
   );
 
   db.prepare(`

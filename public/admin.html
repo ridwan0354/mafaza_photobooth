@@ -1689,6 +1689,21 @@
           </div>
         </div>
 
+        <!-- Print Station Mode Bar (Laptop Penerima Cetak dari iPad / Mingle / Kiosk) -->
+        <div class="card-pop" style="margin-bottom: 18px; padding: 14px 20px; border: 2px solid rgba(95, 143, 138, 0.4); background: linear-gradient(135deg, #F4FAF9 0%, #FFFDF9 100%); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px; min-width: 240px; flex: 1;">
+            <span style="font-size: 24px;">💻</span>
+            <div>
+              <div style="font-size: 14px; font-weight: 800; color: var(--charcoal);">Stasiun Penerima Cetak Laptop (4R Otomatis · 5R Konfirmasi Popup)</div>
+              <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">Biarkan halaman Admin ini terbuka di laptop yang tercolok ke printer Epson L8050/L5080. Pesanan <strong>4R</strong> tercetak langsung (via Print Agent / Browser), sedangkan pesanan <strong>5R</strong> selalu memunculkan popup konfirmasi ganti kertas.</div>
+            </div>
+          </div>
+          <label style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; background: #fff; border: 1.5px solid var(--border-soft); border-radius: 12px; font-size: 12.5px; font-weight: 800; color: var(--caramel-brown); cursor: pointer;" title="Aktifkan jika belum memasang Mafaza Print Agent dan ingin browser laptop langsung memunculkan dialog cetak saat ada job 4R masuk">
+            <input type="checkbox" id="adminBrowserStationToggle" onchange="toggleAdminBrowserPrintStation(this.checked)" style="accent-color: var(--coral);">
+            <span>🖨️ Auto-Cetak Browser saat Print Agent Mati</span>
+          </label>
+        </div>
+
         <!-- Live Active Print Monitor Banner (Real-time tracking of current job) -->
         <div id="pqActiveJobBanner" style="margin-bottom: 24px;">
           <!-- Dynamically filled: either active printing state or ready state -->
@@ -2739,9 +2754,48 @@
     </div>
   </div>
 
+  <!-- 6. MODAL KONFIRMASI KERTAS 5R (MUNCUL REAL-TIME SAAT ADA PESANAN 5R) -->
+  <div id="adminPaperConfirmModal" style="display: none; position: fixed; inset: 0; z-index: 10010; background: rgba(30, 15, 10, 0.86); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;">
+    <div class="card-pop" style="max-width: 480px; width: 100%; background: #FFFDF9; padding: 26px; border-radius: 26px; border: 3px solid #D4A754; box-shadow: 0 28px 70px rgba(0,0,0,0.45); text-align: center;">
+      <div style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 999px; background: #FFF3CD; color: #856404; border: 1.5px solid #D4A754; font-size: 12px; font-weight: 800; margin-bottom: 10px;">
+        ⚠️ KONFIRMASI PERGANTIAN KERTAS PRINTER
+      </div>
+      <h3 style="font-size: 21px; font-weight: 800; color: var(--charcoal); margin: 0 0 6px;">Permintaan Cetak 5R Masuk!</h3>
+      <p style="font-size: 13.5px; color: var(--text-muted); margin: 0 0 16px; line-height: 1.45;">
+        Pastikan kertas di printer <strong>Epson (L8050 / L5080)</strong> sudah diganti ke ukuran <strong style="color: var(--coral);">5R (13×18 cm)</strong> sebelum melanjutkan cetak.
+      </p>
+
+      <div style="background: #FFF6EB; border: 1.5px solid var(--border-soft); border-radius: 16px; padding: 14px; margin-bottom: 18px; display: flex; align-items: center; gap: 14px; text-align: left;">
+        <img id="adminPaperConfirmThumb" src="/assets/templates/strip-green-template.svg" alt="Foto Cetak 5R" style="width: 68px; height: 88px; object-fit: contain; border-radius: 10px; background: #fff; border: 1.5px solid var(--border-soft);">
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px;">
+            <span style="padding: 2px 9px; border-radius: 8px; background: #D4A754; color: #fff; font-size: 11.5px; font-weight: 800;">KERTAS 5R</span>
+            <span id="adminPaperConfirmCopies" style="font-size: 13px; font-weight: 800; color: var(--coral);">1 Lembar</span>
+          </div>
+          <div id="adminPaperConfirmEvent" style="font-size: 14px; font-weight: 800; color: var(--caramel-brown);">Event Aktif</div>
+          <div id="adminPaperConfirmJobId" style="font-size: 11.5px; font-family: monospace; color: var(--text-muted); margin-top: 2px;">-</div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 9px;">
+        <button id="btnConfirmPaper5R" type="button" class="btn btn-coral" style="width: 100%; padding: 14px; font-size: 15px; font-weight: 800;" onclick="confirmAdminPaper5R()">
+          ✅ Kertas 5R Sudah Diganti — Cetak Sekarang!
+        </button>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-secondary" style="flex: 1; padding: 10px; font-size: 13px; font-weight: 700;" onclick="snoozeAdminPaperConfirmModal()">
+            ⏳ Tunda Sebentar
+          </button>
+          <button type="button" class="btn btn-secondary" style="padding: 10px 14px; font-size: 13px; font-weight: 700; color: #B3402F; border-color: rgba(179,64,47,0.3);" onclick="cancelAdminPaper5R()">
+            ❌ Batalkan Job
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
   <script src="/js/print-client.js?v=1.4"></script>
-  <script src="/js/admin.js?v=responsive-v6.6"></script>
+  <script src="/js/admin.js?v=responsive-v6.7"></script>
 </body>
 </html>

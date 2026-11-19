@@ -324,3 +324,79 @@ test('Print sheet & client print orientation match portrait vs landscape frames 
     try { fs.unlinkSync(tmpLand); } catch (e) {}
   }
 });
+
+test('Server print queue dispatches 4R immediately and holds 5R for Admin paper confirmation', async () => {
+  const printService = await import('../src/services/print.js');
+  const tenantId = 'tenant_studiokeren_01';
+  const eventId = 'event_wedding_dimas_sarah';
+  const sessId = 'sess_5r_confirm_' + Date.now();
+  const assetId = 'asset_5r_' + Date.now();
+  const root = process.cwd();
+
+  db.prepare(`
+    INSERT INTO photo_sessions (id, tenant_id, event_id, device_id, mode, status)
+    VALUES (?, ?, ?, NULL, 'mingle', 'completed')
+  `).run(sessId, tenantId, eventId);
+
+  db.prepare(`
+    INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
+    VALUES (?, ?, ?, ?, 'final_photo', 'print_hires', '/uploads/test_print_nonexistent.png', 'ready')
+  `).run(assetId, tenantId, eventId, sessId);
+
+  try {
+    // 1. 4R immediately queues for printing without paper confirmation
+    const job4r = printService.createPrintJob(tenantId, eventId, null, sessId, assetId, 2, { paperSize: '4x6' });
+    assert.equal(job4r.state, 'queued');
+    assert.equal(job4r.requiresPaperConfirm, false);
+    assert.equal(job4r.paperLabel, '4R');
+    assert.equal(job4r.paperWidthIn, 4);
+    assert.equal(job4r.paperHeightIn, 6);
+
+    // 2. 5R (unconfirmed) waits in awaiting_paper state and is NOT claimed by agent yet
+    const job5r = printService.createPrintJob(tenantId, eventId, null, sessId, assetId, 1, { paperSize: '5x7' });
+    assert.equal(job5r.state, 'awaiting_paper');
+    assert.equal(job5r.requiresPaperConfirm, true);
+    assert.equal(job5r.paperLabel, '5R');
+    assert.equal(job5r.paperWidthIn, 5);
+    assert.equal(job5r.paperHeightIn, 7);
+
+    const rowBefore = db.prepare('SELECT state FROM print_jobs WHERE id = ?').get(job5r.printJobId);
+    assert.equal(rowBefore.state, 'awaiting_paper');
+
+    // Confirming 5R paper moves job to queued for Print Agent / OS
+    const confirmed = printService.confirmPrintJobPaper(job5r.printJobId, tenantId, 'user_operator_01');
+    assert.equal(confirmed.success, true);
+    assert.equal(confirmed.state, 'queued');
+    const rowAfter = db.prepare('SELECT state FROM print_jobs WHERE id = ?').get(job5r.printJobId);
+    assert.equal(rowAfter.state, 'queued');
+
+    // 3. 5R pre-confirmed (1-laptop setup checkbox) queues directly
+    const job5rPre = printService.createPrintJob(tenantId, eventId, null, sessId, assetId, 1, { paperSize: '5x7', paperConfirmed: true });
+    assert.equal(job5rPre.state, 'queued');
+    assert.equal(job5rPre.requiresPaperConfirm, false);
+
+    // Verify UI & route wiring
+    const kioskHtml = fs.readFileSync(path.join(root, 'public/kiosk.html'), 'utf8');
+    const kioskJs = fs.readFileSync(path.join(root, 'public/js/kiosk.js'), 'utf8');
+    const mingleHtml = fs.readFileSync(path.join(root, 'public/mingle.html'), 'utf8');
+    const mingleJs = fs.readFileSync(path.join(root, 'public/js/mingle.js'), 'utf8');
+    const adminHtml = fs.readFileSync(path.join(root, 'public/admin.html'), 'utf8');
+    const adminJs = fs.readFileSync(path.join(root, 'public/js/admin.js'), 'utf8');
+    const apiJs = fs.readFileSync(path.join(root, 'src/routes/api.js'), 'utf8');
+
+    assert.match(kioskHtml, /kioskPrintOptionsModal/);
+    assert.match(kioskJs, /openPrintOptionsModal/);
+    assert.match(mingleHtml, /minglePrintOptionsModal/);
+    assert.match(mingleJs, /openPrintOptionsModal/);
+    assert.match(adminHtml, /adminPaperConfirmModal/);
+    assert.match(adminHtml, /adminBrowserStationToggle/);
+    assert.match(adminJs, /confirmAdminPaper5R/);
+    assert.match(adminJs, /pollGlobalPrintStation/);
+    assert.match(apiJs, /\/print-jobs\/:id\/confirm-paper/);
+    assert.match(apiJs, /resolveValidDeviceId/);
+  } finally {
+    db.prepare('DELETE FROM print_jobs WHERE photo_session_id = ?').run(sessId);
+    db.prepare('DELETE FROM media_assets WHERE photo_session_id = ?').run(sessId);
+    db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(sessId);
+  }
+});

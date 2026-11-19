@@ -824,17 +824,24 @@ apiRouter.post('/kiosk/qr/resolve', async (req, res) => {
   }
 });
 
+function resolveValidDeviceId(deviceId) {
+  if (!deviceId || typeof deviceId !== 'string') return null;
+  const row = db.prepare('SELECT id FROM devices WHERE id = ?').get(deviceId);
+  return row ? row.id : null;
+}
+
 // Start a photo session on kiosk
 apiRouter.post('/kiosk/sessions', (req, res) => {
   try {
     const { tenantId, eventId, deviceId, guestPassId, mode, templateId } = req.body;
     const sessionId = 'sess_' + crypto.randomBytes(8).toString('hex');
     const nowIso = new Date().toISOString();
+    const safeDeviceId = resolveValidDeviceId(deviceId);
 
     db.prepare(`
       INSERT INTO photo_sessions (id, tenant_id, event_id, device_id, guest_pass_id, mode, status, started_at, template_id)
       VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?, ?)
-    `).run(sessionId, tenantId, eventId, deviceId || null, guestPassId || null, mode || 'single', nowIso, templateId || null);
+    `).run(sessionId, tenantId, eventId, safeDeviceId, guestPassId || null, mode || 'single', nowIso, templateId || null);
 
     res.json({ sessionId, status: 'capturing' });
   } catch (err) {
@@ -857,7 +864,7 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
       // Rekonsiliasi otomatis jika sesi ini dibuat saat mode offline (tanpa koneksi internet)
       const tenantId = req.body.tenantId || 'tenant_studiokeren_01';
       const eventId = req.body.eventId || 'event_wedding_dimas_sarah';
-      const deviceId = req.body.deviceId || 'dev_kiosk_win_01';
+      const safeDeviceId = resolveValidDeviceId(req.body.deviceId || 'dev_kiosk_win_01');
       const guestPassId = req.body.guestPassId || null;
       const mode = req.body.mode || 'single';
       const templateId = req.body.templateId || null;
@@ -867,7 +874,7 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
       db.prepare(`
         INSERT INTO photo_sessions (id, tenant_id, event_id, device_id, guest_pass_id, mode, status, started_at, template_id, local_session_id)
         VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?, ?, ?)
-      `).run(sessionId, tenantId, eventId, deviceId, guestPassId, mode, startedAt, templateId, localSessionId);
+      `).run(sessionId, tenantId, eventId, safeDeviceId, guestPassId, mode, startedAt, templateId, localSessionId);
 
       session = db.prepare('SELECT * FROM photo_sessions WHERE id = ?').get(sessionId);
     }
@@ -997,18 +1004,26 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
 
     // If print requested
     let printJob = null;
-    if (req.body.printRequested === 'true' && finalAssetId) {
-      const copies = parseInt(req.body.printCopies) || 1;
-      const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
-      printJob = printService.createPrintJob(
-        session.tenant_id,
-        session.event_id,
-        session.device_id,
-        sessionId,
-        finalAssetId,
-        copies,
-        { baseUrl }
-      );
+    if (req.body.printRequested === 'true') {
+      if (!finalAssetId) {
+        const existingFinal = db.prepare("SELECT id FROM media_assets WHERE photo_session_id = ? AND type = 'final_photo'").get(sessionId);
+        if (existingFinal) finalAssetId = existingFinal.id;
+      }
+      if (finalAssetId) {
+        const copies = parseInt(req.body.printCopies) || 1;
+        const paperSize = req.body.printPaperSize || req.body.paperSize || null;
+        const paperConfirmed = req.body.paperConfirmed === 'true' || req.body.paperConfirmed === '1';
+        const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+        printJob = printService.createPrintJob(
+          session.tenant_id,
+          session.event_id,
+          session.device_id,
+          sessionId,
+          finalAssetId,
+          copies,
+          { baseUrl, paperSize, paperConfirmed }
+        );
+      }
     }
 
     res.json({
@@ -1262,7 +1277,18 @@ apiRouter.get('/print-jobs', authMiddleware(), (req, res) => {
 apiRouter.post('/print-jobs/:id/reprint', authMiddleware(), (req, res) => {
   try {
     const copies = parseInt(req.body?.copies) || null;
-    const result = printService.reprintJob(req.params.id, req.user.tenantId, req.user.userId, copies);
+    const paperSize = req.body?.paperSize || null;
+    const paperConfirmed = req.body?.paperConfirmed === true || req.body?.paperConfirmed === 'true';
+    const result = printService.reprintJob(req.params.id, req.user.tenantId, req.user.userId, copies, { paperSize, paperConfirmed });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/print-jobs/:id/confirm-paper', authMiddleware(), (req, res) => {
+  try {
+    const result = printService.confirmPrintJobPaper(req.params.id, req.user.tenantId, req.user.userId);
     res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1394,6 +1420,8 @@ apiRouter.post('/photos/:assetId/print', authMiddleware(), (req, res) => {
     if (!asset) return res.status(404).json({ error: 'Foto tidak ditemukan' });
 
     const copies = parseInt(req.body.copies) || 1;
+    const paperSize = req.body.paperSize || null;
+    const paperConfirmed = req.body.paperConfirmed === true || req.body.paperConfirmed === 'true';
     const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
     const printJob = printService.createPrintJob(
       tenantId,
@@ -1402,7 +1430,7 @@ apiRouter.post('/photos/:assetId/print', authMiddleware(), (req, res) => {
       asset.photo_session_id,
       asset.id,
       copies,
-      { baseUrl }
+      { baseUrl, paperSize, paperConfirmed }
     );
     res.json({
       success: true,

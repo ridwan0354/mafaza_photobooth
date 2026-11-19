@@ -1574,10 +1574,10 @@ class MingleBoothEngine {
     await this.syncFinalImageOnly(true);
   }
 
-  async syncFinalImageOnly(includeRaw = false, printRequested = false) {
+  async syncFinalImageOnly(includeRaw = false, printRequested = false, printOpts = {}) {
     const canvas = document.getElementById('mingleFinalCanvas');
     const statusEl = document.getElementById('mingleSyncStatus');
-    if (!this.sessionId) return;
+    if (!this.sessionId) return null;
 
     let finalBlob = null;
     if (!this.filesOnlyMode && canvas && canvas.width > 0) {
@@ -1586,6 +1586,9 @@ class MingleBoothEngine {
 
     const totalPhotos = this.capturedPhotos.length;
     const modeVal = this.filesOnlyMode ? 'files_only' : (totalPhotos > 1 ? 'multi' : 'single');
+    const printCopies = String(printOpts.copies || 1);
+    const printPaperSize = printOpts.paperSize || '';
+    const paperConfirmed = !!printOpts.paperConfirmed;
 
     if (!navigator.onLine) {
       if (window.pbOfflineStore) {
@@ -1607,11 +1610,11 @@ class MingleBoothEngine {
           finalImageBlob: finalBlob,
           captures: offlineCaps,
           printRequested,
-          printCopies: 1
+          printCopies: parseInt(printCopies, 10) || 1
         }).catch(() => {});
       }
       if (statusEl) statusEl.innerText = '⚡ Disimpan lokal (Offline) — QR siap saat online';
-      return;
+      return null;
     }
 
     try {
@@ -1624,15 +1627,25 @@ class MingleBoothEngine {
         const formData = new FormData();
         if (finalBlob) formData.append('finalImage', finalBlob, `mingle_${Date.now()}.jpg`);
         formData.append('printRequested', printRequested ? 'true' : 'false');
+        if (printRequested) {
+          formData.append('printCopies', printCopies);
+          if (printPaperSize) formData.append('printPaperSize', printPaperSize);
+          if (paperConfirmed) formData.append('paperConfirmed', 'true');
+        }
         formData.append('mode', modeVal);
         if (this.guestPass && this.guestPass.id) formData.append('guestPassId', this.guestPass.id);
         if (this.selectedTemplate && this.selectedTemplate.id) formData.append('templateId', this.selectedTemplate.id);
         const res = await fetch(`/api/kiosk/sessions/${this.sessionId}/complete`, { method: 'POST', body: formData });
         const data = res.ok ? await res.json().catch(() => null) : null;
         if (res.ok && statusEl) {
-          statusEl.innerText = printRequested
-            ? '✅ Foto tersimpan & dikirim ke printer!'
-            : `✅ Siap! ${totalPhotos} file foto siap diunduh lewat QR.`;
+          const pj = data && data.printJob;
+          if (printRequested) {
+            statusEl.innerText = pj && pj.requiresPaperConfirm
+              ? `⏳ Antrean 5R (${printCopies} lbr) dikirim! Menunggu konfirmasi kertas di Laptop Printer.`
+              : `✅ Antrean cetak ${pj?.paperLabel || printOpts.paperLabel || '4R'} (${printCopies} lbr) terkirim ke server!`;
+          } else {
+            statusEl.innerText = `✅ Siap! ${totalPhotos} file foto siap diunduh lewat QR.`;
+          }
         }
         return data;
       }
@@ -1647,7 +1660,13 @@ class MingleBoothEngine {
           formData.append('finalImage', finalBlob, `mingle_${Date.now()}.jpg`);
         }
         const isLastBatch = (end >= totalPhotos);
-        formData.append('printRequested', (printRequested && isLastBatch) ? 'true' : 'false');
+        const batchPrint = (printRequested && isLastBatch);
+        formData.append('printRequested', batchPrint ? 'true' : 'false');
+        if (batchPrint) {
+          formData.append('printCopies', printCopies);
+          if (printPaperSize) formData.append('printPaperSize', printPaperSize);
+          if (paperConfirmed) formData.append('paperConfirmed', 'true');
+        }
         formData.append('mode', modeVal);
         formData.append('captureStartIndex', String(offset));
         if (this.guestPass && this.guestPass.id) formData.append('guestPassId', this.guestPass.id);
@@ -1668,7 +1687,7 @@ class MingleBoothEngine {
 
       if (statusEl) {
         statusEl.innerText = printRequested
-          ? `✅ ${totalPhotos} foto tersimpan & dikirim ke printer!`
+          ? `✅ ${totalPhotos} foto tersimpan & antrean cetak terkirim ke server!`
           : `✅ Siap! Semua ${totalPhotos} foto tersedia di QR Code.`;
       }
       return lastData;
@@ -1678,22 +1697,127 @@ class MingleBoothEngine {
     }
   }
 
-  async printResult() {
+  openPrintOptionsModal() {
     if (this.filesOnlyMode) {
       this.showToast('Mode Jual File tidak memakai bingkai cetak.', 'ℹ️', 2200);
       return;
     }
-    const resData = await this.syncFinalImageOnly(false, true);
-    const job = resData && resData.printJob ? resData.printJob : null;
-    if (job && (job.dispatchedToOs || job.awaitingAgent)) {
-      this.showToast('🖨️ Permintaan cetak dikirim ke printer!', '🖨️', 2500);
+    const modal = document.getElementById('minglePrintOptionsModal');
+    if (!modal) {
+      this.printResult();
       return;
     }
+    this.setModalPrintCopies(this.modalPrintCopies || 1);
+    const tpl = this.selectedTemplate;
+    const is5rTpl = Boolean(tpl && (
+      String(tpl.paper_format || '').toUpperCase() === '5R' ||
+      /5r|5x7|1500x2100|2100x1500/i.test(`${tpl.name || ''} ${tpl.orientation || ''} ${tpl.width || ''}x${tpl.height || ''}`)
+    ));
+    this.setModalPrintPaper(is5rTpl ? '5R' : '4R');
+    const readyCheck = document.getElementById('minglePaperAlreadyReadyCheck');
+    if (readyCheck) readyCheck.checked = false;
+    modal.style.display = 'flex';
+  }
+
+  closePrintOptionsModal(event) {
+    if (event && event.target && event.target.closest('div[onclick*="stopPropagation"]')) return;
+    const modal = document.getElementById('minglePrintOptionsModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  setModalPrintCopies(qty) {
+    const val = Math.max(1, Math.min(10, parseInt(qty, 10) || 1));
+    this.modalPrintCopies = val;
+    const qtyEl = document.getElementById('minglePrintModalQty');
+    if (qtyEl) qtyEl.innerText = String(val);
+    document.querySelectorAll('.mingle-qty-chip').forEach(btn => {
+      const active = Number(btn.dataset.qty) === val;
+      btn.style.background = active ? 'var(--coral, #E6786B)' : '';
+      btn.style.color = active ? '#fff' : '';
+      btn.style.borderColor = active ? 'var(--coral, #E6786B)' : '';
+    });
+  }
+
+  adjustModalPrintCopies(delta) {
+    this.setModalPrintCopies((this.modalPrintCopies || 1) + delta);
+  }
+
+  setModalPrintPaper(size) {
+    this.modalPrintPaper = size === '5R' ? '5R' : '4R';
+    const opt4 = document.getElementById('minglePaperOpt4R');
+    const opt5 = document.getElementById('minglePaperOpt5R');
+    const notice5r = document.getElementById('minglePrint5rNotice');
+    if (opt4) {
+      const a = this.modalPrintPaper === '4R';
+      opt4.style.borderColor = a ? 'var(--coral, #E6786B)' : 'var(--border-soft, #EAD8C7)';
+      opt4.style.background = a ? 'rgba(230,120,107,0.12)' : '#fff';
+    }
+    if (opt5) {
+      const a = this.modalPrintPaper === '5R';
+      opt5.style.borderColor = a ? '#D4A754' : 'var(--border-soft, #EAD8C7)';
+      opt5.style.background = a ? '#FFF8E6' : '#fff';
+    }
+    if (notice5r) {
+      notice5r.style.display = this.modalPrintPaper === '5R' ? 'block' : 'none';
+    }
+  }
+
+  resolveSelectedServerPaperSize() {
+    if (this.modalPrintPaper === '5R') return '5x7';
+    if (this.selectedTemplate && this.selectedTemplate.orientation === 'strip') return '2x6';
+    return '4x6';
+  }
+
+  async confirmSendServerPrint() {
+    const modal = document.getElementById('minglePrintOptionsModal');
+    if (modal) modal.style.display = 'none';
+    const copies = this.modalPrintCopies || 1;
+    const paperSize = this.resolveSelectedServerPaperSize();
+    const paperConfirmed = this.modalPrintPaper === '5R'
+      ? Boolean(document.getElementById('minglePaperAlreadyReadyCheck')?.checked)
+      : true;
+    await this.printResult({ copies, paperSize, paperLabel: this.modalPrintPaper, paperConfirmed });
+  }
+
+  printFromModalViaDevice() {
+    const modal = document.getElementById('minglePrintOptionsModal');
+    if (modal) modal.style.display = 'none';
     const canvas = document.getElementById('mingleFinalCanvas');
+    const copies = this.modalPrintCopies || 1;
+    const is5r = this.modalPrintPaper === '5R';
     if (window.pbPrintViaBrowser && canvas) {
-      window.pbPrintViaBrowser({ imageUrl: canvas.toDataURL('image/png'), copies: 1, job });
+      window.pbPrintViaBrowser({
+        imageUrl: canvas.toDataURL('image/png'),
+        copies,
+        job: {
+          paperSize: is5r ? '5x7' : '4x6',
+          paperWidthIn: is5r ? 5 : 4,
+          paperHeightIn: is5r ? 7 : 6,
+          borderless: true
+        }
+      });
+    }
+  }
+
+  async printResult(printOpts = null) {
+    if (this.filesOnlyMode) {
+      this.showToast('Mode Jual File tidak memakai bingkai cetak.', 'ℹ️', 2200);
+      return;
+    }
+    if (!printOpts) {
+      this.openPrintOptionsModal();
+      return;
+    }
+    const resData = await this.syncFinalImageOnly(false, true, printOpts);
+    const job = resData && resData.printJob ? resData.printJob : null;
+    if (job && job.requiresPaperConfirm) {
+      this.showToast(`📄 Antrean 5R (${printOpts.copies}×) dikirim! Menunggu konfirmasi kertas di Laptop Printer.`, '⏳', 3500);
+    } else if (job && (job.dispatchedToOs || job.awaitingAgent)) {
+      this.showToast(`🖨️ ${printOpts.copies}× ${printOpts.paperLabel || '4R'} langsung dicetak di ${job.printerName || 'printer'}!`, '🖨️', 2800);
+    } else if (job) {
+      this.showToast(`✅ Antrean ${printOpts.paperLabel || '4R'} (${printOpts.copies}×) dikirim ke Server Admin!`, '🖨️', 3000);
     } else {
-      this.showToast('🖨️ Permintaan cetak dikirim ke printer!', '🖨️', 2500);
+      this.showToast('⚠️ Gagal mengirim ke server.', '⚠️', 2600);
     }
   }
 

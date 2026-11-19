@@ -57,6 +57,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadPrintJobs();
   await loadSystemPrinters();
   await loadPrintAgentStatus();
+  if (typeof initGlobalPrintStationMonitor === 'function') {
+    initGlobalPrintStationMonitor();
+  }
   setInterval(loadPrintAgentStatus, 10000);
   await loadRecentPhotos(activeKioskEventId);
   await loadAppDownloadInfo();
@@ -4192,8 +4195,23 @@ async function refreshPrintQueueSilently() {
   }
 }
 
+function parsePrintJobOptions(job) {
+  try {
+    return job && job.options_json ? JSON.parse(job.options_json) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function getPrintJobPaperBadge(job) {
+  const opts = parsePrintJobOptions(job);
+  const label = opts.paperLabel || (/5x7|5r/i.test(opts.paperSize || '') ? '5R' : '4R');
+  const is5r = /5r/i.test(label) || /5x7|5r/i.test(opts.paperSize || '');
+  return { label, is5r, opts };
+}
+
 function updatePrintQueueStats(jobs) {
-  const queuedCount = (jobs || []).filter(j => j.state === 'queued' || j.state === 'processing' || j.state === 'spooled').length;
+  const queuedCount = (jobs || []).filter(j => j.state === 'queued' || j.state === 'processing' || j.state === 'spooled' || j.state === 'awaiting_paper').length;
   const completedJobs = (jobs || []).filter(j => j.state === 'completed');
   const completedCopies = completedJobs.reduce((sum, j) => sum + (parseInt(j.copies) || 1), 0);
   const totalCount = (jobs || []).length;
@@ -4223,7 +4241,7 @@ function renderActivePrintBanner(jobs) {
   const bannerContainer = document.getElementById('pqActiveJobBanner');
   if (!bannerContainer) return;
 
-  const activeJob = (jobs || []).find(j => j.state === 'processing' || j.state === 'queued' || j.state === 'spooled');
+  const activeJob = (jobs || []).find(j => j.state === 'awaiting_paper' || j.state === 'processing' || j.state === 'queued' || j.state === 'spooled');
 
   if (!activeJob) {
     bannerContainer.innerHTML = `
@@ -4240,7 +4258,7 @@ function renderActivePrintBanner(jobs) {
               <span style="font-size: 12.5px; color: var(--text-muted); font-weight: 600;">Semua Antrean Selesai</span>
             </div>
             <h4 style="font-size: 16.5px; font-weight: 800; color: var(--caramel-brown); margin: 4px 0 2px 0;">Printer siap menerima sesi foto berikutnya</h4>
-            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Ketika tamu selesai berfoto di Kiosk, foto akan otomatis dikirim dan status prosesnya muncul di sini.</p>
+            <p style="font-size: 13px; color: var(--text-muted); margin: 0;">Ketika tamu selesai berfoto di Kiosk / Mingle dan memilih cetak, antrean otomatis muncul di sini.</p>
           </div>
         </div>
         <div style="display: flex; gap: 10px;">
@@ -4256,29 +4274,33 @@ function renderActivePrintBanner(jobs) {
   const thumbUrl = activeJob.media_url || '/assets/templates/strip-green-template.svg';
   const timeStr = activeJob.created_at ? new Date(activeJob.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Baru saja';
   const isSpooled = activeJob.state === 'spooled';
+  const isAwaitingPaper = activeJob.state === 'awaiting_paper';
+  const paperInfo = getPrintJobPaperBadge(activeJob);
 
   bannerContainer.innerHTML = `
-    <div class="card-pop" style="border: 2px solid var(--coral); background: linear-gradient(135deg, #FFF9F5 0%, #FFF2EC 100%); padding: 22px 26px;">
+    <div class="card-pop" style="border: 2px solid ${isAwaitingPaper ? '#D4A754' : 'var(--coral)'}; background: ${isAwaitingPaper ? 'linear-gradient(135deg, #FFFDF5 0%, #FFF5DC 100%)' : 'linear-gradient(135deg, #FFF9F5 0%, #FFF2EC 100%)'}; padding: 22px 26px;">
       <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 18px;">
         <div style="display: flex; align-items: center; gap: 16px;">
-          <div style="width: 58px; height: 76px; background: #fff; border-radius: 10px; overflow: hidden; border: 2px solid var(--coral); box-shadow: 0 4px 12px rgba(230,120,107,0.25); display: flex; align-items: center; justify-content: center; cursor: pointer;" onclick="openPhotoPreviewFromJob('${activeJob.id}')" title="Klik untuk lihat foto penuh">
+          <div style="width: 58px; height: 76px; background: #fff; border-radius: 10px; overflow: hidden; border: 2px solid ${isAwaitingPaper ? '#D4A754' : 'var(--coral)'}; box-shadow: 0 4px 12px rgba(230,120,107,0.25); display: flex; align-items: center; justify-content: center; cursor: pointer;" onclick="openPhotoPreviewFromJob('${activeJob.id}')" title="Klik untuk lihat foto penuh">
             <img src="${thumbUrl}" onerror="this.src='/assets/templates/strip-green-template.svg'" style="max-width: 100%; max-height: 100%; object-fit: contain;">
           </div>
           <div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 800; padding: 4px 12px; border-radius: 99px; background: var(--coral); color: #fff;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 800; padding: 4px 12px; border-radius: 99px; background: ${isAwaitingPaper ? '#D4A754' : 'var(--coral)'}; color: #fff;">
                 <span class="pq-pulse-dot" style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #fff;"></span>
-                SEDANG MENCETAK
+                ${isAwaitingPaper ? 'MENUNGGU KERTAS 5R' : 'SEDANG MENCETAK'}
               </span>
+              <span style="font-size: 11.5px; font-weight: 800; padding: 3px 9px; border-radius: 8px; background: ${paperInfo.is5r ? '#856404' : '#2E6F69'}; color: #fff;">${paperInfo.label}</span>
               <span style="font-family: monospace; font-size: 13px; font-weight: 700; color: var(--caramel-brown);">${activeJob.id}</span>
             </div>
-            <h4 style="font-size: 17px; font-weight: 800; color: var(--charcoal); margin: 6px 0 2px 0;">${escapeHtml(activeJob.event_name || 'Event Aktif')} — ${activeJob.copies || 1} Lembar Kertas 4R</h4>
+            <h4 style="font-size: 17px; font-weight: 800; color: var(--charcoal); margin: 6px 0 2px 0;">${escapeHtml(activeJob.event_name || 'Event Aktif')} — ${activeJob.copies || 1} Lembar Kertas ${paperInfo.label}</h4>
             <div style="font-size: 12.5px; color: var(--text-muted);">
               Spooler OS: <strong>${activeJob.spooler_job_id || 'Menyiapkan spooler...'}</strong> • Masuk antrean: ${timeStr}
             </div>
           </div>
         </div>
-        <div style="display: flex; gap: 8px;">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          ${isAwaitingPaper ? `<button class="btn btn-coral" style="font-size: 13px; font-weight: 800; padding: 9px 16px;" onclick="openAdminPaperConfirmModal('${activeJob.id}')">✅ Konfirmasi Kertas 5R</button>` : ''}
           <button class="btn btn-secondary" style="font-size: 12.5px; font-weight: 700; padding: 8px 14px; background: #fff;" onclick="openPhotoPreviewFromJob('${activeJob.id}')">👁️ Lihat Foto Penuh</button>
           <button class="btn btn-coral" style="font-size: 12.5px; font-weight: 800; padding: 8px 14px;" onclick="reprintJobById('${activeJob.id}')">🖨️ Cetak Tambahan</button>
         </div>
@@ -4291,21 +4313,21 @@ function renderActivePrintBanner(jobs) {
           <div class="pq-step-item completed">
             <div class="pq-step-icon">✓</div>
             <div class="pq-step-label">Foto Diterima</div>
-            <div class="pq-step-sub">Sesi Kiosk Selesai</div>
+            <div class="pq-step-sub">Sesi Kiosk / Mingle</div>
           </div>
           <div style="flex: 1; height: 3px; background: #27ae60; margin: 0 -8px; margin-top: -24px;"></div>
           <!-- Step 2 -->
-          <div class="pq-step-item completed">
-            <div class="pq-step-icon">✓</div>
-            <div class="pq-step-label">Komposisi 4R</div>
-            <div class="pq-step-sub">300 DPI Borderless</div>
+          <div class="pq-step-item ${isAwaitingPaper ? 'active' : 'completed'}">
+            <div class="pq-step-icon">${isAwaitingPaper ? '📄' : '✓'}</div>
+            <div class="pq-step-label">Komposisi ${paperInfo.label}</div>
+            <div class="pq-step-sub">${isAwaitingPaper ? 'Tunggu Konfirmasi 5R' : '300 DPI Borderless'}</div>
           </div>
-          <div style="flex: 1; height: 3px; background: ${isSpooled ? '#27ae60' : 'var(--coral)'}; margin: 0 -8px; margin-top: -24px;"></div>
+          <div style="flex: 1; height: 3px; background: ${isSpooled ? '#27ae60' : (isAwaitingPaper ? 'var(--border-soft)' : 'var(--coral)')}; margin: 0 -8px; margin-top: -24px;"></div>
           <!-- Step 3 -->
-          <div class="pq-step-item ${isSpooled ? 'completed' : 'active'}">
+          <div class="pq-step-item ${isSpooled ? 'completed' : (isAwaitingPaper ? '' : 'active')}">
             <div class="pq-step-icon">${isSpooled ? '✓' : '⏳'}</div>
             <div class="pq-step-label">Kirim ke Printer</div>
-            <div class="pq-step-sub">${isSpooled ? 'Terkirim ke Tray' : 'Spooling Driver'}</div>
+            <div class="pq-step-sub">${isSpooled ? 'Terkirim ke Tray' : (isAwaitingPaper ? 'Menunggu Kertas 5R' : 'Spooling Driver')}</div>
           </div>
           <div style="flex: 1; height: 3px; background: ${isSpooled ? 'var(--coral)' : 'var(--border-soft)'}; margin: 0 -8px; margin-top: -24px;"></div>
           <!-- Step 4 -->
@@ -4335,7 +4357,7 @@ function renderPrintQueueTable() {
   let filtered = [...(cachedPrintJobs || [])];
 
   if (statusFilter === 'active') {
-    filtered = filtered.filter(j => j.state === 'queued' || j.state === 'processing' || j.state === 'spooled');
+    filtered = filtered.filter(j => j.state === 'awaiting_paper' || j.state === 'queued' || j.state === 'processing' || j.state === 'spooled');
   } else if (statusFilter === 'completed') {
     filtered = filtered.filter(j => j.state === 'completed');
   } else if (statusFilter === 'failed') {
@@ -4369,8 +4391,11 @@ function renderPrintQueueTable() {
     const timeStr = job.created_at ? new Date(job.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : 'Baru saja';
     let stateBadge = '';
     const st = (job.state || 'completed').toLowerCase();
+    const paperInfo = getPrintJobPaperBadge(job);
 
-    if (st === 'queued') {
+    if (st === 'awaiting_paper') {
+      stateBadge = `<span class="badge-pill" style="background: #FFF3CD; color: #856404; border: 1.5px solid #D4A754; font-size: 11px; font-weight: 800;">📄 TUNGGU KERTAS 5R</span>`;
+    } else if (st === 'queued') {
       stateBadge = `<span class="badge-pill" style="background: rgba(212, 167, 84, 0.15); color: #B58832; border: 1px solid rgba(212, 167, 84, 0.35); font-size: 11px; font-weight: 800;">🟡 ANTRE DI SERVER</span>`;
     } else if (st === 'processing') {
       stateBadge = `<span class="badge-pill" style="background: rgba(230, 120, 107, 0.15); color: var(--coral); border: 1px solid rgba(230, 120, 107, 0.35); font-size: 11px; font-weight: 800;"><span class="pq-pulse-dot" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--coral);margin-right:4px;"></span>⏳ SEDANG DICETAK</span>`;
@@ -4407,7 +4432,7 @@ function renderPrintQueueTable() {
           ${escapeHtml(job.event_name || 'Event Aktif')}
         </td>
         <td style="padding: 12px 14px; font-weight: 700; font-size: 13px;">
-          ${job.copies || 1} Lembar
+          ${job.copies || 1} Lembar <span style="display:inline-block; margin-left:4px; padding:1px 7px; border-radius:6px; font-size:11px; font-weight:800; background:${paperInfo.is5r ? '#FFF3CD' : '#E6F4F1'}; color:${paperInfo.is5r ? '#856404' : '#1F5B56'};">${paperInfo.label}</span>
         </td>
         <td style="padding: 12px 14px;">
           ${stateBadge}
@@ -4417,6 +4442,7 @@ function renderPrintQueueTable() {
         </td>
         <td style="padding: 12px 14px; text-align: right; white-space: nowrap;">
           <div style="display: flex; gap: 6px; justify-content: flex-end; flex-wrap: nowrap; white-space: nowrap;">
+            ${st === 'awaiting_paper' ? `<button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 800; white-space: nowrap;" onclick="openAdminPaperConfirmModal('${job.id}')" title="Konfirmasi kertas 5R sudah dipasang">✅ Kertas 5R</button>` : ''}
             <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff; white-space: nowrap;" onclick="openPhotoPreviewFromJob('${job.id}')" title="Pratinjau foto">👁️ Lihat</button>
             <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700; white-space: nowrap;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})" title="Cetak ulang lembar ini">🖨️ Cetak</button>
             <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25); white-space: nowrap;" onclick="deletePrintJob('${job.id}', event)" title="Hapus dari antrean">🗑️</button>
@@ -4444,8 +4470,9 @@ function updateTabPrintsTable(jobs) {
 
   tbody.innerHTML = jobs.map(job => {
     const timeStr = job.created_at ? new Date(job.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Baru saja';
+    const paperInfo = getPrintJobPaperBadge(job);
     let stateBadge = 'badge-active';
-    if (job.state === 'queued') stateBadge = 'badge-pending';
+    if (job.state === 'queued' || job.state === 'awaiting_paper') stateBadge = 'badge-pending';
     if (job.state === 'cancelled') stateBadge = 'badge-inactive';
 
     const thumbUrl = job.media_url || '/assets/templates/strip-green-template.svg';
@@ -4461,11 +4488,12 @@ function updateTabPrintsTable(jobs) {
         <td style="padding: 12px; font-family: monospace; font-weight: 700; font-size: 13px; white-space: nowrap;">${job.id}</td>
         <td style="font-family: monospace; font-size: 13px; color: var(--charcoal); font-weight: 600; white-space: nowrap;">${job.spooler_job_id || '-'}</td>
         <td style="font-weight: 700; color: var(--caramel-brown); white-space: nowrap;">${escapeHtml(job.event_name || 'Event Aktif')}</td>
-        <td style="white-space: nowrap;">${job.copies || 1} Lembar</td>
-        <td style="white-space: nowrap;"><span class="badge-pill ${stateBadge}">${job.state ? job.state.toUpperCase() : 'COMPLETED'}</span></td>
+        <td style="white-space: nowrap;">${job.copies || 1} Lembar <span style="margin-left:4px; font-size:11px; font-weight:800; color:${paperInfo.is5r ? '#856404' : '#1F5B56'};">(${paperInfo.label})</span></td>
+        <td style="white-space: nowrap;"><span class="badge-pill ${stateBadge}">${job.state === 'awaiting_paper' ? 'TUNGGU KERTAS 5R' : (job.state ? job.state.toUpperCase() : 'COMPLETED')}</span></td>
         <td style="white-space: nowrap;">${timeStr}</td>
         <td style="white-space: nowrap;">
           <div style="display: flex; gap: 6px; flex-wrap: nowrap; white-space: nowrap;">
+            ${job.state === 'awaiting_paper' ? `<button class="btn btn-coral" style="padding: 4px 8px; font-size: 12px; font-weight: 800; white-space: nowrap;" onclick="openAdminPaperConfirmModal('${job.id}')">✅ Kertas 5R</button>` : ''}
             <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: #fff; white-space: nowrap;" onclick="openPhotoPreviewFromJob('${job.id}')">👁️ Lihat</button>
             <button class="btn btn-coral" style="padding: 4px 10px; font-size: 12px; font-weight: 700; white-space: nowrap;" onclick="directPrintJob('${job.id}', '${thumbUrl}', ${job.copies || 1})">🖨️ Cetak</button>
             <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px; font-weight: 700; background: rgba(179, 64, 47, 0.08); color: #B3402F; border: 1.5px solid rgba(179, 64, 47, 0.25); white-space: nowrap;" onclick="deletePrintJob('${job.id}', event)" title="Hapus dari antrean cetak">🗑️</button>
@@ -4545,6 +4573,228 @@ async function reprintJobById(jobId) {
   const copies = (job && job.copies) || 1;
   const thumbUrl = (job && job.media_url) || '/assets/templates/strip-green-template.svg';
   await directPrintJob(jobId, thumbUrl, copies);
+}
+
+// ==============================================================
+// GLOBAL PRINT STATION MONITOR (4R AUTO + 5R PAPER CONFIRM POPUP)
+// ==============================================================
+let globalPrintPollTimer = null;
+const adminSeenJobIds = new Set();
+const adminPromptedPaperJobIds = new Set();
+let adminInitialScanDone = false;
+let activePaperConfirmJobId = null;
+
+function isAdminBrowserStationEnabled() {
+  try {
+    return localStorage.getItem('pb_admin_browser_station') === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+function toggleAdminBrowserPrintStation(enabled) {
+  try {
+    localStorage.setItem('pb_admin_browser_station', enabled ? '1' : '0');
+  } catch (e) {}
+  if (window.pbToast) {
+    window.pbToast(
+      enabled
+        ? '💻 Mode Stasiun Cetak Browser AKTIF — antrean 4R baru otomatis dicetak bila Print Agent mati.'
+        : '⚪ Mode Stasiun Cetak Browser dimatikan (memakai Mafaza Print Agent / spooler OS).',
+      enabled ? 'ok' : 'warn'
+    );
+  }
+}
+window.toggleAdminBrowserPrintStation = toggleAdminBrowserPrintStation;
+
+function playPrintStationChime(is5r = false) {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+    const freqs = is5r ? [587.33, 783.99, 987.77] : [659.25, 880];
+    freqs.forEach((f, idx) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, now + idx * 0.12);
+      gain.gain.setValueAtTime(0.001, now + idx * 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.14, now + idx * 0.12 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + idx * 0.12);
+      osc.stop(now + idx * 0.12 + 0.3);
+    });
+  } catch (e) {}
+}
+
+function openAdminPaperConfirmModal(jobId) {
+  const job = (cachedPrintJobs || []).find(j => j.id === jobId);
+  if (!job) return;
+  activePaperConfirmJobId = job.id;
+  adminPromptedPaperJobIds.add(job.id);
+
+  const modal = document.getElementById('adminPaperConfirmModal');
+  const thumb = document.getElementById('adminPaperConfirmThumb');
+  const copiesEl = document.getElementById('adminPaperConfirmCopies');
+  const eventEl = document.getElementById('adminPaperConfirmEvent');
+  const jobIdEl = document.getElementById('adminPaperConfirmJobId');
+  const confirmBtn = document.getElementById('btnConfirmPaper5R');
+
+  if (thumb) thumb.src = job.media_url || `/api/print-jobs/${job.id}/sheet`;
+  if (copiesEl) copiesEl.innerText = `${job.copies || 1} Lembar`;
+  if (eventEl) eventEl.innerText = job.event_name || 'Event Aktif';
+  if (jobIdEl) jobIdEl.innerText = `ID: ${job.id}`;
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.innerText = '✅ Kertas 5R Sudah Diganti — Cetak Sekarang!';
+  }
+  if (modal) modal.style.display = 'flex';
+}
+window.openAdminPaperConfirmModal = openAdminPaperConfirmModal;
+
+function snoozeAdminPaperConfirmModal() {
+  const modal = document.getElementById('adminPaperConfirmModal');
+  if (modal) modal.style.display = 'none';
+  if (window.pbToast) {
+    window.pbToast('⏳ Job 5R ditunda. Anda bisa klik tombol "✅ Kertas 5R" di menu Progres Print kapan saja.', 'warn', 3500);
+  }
+}
+window.snoozeAdminPaperConfirmModal = snoozeAdminPaperConfirmModal;
+
+async function confirmAdminPaper5R() {
+  if (!activePaperConfirmJobId) return;
+  const jobId = activePaperConfirmJobId;
+  const job = (cachedPrintJobs || []).find(j => j.id === jobId);
+  const confirmBtn = document.getElementById('btnConfirmPaper5R');
+  if (confirmBtn) {
+    confirmBtn.disabled = true;
+    confirmBtn.innerText = '⏳ Mengirim ke Printer 5R...';
+  }
+  try {
+    const res = await fetch(`/api/print-jobs/${encodeURIComponent(jobId)}/confirm-paper`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal mengonfirmasi kertas 5R');
+
+    const modal = document.getElementById('adminPaperConfirmModal');
+    if (modal) modal.style.display = 'none';
+    activePaperConfirmJobId = null;
+
+    if (data.dispatchedToOs || data.awaitingAgent) {
+      window.pbToast(`✅ Kertas 5R dikonfirmasi! Mencetak ${data.copies || 1} lembar 5R otomatis di printer.`, 'ok', 4000);
+    } else if (window.pbPrintViaBrowser) {
+      window.pbToast(`✅ Kertas 5R dikonfirmasi! Membuka dialog cetak 5R (${data.copies || 1} lbr)...`, 'ok', 3200);
+      await window.pbPrintViaBrowser({
+        imageUrl: (job && job.media_url) || data.sheetUrl,
+        copies: data.copies || 1,
+        job: { ...data, printJobId: jobId, paperWidthIn: 5, paperHeightIn: 7, borderless: true }
+      });
+    }
+    await loadPrintJobs();
+  } catch (err) {
+    window.pbToast(`Gagal konfirmasi 5R: ${err.message}`, 'error');
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.innerText = '✅ Kertas 5R Sudah Diganti — Cetak Sekarang!';
+    }
+  }
+}
+window.confirmAdminPaper5R = confirmAdminPaper5R;
+
+async function cancelAdminPaper5R() {
+  if (!activePaperConfirmJobId) return;
+  const jobId = activePaperConfirmJobId;
+  try {
+    await fetch(`/api/print-jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+    const modal = document.getElementById('adminPaperConfirmModal');
+    if (modal) modal.style.display = 'none';
+    activePaperConfirmJobId = null;
+    window.pbToast('❌ Antrean cetak 5R dibatalkan.', 'warn', 2600);
+    await loadPrintJobs();
+  } catch (err) {
+    window.pbToast(`Gagal membatalkan job: ${err.message}`, 'error');
+  }
+}
+window.cancelAdminPaper5R = cancelAdminPaper5R;
+
+async function pollGlobalPrintStation() {
+  if (document.visibilityState === 'hidden') return;
+  try {
+    const res = await fetch('/api/print-jobs');
+    if (!res.ok) return;
+    const jobs = await res.json();
+    cachedPrintJobs = jobs || [];
+
+    updatePrintQueueStats(cachedPrintJobs);
+    renderPrintQueueTable();
+    renderActivePrintBanner(cachedPrintJobs);
+    updateTabPrintsTable(cachedPrintJobs);
+
+    // 1. Cek jika ada job 5R menunggu konfirmasi kertas ('awaiting_paper')
+    const awaitingPaperJob = cachedPrintJobs.find(j => j.state === 'awaiting_paper' && !adminPromptedPaperJobIds.has(j.id));
+    if (awaitingPaperJob) {
+      playPrintStationChime(true);
+      openAdminPaperConfirmModal(awaitingPaperJob.id);
+    }
+
+    // 2. Cek job baru (4R / dll) sejak halaman Admin terbuka
+    if (!adminInitialScanDone) {
+      cachedPrintJobs.forEach(j => adminSeenJobIds.add(j.id));
+      adminInitialScanDone = true;
+      return;
+    }
+
+    for (const j of cachedPrintJobs) {
+      if (adminSeenJobIds.has(j.id)) continue;
+      adminSeenJobIds.add(j.id);
+
+      const paperInfo = getPrintJobPaperBadge(j);
+      if (j.state === 'queued' || j.state === 'processing') {
+        playPrintStationChime(false);
+        const agentOnline = Boolean(cachedPrintAgentStatus && cachedPrintAgentStatus.online);
+        if (agentOnline) {
+          window.pbToast(`🖨️ Pesanan Cetak ${paperInfo.label} (${j.copies || 1} lbr) masuk — otomatis mencetak di Epson!`, 'ok', 4200);
+        } else if (isAdminBrowserStationEnabled() && j.state === 'queued' && window.pbPrintViaBrowser) {
+          window.pbToast(`🖨️ Pesanan ${paperInfo.label} (${j.copies || 1} lbr) masuk — mencetak via browser laptop ini!`, 'ok', 3500);
+          window.pbPrintViaBrowser({
+            imageUrl: j.media_url || `/api/print-jobs/${j.id}/sheet`,
+            copies: j.copies || 1,
+            job: {
+              printJobId: j.id,
+              sheetUrl: `/api/print-jobs/${j.id}/sheet`,
+              paperWidthIn: paperInfo.opts.paperWidthIn || (paperInfo.is5r ? 5 : 4),
+              paperHeightIn: paperInfo.opts.paperHeightIn || (paperInfo.is5r ? 7 : 6),
+              borderless: paperInfo.opts.borderless !== false
+            }
+          });
+        } else {
+          window.pbToast(`🔔 Antrean Cetak ${paperInfo.label} Baru (${j.copies || 1} lbr) dari ${j.event_name || 'Booth'}!`, 'warn', 4500);
+        }
+      }
+    }
+  } catch (e) {}
+}
+
+function initGlobalPrintStationMonitor() {
+  const toggle = document.getElementById('adminBrowserStationToggle');
+  if (toggle) toggle.checked = isAdminBrowserStationEnabled();
+  (cachedPrintJobs || []).forEach(j => adminSeenJobIds.add(j.id));
+  adminInitialScanDone = true;
+
+  // Langsung tampilkan konfirmasi 5R jika saat halaman dibuka memang ada job awaiting_paper
+  const pending5r = (cachedPrintJobs || []).find(j => j.state === 'awaiting_paper' && !adminPromptedPaperJobIds.has(j.id));
+  if (pending5r) {
+    openAdminPaperConfirmModal(pending5r.id);
+  }
+
+  if (!globalPrintPollTimer) {
+    globalPrintPollTimer = setInterval(pollGlobalPrintStation, 2500);
+  }
 }
 
 // ==============================================================

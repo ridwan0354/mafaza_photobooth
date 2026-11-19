@@ -5205,19 +5205,120 @@ class KioskEngine {
     }, 'image/jpeg', 0.88);
   }
 
-  async printCurrentSession(isAuto = false) {
-    const copies = document.getElementById('printCopiesSelect').value;
+  openPrintOptionsModal() {
+    const modal = document.getElementById('kioskPrintOptionsModal');
+    if (!modal) {
+      this.printCurrentSession(false);
+      return;
+    }
+    const sel = document.getElementById('printCopiesSelect');
+    const curCopies = parseInt(sel?.value || '1', 10) || 1;
+    this.setModalPrintCopies(curCopies);
+
+    const tpl = this.selectedTemplate;
+    const is5rTpl = Boolean(tpl && (
+      String(tpl.paper_format || '').toUpperCase() === '5R' ||
+      /5r|5x7|1500x2100|2100x1500/i.test(`${tpl.name || ''} ${tpl.orientation || ''} ${tpl.width || ''}x${tpl.height || ''}`)
+    ));
+    this.setModalPrintPaper(is5rTpl ? '5R' : '4R');
+
+    const readyCheck = document.getElementById('kioskPaperAlreadyReadyCheck');
+    if (readyCheck) readyCheck.checked = false;
+    modal.style.display = 'flex';
+  }
+
+  closePrintOptionsModal(event) {
+    if (event && event.target && event.target.closest('.photo-modal-card') && !event.target.classList.contains('photo-modal-close')) {
+      return;
+    }
+    const modal = document.getElementById('kioskPrintOptionsModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  setModalPrintCopies(qty) {
+    const val = Math.max(1, Math.min(10, parseInt(qty, 10) || 1));
+    this.modalPrintCopies = val;
+    const qtyEl = document.getElementById('kioskPrintModalQty');
+    if (qtyEl) qtyEl.innerText = String(val);
+    const sel = document.getElementById('printCopiesSelect');
+    if (sel && Array.from(sel.options).some(o => Number(o.value) === val)) {
+      sel.value = String(val);
+    }
+    document.querySelectorAll('.kiosk-qty-chip').forEach(btn => {
+      const active = Number(btn.dataset.qty) === val;
+      btn.style.background = active ? 'var(--coral)' : '';
+      btn.style.color = active ? '#fff' : '';
+      btn.style.borderColor = active ? 'var(--coral)' : '';
+    });
+  }
+
+  adjustModalPrintCopies(delta) {
+    this.setModalPrintCopies((this.modalPrintCopies || 1) + delta);
+  }
+
+  setModalPrintPaper(size) {
+    this.modalPrintPaper = size === '5R' ? '5R' : '4R';
+    const opt4 = document.getElementById('kioskPaperOpt4R');
+    const opt5 = document.getElementById('kioskPaperOpt5R');
+    const notice5r = document.getElementById('kioskPrint5rNotice');
+    if (opt4) {
+      const a = this.modalPrintPaper === '4R';
+      opt4.style.borderColor = a ? 'var(--coral)' : 'var(--border-soft)';
+      opt4.style.background = a ? 'rgba(230,120,107,0.12)' : '#fff';
+    }
+    if (opt5) {
+      const a = this.modalPrintPaper === '5R';
+      opt5.style.borderColor = a ? '#D4A754' : 'var(--border-soft)';
+      opt5.style.background = a ? '#FFF8E6' : '#fff';
+    }
+    if (notice5r) {
+      notice5r.style.display = this.modalPrintPaper === '5R' ? 'block' : 'none';
+    }
+  }
+
+  resolveSelectedServerPaperSize() {
+    if (this.modalPrintPaper === '5R') return '5x7';
+    if (this.selectedMode === 'strip') return '2x6';
+    return '4x6';
+  }
+
+  confirmSendServerPrint() {
+    const copies = this.modalPrintCopies || parseInt(document.getElementById('printCopiesSelect')?.value || '1', 10) || 1;
+    const paperSize = this.resolveSelectedServerPaperSize();
+    const paperConfirmed = this.modalPrintPaper === '5R'
+      ? Boolean(document.getElementById('kioskPaperAlreadyReadyCheck')?.checked)
+      : true;
+    const modal = document.getElementById('kioskPrintOptionsModal');
+    if (modal) modal.style.display = 'none';
+    this.printCurrentSession(false, { copies, paperSize, paperLabel: this.modalPrintPaper, paperConfirmed });
+  }
+
+  printFromModalViaDevice() {
+    const copies = this.modalPrintCopies || 1;
+    const paperSize = this.resolveSelectedServerPaperSize();
+    const paperWidthIn = paperSize === '5x7' ? 5 : 4;
+    const paperHeightIn = paperSize === '5x7' ? 7 : 6;
+    const modal = document.getElementById('kioskPrintOptionsModal');
+    if (modal) modal.style.display = 'none';
+    this.printViaChromeDialog({ copies, paperSize, paperWidthIn, paperHeightIn, borderless: true });
+  }
+
+  async printCurrentSession(isAuto = false, opts = null) {
+    const copies = String((opts && opts.copies) || document.getElementById('printCopiesSelect').value || 1);
+    const chosenPaperSize = (opts && opts.paperSize) || (this.selectedTemplate?.paper_format === '5R' ? '5x7' : (this.selectedMode === 'strip' ? '2x6' : '4x6'));
+    const chosenPaperLabel = (opts && opts.paperLabel) || (chosenPaperSize === '5x7' ? '5R' : '4R');
+    const paperConfirmed = opts ? !!opts.paperConfirmed : (chosenPaperLabel !== '5R');
     const finalCanvas = document.getElementById('finalCanvas');
     const btn = document.getElementById('btnPrintSession');
     const banner = document.getElementById('printStatusBanner');
 
     if (btn) {
       btn.disabled = true;
-      btn.innerHTML = isAuto ? '⚡ Mencetak Otomatis...' : '⏳ Mengirim ke Printer...';
+      btn.innerHTML = isAuto ? '⚡ Mencetak Otomatis...' : '⏳ Mengirim ke Antrean Server...';
     }
     if (banner) {
       banner.style.display = 'block';
-      banner.innerText = `⏳ Mengirim ${copies} lembar ke ${this.activePrinterName || 'Printer'}...`;
+      banner.innerText = `⏳ Mengirim pesanan ${chosenPaperLabel} (${copies} lbr) ke Server...`;
     }
 
     finalCanvas.toBlob(async (blob) => {
@@ -5240,12 +5341,11 @@ class KioskEngine {
           }).catch(err => console.warn('Offline print session save error:', err));
         }
 
-        if (btn) btn.innerHTML = `✅ ${copies} Lembar Dicetak!`;
+        if (btn) btn.innerHTML = `✅ ${copies} Lembar Disimpan Offline`;
         if (banner) {
           banner.style.display = 'block';
-          banner.innerHTML = `⚡ <strong>Mode Offline:</strong> Foto berhasil disimpan di perangkat &amp; langsung dicetak <strong>${copies} lembar</strong>!`;
+          banner.innerHTML = `⚡ <strong>Mode Offline:</strong> Foto disimpan lokal (${chosenPaperLabel} × ${copies}) &amp; akan dicetak saat terhubung kembali.`;
         }
-        setTimeout(() => this.printViaChromeDialog(), 250);
         setTimeout(() => {
           if (btn) {
             btn.disabled = false;
@@ -5255,11 +5355,13 @@ class KioskEngine {
         return;
       }
 
-      // 2. Jika Online:
+      // 2. Jika Online (Kirim ke Server -> Laptop Stasiun Printer / Print Agent / Admin Progres):
       const formData = new FormData();
       formData.append('finalImage', blob, `print_${Date.now()}.jpg`);
       formData.append('printRequested', 'true');
       formData.append('printCopies', copies);
+      formData.append('printPaperSize', chosenPaperSize);
+      if (paperConfirmed) formData.append('paperConfirmed', 'true');
       if (this.guestPass && this.guestPass.id) {
         formData.append('guestPassId', this.guestPass.id);
       }
@@ -5274,27 +5376,31 @@ class KioskEngine {
         });
         if (res.ok) {
           const data = await res.json();
-          const pName = (data.printJob && data.printJob.printerName) || this.activePrinterName || 'Printer';
-          const dispatchedToOs = !!(data.printJob && data.printJob.dispatchedToOs);
-          const awaitingAgent = !!(data.printJob && data.printJob.awaitingAgent);
+          const job = data.printJob || {};
+          const pName = job.printerName || this.activePrinterName || 'Printer Studio';
+          const dispatchedToOs = !!job.dispatchedToOs;
+          const awaitingAgent = !!job.awaitingAgent;
+          const requiresPaperConfirm = !!job.requiresPaperConfirm;
+          const pLabel = job.paperLabel || chosenPaperLabel;
 
-          if (btn) btn.innerHTML = `✅ ${copies} Lembar Dicetak!`;
+          if (btn) btn.innerHTML = requiresPaperConfirm ? `⏳ Tunggu Kertas 5R (${copies}×)` : `✅ ${copies}× ${pLabel} Terkirim!`;
           if (banner) {
             banner.style.display = 'block';
-            banner.innerHTML = (dispatchedToOs || awaitingAgent)
-              ? `✅ <strong>${copies} lembar</strong> langsung dikirim otomatis ke <strong>${pName}</strong>!`
-              : `✅ <strong>${copies} lembar</strong> siap dicetak! Membuka layanan cetak perangkat...`;
+            if (requiresPaperConfirm) {
+              banner.innerHTML = `📄 <strong>Antrean 5R (${copies} lembar) terkirim ke Server!</strong><br>Menunggu konfirmasi kertas 5R di Laptop Printer / Admin.`;
+            } else if (dispatchedToOs || awaitingAgent) {
+              banner.innerHTML = `✅ <strong>${copies} lembar (${pLabel})</strong> langsung dicetak otomatis di <strong>${pName}</strong>!`;
+            } else {
+              banner.innerHTML = `✅ <strong>Pesanan ${pLabel} (${copies} lembar) terkirim ke Server!</strong> Siap diterima Laptop Printer / Admin Progres Print.`;
+            }
           }
 
-          if (!dispatchedToOs && !awaitingAgent) {
-            setTimeout(() => this.printViaChromeDialog(data.printJob), 250);
-          }
           setTimeout(() => {
             if (btn) {
               btn.disabled = false;
               btn.innerHTML = '🖨️ Cetak Foto Sekarang';
             }
-          }, 3000);
+          }, 3200);
         } else {
           throw new Error('Server response not ok');
         }
@@ -5317,12 +5423,11 @@ class KioskEngine {
           }).catch(() => {});
         }
 
-        if (btn) btn.innerHTML = `✅ ${copies} Lembar Dicetak!`;
+        if (btn) btn.innerHTML = `⚠️ Gagal Kirim, Disimpan Lokal`;
         if (banner) {
           banner.style.display = 'block';
-          banner.innerHTML = `⚡ <strong>Mode Offline:</strong> Foto disimpan lokal &amp; membuka cetak perangkat <strong>${copies} lembar</strong>...`;
+          banner.innerHTML = `⚡ <strong>Koneksi terganggu:</strong> Antrean cetak <strong>${copies} lbr (${chosenPaperLabel})</strong> disimpan lokal di perangkat.`;
         }
-        setTimeout(() => this.printViaChromeDialog(), 250);
         setTimeout(() => {
           if (btn) {
             btn.disabled = false;
@@ -5390,7 +5495,7 @@ class KioskEngine {
       } catch (e) {}
     }
 
-    const copies = parseInt(document.getElementById('printCopiesSelect')?.value || '1', 10);
+    const copies = (job && job.copies) ? parseInt(job.copies, 10) : parseInt(document.getElementById('printCopiesSelect')?.value || '1', 10);
     window.pbPrintViaBrowser({ imageUrl: dataUrl, copies, job });
   }
 
