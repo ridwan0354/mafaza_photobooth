@@ -1631,6 +1631,10 @@ function selectTemplateForEditor(templateId, scroll = true) {
   if (boothSelect) {
     boothSelect.value = activeTemplate.booth_mode || 'kiosk';
   }
+  const chromaToggle = document.getElementById('editorTemplateChromaKeyToggle');
+  if (chromaToggle) {
+    chromaToggle.checked = Boolean(activeTemplate.chroma_key);
+  }
 
   renderSlotsList();
   updateSlotInspector();
@@ -1664,6 +1668,12 @@ function onEditorBoothModeChange(val) {
   }
   renderTemplatesGallery();
 }
+
+function onEditorChromaKeyChange(checked) {
+  if (!activeTemplate) return;
+  activeTemplate.chroma_key = Boolean(checked);
+}
+window.onEditorChromaKeyChange = onEditorChromaKeyChange;
 
 function onUploadModalBoothModeChange(val) {
   const shotsModeSelect = document.getElementById('tplModalShotsMode');
@@ -2030,9 +2040,9 @@ async function submitTemplateUpload(event) {
       await loadTemplates();
       selectTemplateForEditor(created.id, true);
 
-      // Cleanly await image load and detect green photo slots at full natural dimensions, then auto-save
-      await runAutoGreenDetection(true);
-      alert(`🎉 Template "${created.name}" berhasil diunggah & ${editorSlots.length} slot foto otomatis terdeteksi & tersimpan!`);
+      // Siapkan slot manual bawaan tanpa menghapus warna hijau otomatis (user atur manual atau klik Deteksi Hijau)
+      await initializeManualSlotForUpload();
+      alert(`🎉 Template "${created.name}" berhasil diunggah! Silakan atur kotak slot pose secara manual di Canvas Editor (penghapusan warna hijau otomatis dimatikan agar gambar hijau tidak ikut hilang).`);
     } else {
       const err = await res.json();
       alert('Gagal mengunggah template: ' + (err.error || 'Terjadi kesalahan pada server'));
@@ -2374,6 +2384,50 @@ function renderEditorCanvas() {
   tplImg.src = src;
 }
 
+// Inisialisasi slot manual bawaan saat upload template baru (tanpa auto chroma-key hijau)
+async function initializeManualSlotForUpload() {
+  const canvas = document.getElementById('templateEditorCanvas');
+  if (!canvas || !activeTemplate) return;
+  try {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = activeTemplate.image_storage_key;
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
+      img.onerror = reject;
+    });
+    const w = img.naturalWidth || activeTemplate.width || 1200;
+    const h = img.naturalHeight || activeTemplate.height || 1800;
+    activeTemplate.width = w;
+    activeTemplate.height = h;
+    activeTemplate.chroma_key = false;
+    canvas.width = w;
+    canvas.height = h;
+
+    if (activeTemplate.orientation === 'strip') {
+      const slotW = Math.round(w * 0.84);
+      const slotX = Math.round((w - slotW) / 2);
+      const slotH = Math.round(h * 0.24);
+      editorSlots = [
+        { id: 'slot_1', pose_index: 1, x: slotX, y: Math.round(h * 0.06), width: slotW, height: slotH },
+        { id: 'slot_2', pose_index: 2, x: slotX, y: Math.round(h * 0.33), width: slotW, height: slotH },
+        { id: 'slot_3', pose_index: 3, x: slotX, y: Math.round(h * 0.60), width: slotW, height: slotH }
+      ];
+    } else {
+      editorSlots = [
+        { id: 'slot_1', pose_index: 1, x: Math.round(w * 0.08), y: Math.round(h * 0.14), width: Math.round(w * 0.84), height: Math.round(h * 0.70) }
+      ];
+    }
+    selectedSlotIndex = 0;
+    const chromaToggle = document.getElementById('editorTemplateChromaKeyToggle');
+    if (chromaToggle) chromaToggle.checked = false;
+    renderSlotsList();
+    updateSlotInspector();
+    renderEditorCanvas();
+    await saveTemplateVersion(true);
+  } catch (e) {}
+}
+
 // Smart 2D Connected Component Green Chroma Detection (Clean offscreen scan at full natural resolution)
 async function runAutoGreenDetection(silentAndAutoSave = false) {
   const canvas = document.getElementById('templateEditorCanvas');
@@ -2543,13 +2597,16 @@ async function runAutoGreenDetection(silentAndAutoSave = false) {
     }));
 
     selectedSlotIndex = 0;
+    activeTemplate.chroma_key = true;
+    const chromaToggle = document.getElementById('editorTemplateChromaKeyToggle');
+    if (chromaToggle) chromaToggle.checked = true;
     renderSlotsList();
     renderEditorCanvas();
 
     if (silentAndAutoSave) {
       await saveTemplateVersion(true);
     } else {
-      alert(`🎉 Sukses! Algoritma cerdas berhasil mendeteksi ${editorSlots.length} slot pose hijau secara akurat pada template Anda.`);
+      alert(`🎉 Sukses! Ditemukan ${editorSlots.length} slot kotak hijau & opsi "Hapus Warna Hijau" diaktifkan.\n\nJika ada karakter hijau yang ikut terhapus, matikan centang "Hapus Warna Hijau" dan gunakan frame PNG transparan.`);
     }
   } catch (err) {
     console.error('Auto green detection error:', err);
@@ -2610,6 +2667,7 @@ async function saveTemplateVersion(silent = false) {
         qrCoords: editorQrCoords,
         shotsMode,
         boothMode,
+        chromaKey: Boolean(activeTemplate.chroma_key),
         orientation: fmtMeta.orientation,
         paperSize: fmtMeta.paperSize,
         width,

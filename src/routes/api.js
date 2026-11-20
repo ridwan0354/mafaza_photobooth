@@ -784,7 +784,7 @@ apiRouter.get('/templates', (req, res) => {
 
 apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (req, res) => {
   try {
-    const { name, eventId, width, height, orientation, paperSize, formatPreset, slotsJson, qrPosition, qrCoordsJson, qrCoords, shotsMode, boothMode } = req.body;
+    const { name, eventId, width, height, orientation, paperSize, formatPreset, slotsJson, qrPosition, qrCoordsJson, qrCoords, shotsMode, boothMode, chromaKey } = req.body;
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : '/assets/templates/single-green-template.svg';
     const slots = slotsJson ? JSON.parse(slotsJson) : [];
     const parsedQrCoords = qrCoords || (qrCoordsJson ? JSON.parse(qrCoordsJson) : undefined);
@@ -801,6 +801,7 @@ apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (r
       qrCoords: parsedQrCoords,
       shotsMode: shotsMode || 'event',
       boothMode: boothMode || 'kiosk',
+      chromaKey: chromaKey !== undefined ? chromaKey : undefined,
       imageUrl,
       slots
     });
@@ -812,8 +813,8 @@ apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (r
 
 apiRouter.patch('/templates/:id/slots', authMiddleware(), (req, res) => {
   try {
-    const { slots, layers, qrPosition, width, height, shotsMode, boothMode, orientation, paperSize, qrCoords } = req.body;
-    const updated = templateService.updateTemplateSlots(req.params.id, req.user.tenantId, slots, layers, qrPosition, width, height, shotsMode, boothMode, orientation, paperSize, qrCoords);
+    const { slots, layers, qrPosition, width, height, shotsMode, boothMode, orientation, paperSize, qrCoords, chromaKey } = req.body;
+    const updated = templateService.updateTemplateSlots(req.params.id, req.user.tenantId, slots, layers, qrPosition, width, height, shotsMode, boothMode, orientation, paperSize, qrCoords, chromaKey);
     res.json(updated);
   } catch (err) {
     res.status(400).json({ error: err.message });

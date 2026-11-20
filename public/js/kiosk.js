@@ -4162,11 +4162,17 @@ class KioskEngine {
     const fCtx = frameCanvas.getContext('2d');
     fCtx.drawImage(templateImg, 0, 0, tplWidth, tplHeight);
 
+    const useChromaKey = Boolean(this.selectedTemplate && (
+      this.selectedTemplate.chroma_key === true ||
+      this.selectedTemplate.chroma_key === 1 ||
+      /^\/assets\/templates\/.*\.svg$/i.test(this.selectedTemplate.image_storage_key || '')
+    ));
+
     try {
       const frameImgData = fCtx.getImageData(0, 0, tplWidth, tplHeight);
       const data = frameImgData.data;
 
-      // Chroma predicate: pure green (#00FF00), Canva lime green (#7ED957), and shades
+      // Chroma predicate (hanya dipakai jika opsi Chroma Key Hijau diaktifkan manual di Admin atau template .svg sistem)
       function isGreen(r, g, b, a) {
         if (a < 50) return false;
         if (g >= 150 && r <= 100 && b <= 100) return true;
@@ -4175,8 +4181,8 @@ class KioskEngine {
         return false;
       }
 
-      // Guard for single-slot templates whose stored slot didn't cover the actual green rectangle
-      if (slots.length === 1) {
+      // Guard for single-slot templates whose stored slot didn't cover the actual green rectangle (only when Chroma Key is enabled)
+      if (useChromaKey && slots.length === 1) {
         let minGX = tplWidth, maxGX = -1, minGY = tplHeight, maxGY = -1, greenCount = 0;
         const step = 6;
         for (let y = 0; y < tplHeight; y += step) {
@@ -4200,8 +4206,8 @@ class KioskEngine {
         }
       }
 
-      // Key out green pixels (or opaque solid slot fill such as white Canva exports) within slot regions
-      const pad = 12;
+      // Process slot regions: hapus hijau HANYA jika useChromaKey aktif; kalau tidak, biarkan warna hijau frame aman
+      const pad = 2;
       for (const slot of slots) {
         const sx0 = Math.max(0, Math.floor(slot.x));
         const ex0 = Math.min(tplWidth, Math.ceil(slot.x + slot.width));
@@ -4214,25 +4220,27 @@ class KioskEngine {
             const idx = (y * tplWidth + x) * 4;
             sampled++;
             if (data[idx + 3] < 50) transCount++;
-            else if (isGreen(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) greenCount++;
+            else if (useChromaKey && isGreen(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) greenCount++;
           }
         }
 
-        const startX = Math.max(0, Math.floor(slot.x - pad));
-        const endX = Math.min(tplWidth, Math.ceil(slot.x + slot.width + pad));
-        const startY = Math.max(0, Math.floor(slot.y - pad));
-        const endY = Math.min(tplHeight, Math.ceil(slot.y + slot.height + pad));
+        if (useChromaKey) {
+          const startX = Math.max(0, Math.floor(slot.x - pad));
+          const endX = Math.min(tplWidth, Math.ceil(slot.x + slot.width + pad));
+          const startY = Math.max(0, Math.floor(slot.y - pad));
+          const endY = Math.min(tplHeight, Math.ceil(slot.y + slot.height + pad));
 
-        for (let y = startY; y < endY; y++) {
-          for (let x = startX; x < endX; x++) {
-            const idx = (y * tplWidth + x) * 4;
-            if (isGreen(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) {
-              data[idx + 3] = 0; // Transparent!
+          for (let y = startY; y < endY; y++) {
+            for (let x = startX; x < endX; x++) {
+              const idx = (y * tplWidth + x) * 4;
+              if (isGreen(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) {
+                data[idx + 3] = 0; // Transparent!
+              }
             }
           }
         }
 
-        if (sampled > 0 && (transCount / sampled) < 0.05 && (greenCount / sampled) < 0.05) {
+        if (sampled > 0 && (transCount / sampled) < 0.05 && (!useChromaKey || (greenCount / sampled) < 0.05)) {
           const cx = Math.min(tplWidth - 1, Math.max(0, Math.floor(slot.x + slot.width / 2)));
           const cy = Math.min(tplHeight - 1, Math.max(0, Math.floor(slot.y + slot.height / 2)));
           const cIdx = (cy * tplWidth + cx) * 4;

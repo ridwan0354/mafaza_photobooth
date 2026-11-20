@@ -129,6 +129,8 @@ function runMigrations() {
   ensureColumn('templates', 'paper_size', "TEXT DEFAULT '4R'");
   // Koordinat kustom 1 atau 2 QR pada hasil cetak [{id, x, y, size}]
   ensureColumn('templates', 'qr_coords_json', "TEXT DEFAULT '[]'");
+  // Apakah frame menghapus warna hijau otomatis (chroma key) saat render hasil — default 0 (manual/transparan)
+  ensureColumn('templates', 'chroma_key', 'INTEGER DEFAULT 0');
 
   ensureStarterLandscapeTemplates();
 }

@@ -1312,7 +1312,7 @@
           <div>
             <h2 style="font-size: 28px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 6px;">🎨 Smart Template Desain Kiosk</h2>
             <p style="color: var(--text-muted); font-size: 14px;">
-              Daftar template frame foto untuk event <strong id="templateActiveEventBadge" style="color: var(--coral);">Memuat...</strong>. Unggah file PNG dengan area hijau solid (<code style="background: #00FF00; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: 800;">#00FF00</code>) untuk deteksi slot foto otomatis.
+              Daftar template frame foto untuk event <strong id="templateActiveEventBadge" style="color: var(--coral);">Memuat...</strong>. Unggah file <strong>PNG transparan</strong> (disarankan) atau gambar biasa lalu atur kotak slot secara manual.
             </p>
           </div>
           <button class="btn btn-coral" style="font-size: 14px; padding: 12px 24px;" onclick="openUploadTemplateModal()">
@@ -1508,8 +1508,17 @@
                 </div>
               </div>
 
+              <!-- Opsi Hapus Warna Hijau (Default OFF agar karakter hijau seperti Creeper/daun tidak ikut terhapus) -->
+              <label style="display: flex; align-items: flex-start; gap: 9px; padding: 11px 13px; background: var(--warm-white); border: 1.5px solid var(--border-soft); border-radius: 14px; cursor: pointer; font-size: 12px; color: var(--caramel-brown);">
+                <input type="checkbox" id="editorTemplateChromaKeyToggle" onchange="onEditorChromaKeyChange(this.checked)" style="margin-top: 2px; accent-color: var(--coral);">
+                <span style="line-height: 1.4;">
+                  <strong>🟩 Hapus Warna Hijau di Slot (Chroma Key)</strong><br>
+                  <span style="font-size: 11px; color: var(--text-muted); font-weight: 600;">Biarkan <strong>MATI</strong> untuk PNG transparan atau frame yang ada karakter/daun hijau. Aktifkan hanya jika frame masih memakai kotak hijau <code>#00FF00</code>.</span>
+                </span>
+              </label>
+
               <div style="display: flex; flex-direction: column; gap: 8px;">
-                <button class="btn btn-teal" style="font-size: 13px; width: 100%;" onclick="runAutoGreenDetection()">🔍 Jalankan Deteksi Hijau Otomatis</button>
+                <button class="btn btn-teal" style="font-size: 13px; width: 100%;" onclick="runAutoGreenDetection()">🔍 Deteksi Kotak Hijau → Slot (+ Hapus Hijau)</button>
                 <button class="btn btn-secondary" style="font-size: 13px; width: 100%;" onclick="addManualSlot()">+ Tambah Slot Pose Manual</button>
                 <button class="btn btn-secondary" style="font-size: 13px; width: 100%;" onclick="applySplit2UpLandscapeHelper()">✂️ Atur Cepat Split 2-Up (Potong Tengah)</button>
                 <button class="btn btn-coral" style="font-size: 13px; width: 100%;" onclick="saveTemplateVersion()">💾 Simpan &amp; Publikasikan untuk Kiosk</button>
@@ -2817,6 +2826,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.1"></script>
   <script src="/js/print-client.js?v=1.6"></script>
-  <script src="/js/admin.js?v=responsive-v7.0"></script>
+  <script src="/js/admin.js?v=responsive-v7.1"></script>
 </body>
 </html>

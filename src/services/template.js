@@ -49,6 +49,19 @@ function normalizeBoothMode(val) {
   return 'kiosk';
 }
 
+function isBuiltinSvgTemplate(imageUrl) {
+  return /^\/assets\/templates\/.*\.svg$/i.test(String(imageUrl || '').trim());
+}
+
+function resolveTemplateChromaKey(row) {
+  if (!row) return false;
+  if (row.chroma_key === 1 || row.chroma_key === true) return true;
+  if (row.chroma_key === 0 || row.chroma_key === false) {
+    return isBuiltinSvgTemplate(row.image_storage_key);
+  }
+  return isBuiltinSvgTemplate(row.image_storage_key);
+}
+
 const FORMAT_PRESETS = {
   strip: { orientation: 'strip', paperSize: '2x6', width: 600, height: 1800 },
   '2x6': { orientation: 'strip', paperSize: '2x6', width: 600, height: 1800 },
@@ -162,6 +175,7 @@ export function getTemplates(tenantId, eventId = null, scope = null, booth = nul
       booth_mode: normalizeBoothMode(t.booth_mode),
       paper_size: derivePaperSize(t),
       qr_coords: normalizeQrCoords(t.qr_coords_json),
+      chroma_key: resolveTemplateChromaKey(t),
       event_shots_count: eventShotsCount,
       slots: JSON.parse(t.slots_json || '[]'),
       layers: JSON.parse(t.layers_json || '[]')
@@ -199,6 +213,7 @@ export function getTemplateById(templateId, tenantId = null) {
     booth_mode: normalizeBoothMode(t.booth_mode),
     paper_size: derivePaperSize(t),
     qr_coords: normalizeQrCoords(t.qr_coords_json),
+    chroma_key: resolveTemplateChromaKey(t),
     event_shots_count: eventShotsCount,
     slots: JSON.parse(t.slots_json || '[]'),
     layers: JSON.parse(t.layers_json || '[]')
@@ -235,9 +250,14 @@ export function createTemplate(tenantId, data) {
     qrPosition = 'bottom-right';
   }
 
+  const imageUrl = data.imageUrl || '/assets/templates/single-green-template.svg';
+  const chromaKeyVal = (data.chromaKey !== undefined || data.chroma_key !== undefined)
+    ? ((data.chromaKey === true || data.chromaKey === 'true' || Number(data.chromaKey) === 1 || data.chroma_key === true || Number(data.chroma_key) === 1) ? 1 : 0)
+    : (isBuiltinSvgTemplate(imageUrl) ? 1 : 0);
+
   db.prepare(`
-    INSERT INTO templates (id, tenant_id, event_id, name, status, width, height, dpi, orientation, paper_size, qr_position, qr_coords_json, shots_mode, booth_mode, current_version_id)
-    VALUES (?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO templates (id, tenant_id, event_id, name, status, width, height, dpi, orientation, paper_size, qr_position, qr_coords_json, shots_mode, booth_mode, chroma_key, current_version_id)
+    VALUES (?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     templateId,
     tenantId,
@@ -252,6 +272,7 @@ export function createTemplate(tenantId, data) {
     JSON.stringify(qrCoords),
     shotsMode,
     boothMode,
+    chromaKeyVal,
     versionId
   );
 
@@ -261,7 +282,7 @@ export function createTemplate(tenantId, data) {
   `).run(
     versionId,
     templateId,
-    data.imageUrl || '/assets/templates/single-green-template.svg',
+    imageUrl,
     JSON.stringify(data.slots || []),
     JSON.stringify(data.layers || [])
   );
@@ -269,7 +290,7 @@ export function createTemplate(tenantId, data) {
   return getTemplateById(templateId, tenantId);
 }
 
-export function updateTemplateSlots(templateId, tenantId, slots, layers = null, qrPosition = null, width = null, height = null, shotsMode = null, boothMode = null, orientation = null, paperSize = null, qrCoords = null) {
+export function updateTemplateSlots(templateId, tenantId, slots, layers = null, qrPosition = null, width = null, height = null, shotsMode = null, boothMode = null, orientation = null, paperSize = null, qrCoords = null, chromaKey = undefined) {
   const template = getTemplateById(templateId, tenantId);
   if (!template) throw new Error('Template tidak ditemukan');
 
@@ -306,6 +327,10 @@ export function updateTemplateSlots(templateId, tenantId, slots, layers = null, 
   if (boothMode) {
     updates.push('booth_mode = ?');
     params.push(normalizeBoothMode(boothMode));
+  }
+  if (chromaKey !== undefined && chromaKey !== null) {
+    updates.push('chroma_key = ?');
+    params.push((chromaKey === true || chromaKey === 'true' || Number(chromaKey) === 1) ? 1 : 0);
   }
   if (orientation || paperSize) {
     const resolved = resolveTemplateFormat({ orientation: orientation || template.orientation, paperSize: paperSize || template.paper_size });
@@ -356,6 +381,11 @@ export function updateTemplateConfig(templateId, tenantId, updates = {}) {
   if (updates.boothMode !== undefined || updates.booth_mode !== undefined) {
     fields.push('booth_mode = ?');
     params.push(normalizeBoothMode(updates.boothMode || updates.booth_mode));
+  }
+  if (updates.chromaKey !== undefined || updates.chroma_key !== undefined) {
+    const rawCk = updates.chromaKey !== undefined ? updates.chromaKey : updates.chroma_key;
+    fields.push('chroma_key = ?');
+    params.push((rawCk === true || rawCk === 'true' || Number(rawCk) === 1) ? 1 : 0);
   }
   if (updates.orientation !== undefined || updates.paperSize !== undefined || updates.paper_size !== undefined) {
     const resolved = resolveTemplateFormat({
