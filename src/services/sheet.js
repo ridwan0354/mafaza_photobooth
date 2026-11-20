@@ -158,6 +158,9 @@ export function encodePng({ width, height, channels, data }) {
   ihdr[9] = channels === 4 ? 6 : 2;
   ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
 
+  // Standar profil warna sRGB (Perceptual) agar warna cetak konsisten dengan layar & tidak kemerahan
+  const srgb = Buffer.from([0]);
+
   // 300 DPI standard print metadata (11811 pixels per meter)
   // Memastikan macOS Preview, Windows & driver printer membaca ukuran fisik tepat 4x6 in (102x152 mm) tanpa terpotong
   const phys = Buffer.alloc(9);
@@ -168,6 +171,7 @@ export function encodePng({ width, height, channels, data }) {
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk('IHDR', ihdr),
+    chunk('sRGB', srgb),
     chunk('pHYs', phys),
     chunk('IDAT', zlib.deflateSync(raw, { level: 6 })),
     chunk('IEND', Buffer.alloc(0))

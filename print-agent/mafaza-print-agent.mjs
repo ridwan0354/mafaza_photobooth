@@ -325,6 +325,9 @@ async function printUnix(file, job, printer) {
     if (lpOpts.EPIJ_Mode) {
       args.push('-o', 'EPIJ_Mode=3'); // Mode Foto
     }
+    if (lpOpts.EPIJ_OSColMat) args.push('-o', 'EPIJ_OSColMat=2'); // ColorSync Matching
+    if (lpOpts.EPIJ_OSCMProf) args.push('-o', 'EPIJ_OSCMProf=1'); // sRGB
+    if (lpOpts.EPIJ_CMat) args.push('-o', 'EPIJ_CMat=0');
     // Cetak satu arah (Uni-directional): proses lebih lama, semprotan tinta lebih rapat, hasil warna jernih & pekat
     if (lpOpts.EPIJ_OPT_Bi_D) {
       args.push('-o', 'EPIJ_OPT_Bi_D=0');

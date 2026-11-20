@@ -159,6 +159,22 @@ export function resolveCupsQueueId(printerName, driverName) {
   };
 }
 
+function readCupsMediaTypeLabelsFromPpd(cupsQueueId) {
+  const labels = {};
+  if (!cupsQueueId) return labels;
+  try {
+    const ppdPath = path.join('/etc/cups/ppd', `${cupsQueueId}.ppd`);
+    if (!fs.existsSync(ppdPath)) return labels;
+    const ppdText = fs.readFileSync(ppdPath, 'utf8');
+    const re = /^\*MediaType\s+([^/\s:]+)\/([^:]+):/gm;
+    let m;
+    while ((m = re.exec(ppdText)) !== null) {
+      labels[m[1].trim()] = m[2].trim();
+    }
+  } catch (e) {}
+  return labels;
+}
+
 export function getPrinterMediaTypes(printerIdOrModel) {
   const platform = os.platform();
   const result = [];
@@ -168,6 +184,7 @@ export function getPrinterMediaTypes(printerIdOrModel) {
       const { cupsQueueId } = resolveCupsQueueId(printerIdOrModel, printerIdOrModel);
       const rawPrinterId = cupsQueueId || printerIdOrModel.trim().replace(/[\s-]+/g, '_');
       const out = execSync(`lpoptions -p "${rawPrinterId}" -l`, { encoding: 'utf8', timeout: 2500 });
+      const ppdLabels = readCupsMediaTypeLabelsFromPpd(rawPrinterId);
       const mediaLine = out.split('\n').find(l => l.startsWith('MediaType/'));
       if (mediaLine) {
         const optionsPart = mediaLine.split(':')[1];
@@ -183,12 +200,23 @@ export function getPrinterMediaTypes(printerIdOrModel) {
             'glossy': 'Kertas Foto Kilap (Glossy)',
             'matte': 'Kertas Foto Matte / Doff',
             'cardstock': 'Kertas Tebal / Cardstock',
-            'labels': 'Kertas Stiker / Label'
+            'labels': 'Kertas Stiker / Label',
+            '0': 'Plain Paper (Kertas HVS Biasa)',
+            '142': 'Letterhead (Kertas Biasa / Kop Surat)',
+            '2': 'Epson Photo Quality Ink Jet',
+            '12': 'Epson Matte',
+            '92': 'Epson Ultra Glossy',
+            '13': 'Epson Premium Glossy',
+            '15': 'Epson Premium Semigloss',
+            '145': 'Photo Paper Glossy',
+            '75': 'Epson Photo Stickers'
           };
           for (const token of tokens) {
             const cleanToken = token.replace(/^\*/, '');
             const isDefault = token.startsWith('*');
-            const label = dictionary[cleanToken] || cleanToken;
+            const label = ppdLabels[cleanToken]
+              ? `${ppdLabels[cleanToken]} (Kode ${cleanToken})`
+              : (dictionary[cleanToken] || cleanToken);
             result.push({ id: cleanToken, label, isDefault });
           }
         }
@@ -505,38 +533,64 @@ export function getPrintSheetForJob(jobId) {
   return { path: buildPrintSheetFile(abs, options, job.id), options };
 }
 
-function resolveCupsPageSizeOption(cupsQueueId, options) {
+function resolveCupsDriverOptions(cupsQueueId, options) {
   const wi = Math.round(Number(options.paperWidthIn) || 4);
   const hi = Math.round(Number(options.paperHeightIn) || 6);
-  const fallback = wi === 5 && hi === 7 ? '5x7' : (String(options.paperSize || '').toUpperCase() === 'A4' ? 'A4' : '4x6');
+  const fallbackPage = wi === 5 && hi === 7 ? '5x7' : (String(options.paperSize || '').toUpperCase() === 'A4' ? 'A4' : '4x6');
+  const res = {
+    pageOptKey: 'media',
+    pageChoice: fallbackPage,
+    resolvedMediaType: (options.mediaType && options.mediaType !== 'auto' && options.mediaType !== 'any') ? options.mediaType : null,
+    colorArgs: []
+  };
   try {
     const out = execFileSync('lpoptions', ['-p', cupsQueueId, '-l'], { encoding: 'utf8', timeout: 2500 });
-    const pageLine = out.split('\n').find(l => /^(PageSize|media)\//i.test(l.trim()));
-    if (!pageLine) return { optKey: 'media', choice: fallback };
-    const optKey = pageLine.split('/')[0].trim();
-    const choices = (pageLine.split(':')[1] || '').trim().split(/\s+/).map(c => c.replace(/^\*/, ''));
-    const matchers = [new RegExp(`(^|[^0-9])${wi}\\s*x\\s*${hi}(?![0-9.])`, 'i')];
-    if (wi === 4 && hi === 6) matchers.push(/10\s*x\s*15|100\s*x\s*150|102\s*x\s*152|4r\b/i);
-    if (wi === 5 && hi === 7) matchers.push(/13\s*x\s*18|127\s*x\s*178|5\s*x\s*7|5r\b|2l\b/i);
-    if (fallback === 'A4') matchers.push(/^a4(\.|$)/i);
-    const candidates = choices.filter(c => !/manucdr|disc|id\s*card|envelope|roll/i.test(c) && matchers.some(re => re.test(c)));
-    if (candidates.length > 0) {
-      const borderlessRe = /borderless|nmgn|fullbleed|\.fb\b/i;
-      const wantBorderless = options.borderless !== false;
-      const best = candidates.find(c => borderlessRe.test(c) === wantBorderless) || candidates[0];
-      return { optKey, choice: best };
+    const lines = out.split('\n');
+    const pageLine = lines.find(l => /^(PageSize|media)\//i.test(l.trim()));
+    if (pageLine) {
+      res.pageOptKey = pageLine.split('/')[0].trim();
+      const choices = (pageLine.split(':')[1] || '').trim().split(/\s+/).map(c => c.replace(/^\*/, ''));
+      const matchers = [new RegExp(`(^|[^0-9])${wi}\\s*x\\s*${hi}(?![0-9.])`, 'i')];
+      if (wi === 4 && hi === 6) matchers.push(/10\s*x\s*15|100\s*x\s*150|102\s*x\s*152|4r\b/i);
+      if (wi === 5 && hi === 7) matchers.push(/13\s*x\s*18|127\s*x\s*178|5\s*x\s*7|5r\b|2l\b/i);
+      if (fallbackPage === 'A4') matchers.push(/^a4(\.|$)/i);
+      const candidates = choices.filter(c => !/manucdr|disc|id\s*card|envelope|roll/i.test(c) && matchers.some(re => re.test(c)));
+      if (candidates.length > 0) {
+        const borderlessRe = /borderless|nmgn|fullbleed|\.fb\b/i;
+        const wantBorderless = options.borderless !== false;
+        res.pageChoice = candidates.find(c => borderlessRe.test(c) === wantBorderless) || candidates[0];
+      }
     }
-    return { optKey: 'media', choice: fallback };
-  } catch (e) {
-    return { optKey: 'media', choice: fallback };
-  }
+
+    // Petakan nama media generik (mis. "photographic-glossy" / "epson-premium-glossy") ke kode PPD Epson bila perlu
+    const mediaLine = lines.find(l => l.startsWith('MediaType/'));
+    if (mediaLine && res.resolvedMediaType) {
+      const mChoices = (mediaLine.split(':')[1] || '').trim().split(/\s+/).map(c => c.replace(/^\*/, ''));
+      if (!mChoices.includes(res.resolvedMediaType)) {
+        const ppdLabels = readCupsMediaTypeLabelsFromPpd(cupsQueueId);
+        const wantedWords = String(res.resolvedMediaType).toLowerCase().split(/[^a-z0-9]+/).filter(w => w && !['paper', 'kertas', 'auto', 'any', 'photographic'].includes(w));
+        let bestCode = null, bestScore = 0;
+        for (const code of mChoices) {
+          const text = `${code} ${ppdLabels[code] || ''}`.toLowerCase();
+          const score = wantedWords.filter(w => text.includes(w)).length;
+          if (score > bestScore) { bestScore = score; bestCode = code; }
+        }
+        if (bestCode) res.resolvedMediaType = bestCode;
+      }
+    }
+
+    // Aktifkan sRGB / ColorSync Matching pada driver Epson CUPS agar abu-abu tetap netral & warna tidak kemerahan
+    if (lines.some(l => l.startsWith('EPIJ_OSColMat/'))) res.colorArgs.push('-o', 'EPIJ_OSColMat=2');
+    if (lines.some(l => l.startsWith('EPIJ_OSCMProf/'))) res.colorArgs.push('-o', 'EPIJ_OSCMProf=1');
+    if (lines.some(l => l.startsWith('EPIJ_CMat/'))) res.colorArgs.push('-o', 'EPIJ_CMat=0');
+  } catch (e) {}
+  return res;
 }
 
 export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, options, copies = 1, sheetOrientation = 'portrait') {
   const platform = os.platform();
   const printerName = options.printerName;
   const driverName = options.driverName;
-  const mediaType = options.mediaType;
   let dispatchedToOs = false;
   let resolvedQueueId = null;
   let resolvedPrinterName = printerName;
@@ -554,16 +608,19 @@ export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, opt
           resolvedPrinterName = printerObj.name;
         }
         dispatchedToOs = true;
-        const pageOpt = resolveCupsPageSizeOption(cupsQueueId, options);
+        const drv = resolveCupsDriverOptions(cupsQueueId, options);
         const lpArgs = [
           '-d', cupsQueueId,
           '-n', String(copies),
-          '-o', `${pageOpt.optKey}=${pageOpt.choice}`,
+          '-o', `${drv.pageOptKey}=${drv.pageChoice}`,
           '-o', 'fit-to-page',
           '-o', sheetOrientation === 'landscape' ? 'orientation-requested=4' : 'orientation-requested=3'
         ];
-        if (mediaType && mediaType !== 'auto' && mediaType !== 'any') {
-          lpArgs.push('-o', `MediaType=${mediaType}`);
+        if (drv.resolvedMediaType) {
+          lpArgs.push('-o', `MediaType=${drv.resolvedMediaType}`);
+        }
+        if (drv.colorArgs.length > 0) {
+          lpArgs.push(...drv.colorArgs);
         }
         if (options.borderless) {
           lpArgs.push('-o', 'EPIJ_Bdls=1', '-o', 'EPIJ_exmg=0');
