@@ -153,8 +153,8 @@ class MingleBoothEngine {
   async fetchTemplates() {
     try {
       const [mingleRes, allRes] = await Promise.all([
-        fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&scope=include_global&booth=mingle`),
-        fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&scope=include_global`)
+        fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&scope=include_global&booth=mingle`, { cache: 'no-store' }),
+        fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&scope=include_global`, { cache: 'no-store' })
       ]);
       if (mingleRes.ok) {
         const mingleList = await mingleRes.json();
@@ -165,6 +165,11 @@ class MingleBoothEngine {
         if (Array.isArray(allList)) {
           this.allTemplates = allList.filter(t => (t.slots && t.slots.length <= 1) || t.orientation !== 'strip');
         }
+      }
+      if (this.selectedTemplate && this.selectedTemplate.id) {
+        const freshSelected = (this.allTemplates || []).find(t => t.id === this.selectedTemplate.id)
+          || (this.templates || []).find(t => t.id === this.selectedTemplate.id);
+        if (freshSelected) this.selectedTemplate = freshSelected;
       }
     } catch (e) {
       console.warn('Mingle template fetch fallback:', e);
@@ -940,6 +945,11 @@ class MingleBoothEngine {
         if (resTitle) resTitle.innerText = '✨ Hasil Foto Tamu';
         if (resHint) resHint.innerText = 'Geser foto untuk atur posisi';
 
+        try {
+          if (navigator.onLine !== false) {
+            await Promise.race([this.fetchTemplates(), new Promise(r => setTimeout(r, 1200))]);
+          }
+        } catch (e) {}
         await this.loadAndKeySelectedTemplate();
         const slotsCount = (this.activeSlots && this.activeSlots.length) || 1;
         if (!this.slotAssignments || this.slotAssignments.length !== slotsCount) {

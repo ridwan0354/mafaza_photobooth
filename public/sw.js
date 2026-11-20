@@ -6,7 +6,7 @@
  * dan tetap bisa dibuka kembali saat di-refresh (F5 / reload).
  */
 
-const CACHE_NAME = 'mafaza-offline-v3.77';
+const CACHE_NAME = 'mafaza-offline-v3.78';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -149,7 +149,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       (async () => {
         try {
-          const netRes = await fetch(req);
+          const netRes = await fetch(req, { cache: 'no-store' });
           if (netRes && netRes.ok) {
             // Cache respon API sukses untuk cadangan saat offline
             const cache = await caches.open(CACHE_NAME);
@@ -185,8 +185,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       (async () => {
         try {
-          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Network timeout')), 2500));
-          const netRes = await Promise.race([fetch(req), timeoutPromise]);
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Network timeout')), 5000));
+          const netRes = await Promise.race([fetch(req, { cache: 'no-store' }), timeoutPromise]);
           if (netRes && netRes.ok && req.url.startsWith('http')) {
             const cache = await caches.open(CACHE_NAME);
             cache.put(req, netRes.clone());

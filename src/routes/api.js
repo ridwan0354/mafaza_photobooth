@@ -779,6 +779,7 @@ apiRouter.get('/templates', (req, res) => {
   const scope = req.query.scope || null;
   const booth = req.query.booth || null;
   const templates = templateService.getTemplates(tenantId, eventId, scope, booth);
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json(templates);
 });
 

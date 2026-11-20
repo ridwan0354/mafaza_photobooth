@@ -797,11 +797,15 @@ class KioskEngine {
 
   async fetchTemplates() {
     try {
-      const res = await fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&booth=kiosk`);
+      const res = await fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&booth=kiosk`, { cache: 'no-store' });
       if (res.ok) {
         const fetched = await res.json();
         if (Array.isArray(fetched)) {
           this.templates = fetched;
+          if (this.selectedTemplate && this.selectedTemplate.id) {
+            const freshSelected = this.templates.find(t => t.id === this.selectedTemplate.id);
+            if (freshSelected) this.selectedTemplate = freshSelected;
+          }
           if (this.templates.length > 0 && window.pbOfflineStore) {
             window.pbOfflineStore.cacheConfig('templates_' + this.eventId, this.templates);
           }
@@ -1268,7 +1272,12 @@ class KioskEngine {
     this.showScreen('screenTemplate');
   }
 
-  openTemplateChooserDirectly() {
+  async openTemplateChooserDirectly() {
+    try {
+      if (navigator.onLine !== false) {
+        await Promise.race([this.fetchTemplates(), new Promise(r => setTimeout(r, 1200))]);
+      }
+    } catch (e) {}
     this.renderTemplateSelection('all');
     this.showScreen('screenTemplate');
   }
@@ -4056,6 +4065,12 @@ class KioskEngine {
         console.log('⚡ Menggunakan sesi offline lokal:', this.sessionId);
       }
     }
+
+    try {
+      if (navigator.onLine !== false) {
+        await Promise.race([this.fetchTemplates(), new Promise(r => setTimeout(r, 1200))]);
+      }
+    } catch (e) {}
 
     await this.loadAndKeySelectedTemplate(false);
 

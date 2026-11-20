@@ -1321,7 +1321,7 @@ async function loadTemplates() {
       params.push('booth=mingle');
     }
     if (params.length > 0) url += '?' + params.join('&');
-    const res = await fetch(url);
+    const res = await fetch(url, { cache: 'no-store' });
     if (res.ok) {
       templatesList = await res.json();
       try { localStorage.setItem('pb_cached_templates', JSON.stringify(templatesList)); } catch (e) {}
@@ -1635,6 +1635,8 @@ function selectTemplateForEditor(templateId, scroll = true) {
   if (chromaToggle) {
     chromaToggle.checked = Boolean(activeTemplate.chroma_key);
   }
+  const chromaStatus = document.getElementById('editorChromaKeyStatus');
+  if (chromaStatus) chromaStatus.innerText = '';
 
   renderSlotsList();
   updateSlotInspector();
@@ -1669,9 +1671,49 @@ function onEditorBoothModeChange(val) {
   renderTemplatesGallery();
 }
 
-function onEditorChromaKeyChange(checked) {
+async function onEditorChromaKeyChange(checked) {
   if (!activeTemplate) return;
-  activeTemplate.chroma_key = Boolean(checked);
+  const targetTpl = activeTemplate;
+  const nextVal = Boolean(checked);
+  const prevVal = Boolean(targetTpl.chroma_key);
+  targetTpl.chroma_key = nextVal;
+
+  const statusEl = document.getElementById('editorChromaKeyStatus');
+  if (statusEl) {
+    statusEl.style.color = '#7a581a';
+    statusEl.innerText = '⏳ Menyimpan...';
+  }
+
+  try {
+    const res = await fetch(`/api/templates/${targetTpl.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chromaKey: nextVal })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const updated = await res.json();
+    const savedVal = Boolean(updated && updated.chroma_key);
+    targetTpl.chroma_key = savedVal;
+    const chromaToggle = document.getElementById('editorTemplateChromaKeyToggle');
+    if (chromaToggle && chromaToggle.checked !== savedVal) chromaToggle.checked = savedVal;
+    const listItem = Array.isArray(templatesList) ? templatesList.find(t => t.id === targetTpl.id) : null;
+    if (listItem) listItem.chroma_key = savedVal;
+    try { localStorage.setItem('pb_cached_templates', JSON.stringify(templatesList)); } catch (e) {}
+    if (statusEl) {
+      statusEl.style.color = '#2b7a4b';
+      statusEl.innerText = (savedVal && !nextVal)
+        ? '✓ Wajib Aktif (frame .svg bawaan)'
+        : (savedVal ? '✓ Aktif (tersimpan)' : '✓ Mati (tersimpan)');
+    }
+  } catch (err) {
+    targetTpl.chroma_key = prevVal;
+    const chromaToggle = document.getElementById('editorTemplateChromaKeyToggle');
+    if (chromaToggle) chromaToggle.checked = prevVal;
+    if (statusEl) {
+      statusEl.style.color = '#c53030';
+      statusEl.innerText = '⚠️ Gagal simpan, klik Simpan di bawah';
+    }
+  }
 }
 window.onEditorChromaKeyChange = onEditorChromaKeyChange;
 
@@ -2657,6 +2699,9 @@ async function saveTemplateVersion(silent = false) {
   const boothMode = document.getElementById('editorTemplateBoothMode')?.value || activeTemplate.booth_mode || 'kiosk';
   const fmtKey = document.getElementById('editorTemplateFormat')?.value || getTemplateFormatKey(activeTemplate);
   const fmtMeta = TEMPLATE_FORMAT_MAP[fmtKey] || TEMPLATE_FORMAT_MAP.portrait;
+  const chromaToggle = document.getElementById('editorTemplateChromaKeyToggle');
+  const chromaKey = chromaToggle ? Boolean(chromaToggle.checked) : Boolean(activeTemplate.chroma_key);
+  activeTemplate.chroma_key = chromaKey;
   try {
     const res = await fetch(`/api/templates/${activeTemplate.id}/slots`, {
       method: 'PATCH',
@@ -2667,7 +2712,7 @@ async function saveTemplateVersion(silent = false) {
         qrCoords: editorQrCoords,
         shotsMode,
         boothMode,
-        chromaKey: Boolean(activeTemplate.chroma_key),
+        chromaKey,
         orientation: fmtMeta.orientation,
         paperSize: fmtMeta.paperSize,
         width,
