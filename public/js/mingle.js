@@ -1154,7 +1154,7 @@ class MingleBoothEngine {
   updateSlotZoomBadge() {
     const idx = typeof this.selectedSlotIdx === 'number' ? this.selectedSlotIdx : 0;
     const tr = this.getSlotTransform(idx);
-    const z = Math.max(1.0, Math.min(3.5, tr.zoom || 1.0));
+    const z = Math.max(0.35, Math.min(3.5, tr.zoom || 1.0));
     const zoomLbl = document.getElementById('mingleSlotZoomLabel');
     if (zoomLbl) zoomLbl.innerText = `🔍 ${z.toFixed(1)}x`;
     const slotBadge = document.getElementById('mingleActiveSlotBadge');
@@ -1164,7 +1164,7 @@ class MingleBoothEngine {
   async adjustActiveSlotZoom(delta) {
     const idx = typeof this.selectedSlotIdx === 'number' ? this.selectedSlotIdx : 0;
     const tr = this.getSlotTransform(idx);
-    tr.zoom = Math.max(1.0, Math.min(3.5, Number(((tr.zoom || 1.0) + delta).toFixed(2))));
+    tr.zoom = Math.max(0.35, Math.min(3.5, Number(((tr.zoom || 1.0) + delta).toFixed(2))));
     this.updateSlotZoomBadge();
     await this.renderResultCanvas();
     this.syncFinalImageOnly();
@@ -1210,12 +1210,12 @@ class MingleBoothEngine {
         if (filterStr !== 'none') ctx.filter = filterStr;
 
         const tr = this.getSlotTransform(i);
-        const zoom = Math.max(1.0, Math.min(3.5, tr.zoom || 1.0));
+        const zoom = Math.max(0.35, Math.min(3.5, tr.zoom || 1.0));
         const baseScale = Math.max(clipW / Math.max(1, pImg.width), clipH / Math.max(1, pImg.height));
         const drawW = pImg.width * baseScale * zoom;
         const drawH = pImg.height * baseScale * zoom;
-        const maxPanX = Math.max(0, (drawW - clipW) / 2);
-        const maxPanY = Math.max(0, (drawH - clipH) / 2);
+        const maxPanX = Math.max(Math.abs(drawW - clipW) / 2, Math.round(clipW * 0.45));
+        const maxPanY = Math.max(Math.abs(drawH - clipH) / 2, Math.round(clipH * 0.45));
         tr.panX = Math.max(-maxPanX, Math.min(maxPanX, tr.panX || 0));
         tr.panY = Math.max(-maxPanY, Math.min(maxPanY, tr.panY || 0));
 
@@ -1379,7 +1379,7 @@ class MingleBoothEngine {
       if (pinching && activePointers.size >= 2) {
         const pts = Array.from(activePointers.values());
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-        tr.zoom = Math.max(1.0, Math.min(3.5, pinchInitZoom * (dist / pinchInitDist)));
+        tr.zoom = Math.max(0.35, Math.min(3.5, pinchInitZoom * (dist / pinchInitDist)));
         this.updateSlotZoomBadge();
         this.renderResultCanvas();
       } else if (dragging && activePointers.size === 1) {
@@ -1420,7 +1420,7 @@ class MingleBoothEngine {
         this.renderResultSlotBar();
       }
       const tr = this.getSlotTransform(hitIdx);
-      tr.zoom = Math.max(1.0, Math.min(3.5, (tr.zoom || 1.0) + (e.deltaY < 0 ? 0.08 : -0.08)));
+      tr.zoom = Math.max(0.35, Math.min(3.5, (tr.zoom || 1.0) + (e.deltaY < 0 ? 0.08 : -0.08)));
       this.updateSlotZoomBadge();
       this.renderResultCanvas();
       scheduleSync();

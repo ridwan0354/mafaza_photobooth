@@ -243,12 +243,14 @@ test('Mingle supports unlimited / multi-shot digital-files mode and numeric pose
     assert.match(mingleJs, /rotateDataUrlIfNeeded/);
     assert.match(kioskJs, /setCameraRotation/);
     assert.match(kioskJs, /applyRotationToCapturedPose/);
-    assert.match(mingleJs, /Math\.max\(0, \(drawW - clipW\) \/ 2\)/);
-    assert.match(kioskJs, /Math\.max\(0, \(drawW - clipW\) \/ 2\)/);
+    assert.match(mingleJs, /Math\.abs\(drawW - clipW\) \/ 2/);
+    assert.match(kioskJs, /Math\.abs\(drawW - clipW\) \/ 2/);
+    assert.match(mingleJs, /Math\.max\(0\.35, Math\.min\(3\.5/);
+    assert.match(kioskJs, /Math\.max\(0\.35, Math\.min\(3\.5/);
     assert.match(kioskJs, /fitsNaturalImage/);
     assert.match(kioskJs, /e\.pointerType === 'touch'/);
-    assert.doesNotMatch(kioskJs, /clipW \* 0\.35/);
-    assert.doesNotMatch(mingleJs, /clipW \* 0\.35/);
+    assert.match(kioskJs, /clipW \* 0\.45/);
+    assert.match(mingleJs, /clipW \* 0\.45/);
     assert.match(mingleHtml, /mingle-top-live/);
     assert.match(mingleHtml, /mingleChangeFrameModal/);
     assert.match(mingleHtml, /mingleQrZoomModal/);

@@ -4459,7 +4459,7 @@ class KioskEngine {
         }
 
         const transform = (this.slotTransforms && this.slotTransforms[i]) || { panX: 0, panY: 0, zoom: 1.0 };
-        const zoom = Math.max(1.0, Math.min(3.5, transform.zoom || 1.0));
+        const zoom = Math.max(0.35, Math.min(3.5, transform.zoom || 1.0));
 
         // Base cover scale: gambar otomatis mengisi slot secara proporsional
         const baseScale = Math.max(clipW / pImg.width, clipH / pImg.height);
@@ -4468,9 +4468,9 @@ class KioskEngine {
         const drawW = pImg.width * finalScale;
         const drawH = pImg.height * finalScale;
 
-        // Batas pan ketat: foto selalu menutupi 100% area slot tanpa pernah menyisakan celah putih
-        const maxPanX = Math.max(0, (drawW - clipW) / 2);
-        const maxPanY = Math.max(0, (drawH - clipH) / 2);
+        // Batas pan fleksibel: tetap bebas digeser meski foto diperkecil (< 1.0x) atau pas ukuran slot
+        const maxPanX = Math.max(Math.abs(drawW - clipW) / 2, Math.round(clipW * 0.45));
+        const maxPanY = Math.max(Math.abs(drawH - clipH) / 2, Math.round(clipH * 0.45));
 
         transform.panX = Math.max(-maxPanX, Math.min(maxPanX, transform.panX || 0));
         transform.panY = Math.max(-maxPanY, Math.min(maxPanY, transform.panY || 0));
@@ -4505,7 +4505,7 @@ class KioskEngine {
     if (!label) return;
     const idx = typeof this.selectedPreviewSlotIndex === 'number' ? this.selectedPreviewSlotIndex : 0;
     const tr = (this.slotTransforms && this.slotTransforms[idx]) || { zoom: 1.0 };
-    const z = Math.max(0.8, Math.min(3.5, tr.zoom || 1.0));
+    const z = Math.max(0.35, Math.min(3.5, tr.zoom || 1.0));
     label.innerText = `🔍 ${z.toFixed(1)}x`;
   }
 
@@ -4637,7 +4637,7 @@ class KioskEngine {
       if (!this.slotTransforms[idx]) this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
 
       const deltaZoom = e.deltaY < 0 ? 0.08 : -0.08;
-      this.slotTransforms[idx].zoom = Math.max(1.0, Math.min(3.5, (this.slotTransforms[idx].zoom || 1.0) + deltaZoom));
+      this.slotTransforms[idx].zoom = Math.max(0.35, Math.min(3.5, (this.slotTransforms[idx].zoom || 1.0) + deltaZoom));
       this.renderFinalCanvas();
       this.resetAutoReturnTimer();
       this.debounceSyncSession();
@@ -4706,7 +4706,7 @@ class KioskEngine {
           e.touches[0].clientY - e.touches[1].clientY
         );
         const scaleRatio = currentDist / this.pinchState.initialDist;
-        this.slotTransforms[idx].zoom = Math.max(1.0, Math.min(3.5, this.pinchState.initialZoom * scaleRatio));
+        this.slotTransforms[idx].zoom = Math.max(0.35, Math.min(3.5, this.pinchState.initialZoom * scaleRatio));
 
         const currentMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
         const currentMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
@@ -4812,7 +4812,7 @@ class KioskEngine {
         const pts = Array.from(activePointers.values());
         const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         const scaleRatio = currentDist / this.pinchState.initialDist;
-        this.slotTransforms[idx].zoom = Math.max(1.0, Math.min(3.5, this.pinchState.initialZoom * scaleRatio));
+        this.slotTransforms[idx].zoom = Math.max(0.35, Math.min(3.5, this.pinchState.initialZoom * scaleRatio));
 
         const currentMidX = (pts[0].x + pts[1].x) / 2;
         const currentMidY = (pts[0].y + pts[1].y) / 2;
@@ -4949,7 +4949,7 @@ class KioskEngine {
     if (typeof this.selectedPreviewSlotIndex !== 'number') return;
     const idx = this.selectedPreviewSlotIndex;
     if (!this.slotTransforms[idx]) this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
-    this.slotTransforms[idx].zoom = Math.max(1.0, Math.min(3.5, (this.slotTransforms[idx].zoom || 1.0) + deltaZoom));
+    this.slotTransforms[idx].zoom = Math.max(0.35, Math.min(3.5, Number(((this.slotTransforms[idx].zoom || 1.0) + deltaZoom).toFixed(2))));
     this.renderFinalCanvas();
     this.resetAutoReturnTimer();
     this.debounceSyncSession();
@@ -5092,7 +5092,7 @@ class KioskEngine {
               const transform = (this.slotTransforms && this.slotTransforms[sIdx]) || { panX: 0, panY: 0, zoom: 1.0 };
               // Subtle pulse zoom (+0.04) on odd frames for organic vitality
               const pulse = (frameIdx % 2 === 1) ? 1.02 : 1.0;
-              const zoom = Math.max(1.0, Math.min(3.5, (transform.zoom || 1.0) * pulse));
+              const zoom = Math.max(0.35, Math.min(3.5, (transform.zoom || 1.0) * pulse));
 
               const baseScale = Math.max(clipW / pImg.width, clipH / pImg.height);
               const finalScale = baseScale * zoom;
