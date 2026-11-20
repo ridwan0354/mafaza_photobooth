@@ -4200,9 +4200,24 @@ class KioskEngine {
         }
       }
 
-      // Key out green pixels within slot regions so photos show through
+      // Key out green pixels (or opaque solid slot fill such as white Canva exports) within slot regions
       const pad = 12;
       for (const slot of slots) {
+        const sx0 = Math.max(0, Math.floor(slot.x));
+        const ex0 = Math.min(tplWidth, Math.ceil(slot.x + slot.width));
+        const sy0 = Math.max(0, Math.floor(slot.y));
+        const ey0 = Math.min(tplHeight, Math.ceil(slot.y + slot.height));
+
+        let sampled = 0, transCount = 0, greenCount = 0;
+        for (let y = sy0; y < ey0; y += 4) {
+          for (let x = sx0; x < ex0; x += 4) {
+            const idx = (y * tplWidth + x) * 4;
+            sampled++;
+            if (data[idx + 3] < 50) transCount++;
+            else if (isGreen(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) greenCount++;
+          }
+        }
+
         const startX = Math.max(0, Math.floor(slot.x - pad));
         const endX = Math.min(tplWidth, Math.ceil(slot.x + slot.width + pad));
         const startY = Math.max(0, Math.floor(slot.y - pad));
@@ -4213,6 +4228,34 @@ class KioskEngine {
             const idx = (y * tplWidth + x) * 4;
             if (isGreen(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) {
               data[idx + 3] = 0; // Transparent!
+            }
+          }
+        }
+
+        if (sampled > 0 && (transCount / sampled) < 0.05 && (greenCount / sampled) < 0.05) {
+          const cx = Math.min(tplWidth - 1, Math.max(0, Math.floor(slot.x + slot.width / 2)));
+          const cy = Math.min(tplHeight - 1, Math.max(0, Math.floor(slot.y + slot.height / 2)));
+          const cIdx = (cy * tplWidth + cx) * 4;
+          const bgR = data[cIdx], bgG = data[cIdx + 1], bgB = data[cIdx + 2];
+          let matchCount = 0;
+          for (let y = sy0; y < ey0; y += 4) {
+            for (let x = sx0; x < ex0; x += 4) {
+              const idx = (y * tplWidth + x) * 4;
+              const diff = Math.abs(data[idx] - bgR) + Math.abs(data[idx + 1] - bgG) + Math.abs(data[idx + 2] - bgB);
+              if (diff <= 45) matchCount++;
+            }
+          }
+          if ((matchCount / sampled) >= 0.35) {
+            for (let y = sy0; y < ey0; y++) {
+              for (let x = sx0; x < ex0; x++) {
+                const idx = (y * tplWidth + x) * 4;
+                const diff = Math.abs(data[idx] - bgR) + Math.abs(data[idx + 1] - bgG) + Math.abs(data[idx + 2] - bgB);
+                if (diff <= 45) {
+                  data[idx + 3] = 0;
+                } else if (diff <= 68) {
+                  data[idx + 3] = Math.round(data[idx + 3] * ((diff - 45) / 23));
+                }
+              }
             }
           }
         }
