@@ -814,8 +814,8 @@ apiRouter.post('/templates', authMiddleware(), upload.single('templateFile'), (r
 
 apiRouter.patch('/templates/:id/slots', authMiddleware(), (req, res) => {
   try {
-    const { slots, layers, qrPosition, width, height, shotsMode, boothMode, orientation, paperSize, qrCoords, chromaKey } = req.body;
-    const updated = templateService.updateTemplateSlots(req.params.id, req.user.tenantId, slots, layers, qrPosition, width, height, shotsMode, boothMode, orientation, paperSize, qrCoords, chromaKey);
+    const { name, slots, layers, qrPosition, width, height, shotsMode, boothMode, orientation, paperSize, qrCoords, chromaKey } = req.body;
+    const updated = templateService.updateTemplateSlots(req.params.id, req.user.tenantId, slots, layers, qrPosition, width, height, shotsMode, boothMode, orientation, paperSize, qrCoords, chromaKey, name);
     res.json(updated);
   } catch (err) {
     res.status(400).json({ error: err.message });

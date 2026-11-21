@@ -290,7 +290,7 @@ export function createTemplate(tenantId, data) {
   return getTemplateById(templateId, tenantId);
 }
 
-export function updateTemplateSlots(templateId, tenantId, slots, layers = null, qrPosition = null, width = null, height = null, shotsMode = null, boothMode = null, orientation = null, paperSize = null, qrCoords = null, chromaKey = undefined) {
+export function updateTemplateSlots(templateId, tenantId, slots, layers = null, qrPosition = null, width = null, height = null, shotsMode = null, boothMode = null, orientation = null, paperSize = null, qrCoords = null, chromaKey = undefined, name = undefined) {
   const template = getTemplateById(templateId, tenantId);
   if (!template) throw new Error('Template tidak ditemukan');
 
@@ -311,6 +311,11 @@ export function updateTemplateSlots(templateId, tenantId, slots, layers = null, 
 
   const updates = ['current_version_id = ?'];
   const params = [newVersionId];
+
+  if (typeof name === 'string' && name.trim()) {
+    updates.push('name = ?');
+    params.push(name.trim());
+  }
 
   if (qrPosition) {
     updates.push('qr_position = ?');
@@ -364,7 +369,12 @@ export function updateTemplateConfig(templateId, tenantId, updates = {}) {
 
   const fields = [];
   const params = [];
-  if (updates.name !== undefined) { fields.push('name = ?'); params.push(updates.name); }
+  if (updates.name !== undefined) {
+    const cleanName = String(updates.name).trim();
+    if (!cleanName) throw new Error('Nama frame tidak boleh kosong');
+    fields.push('name = ?');
+    params.push(cleanName);
+  }
   if (updates.eventId !== undefined) { fields.push('event_id = ?'); params.push(updates.eventId || null); }
   if (updates.qrPosition !== undefined || updates.qr_position !== undefined) {
     fields.push('qr_position = ?');

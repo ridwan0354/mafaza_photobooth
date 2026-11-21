@@ -1482,9 +1482,12 @@ function renderTemplatesGallery() {
         </div>
 
         <!-- Title -->
-        <h4 style="font-size: 15px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 12px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${t.name}">
-          ${t.name}
-        </h4>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 12px;">
+          <h4 style="font-size: 15px; font-weight: 800; color: var(--caramel-brown); margin: 0; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${t.name}">
+            ${t.name}
+          </h4>
+          <button type="button" class="btn btn-secondary" style="padding: 3px 7px; font-size: 11px; flex-shrink: 0;" title="Ganti nama frame" onclick="renameTemplateInEditor('${t.id}')">✏️</button>
+        </div>
 
         <!-- Action Buttons -->
         <div style="margin-top: auto; display: flex; gap: 8px;">
@@ -1609,6 +1612,8 @@ function selectTemplateForEditor(templateId, scroll = true) {
 
   const nameEl = document.getElementById('currentEditorTemplateName');
   if (nameEl) nameEl.innerText = activeTemplate.name;
+  const nameInp = document.getElementById('editorTemplateNameInput');
+  if (nameInp) nameInp.value = activeTemplate.name || '';
 
   const fmtKey = getTemplateFormatKey(activeTemplate);
   const typeEl = document.getElementById('currentEditorTypeBadge');
@@ -2835,11 +2840,14 @@ async function saveTemplateVersion(silent = false) {
   const chromaToggle = document.getElementById('editorTemplateChromaKeyToggle');
   const chromaKey = chromaToggle ? Boolean(chromaToggle.checked) : Boolean(activeTemplate.chroma_key);
   activeTemplate.chroma_key = chromaKey;
+  const editedName = (document.getElementById('editorTemplateNameInput')?.value || '').trim();
+  const finalName = editedName || activeTemplate.name;
   try {
     const res = await fetch(`/api/templates/${activeTemplate.id}/slots`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        name: finalName,
         slots: editorSlots,
         qrPosition,
         qrCoords: editorQrCoords,
@@ -2853,7 +2861,10 @@ async function saveTemplateVersion(silent = false) {
       })
     });
     if (res.ok) {
-      if (!silent) alert('✅ Konfigurasi slot pose & QR cetak template berhasil disimpan & dipublikasikan!');
+      activeTemplate.name = finalName;
+      const nameEl = document.getElementById('currentEditorTemplateName');
+      if (nameEl) nameEl.innerText = finalName;
+      if (!silent) alert('✅ Konfigurasi slot pose, nama frame & QR cetak berhasil disimpan & dipublikasikan!');
       await loadTemplates();
     } else {
       const err = await res.json().catch(() => ({}));
@@ -2862,6 +2873,68 @@ async function saveTemplateVersion(silent = false) {
   } catch (e) {
     console.error('saveTemplateVersion error:', e);
     if (!silent) alert('Gagal menyimpan template: ' + (e.message || 'Terjadi kesalahan'));
+  }
+}
+
+function renameTemplateInEditor(templateId) {
+  selectTemplateForEditor(templateId, false);
+  const nameInp = document.getElementById('editorTemplateNameInput');
+  if (nameInp) {
+    nameInp.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => {
+      nameInp.focus();
+      nameInp.select();
+    }, 250);
+  }
+}
+
+async function saveActiveTemplateName() {
+  if (!activeTemplate) {
+    alert('Pilih template terlebih dahulu.');
+    return;
+  }
+  const nameInp = document.getElementById('editorTemplateNameInput');
+  const newName = (nameInp ? nameInp.value : '').trim();
+  if (!newName) {
+    alert('Nama frame tidak boleh kosong.');
+    if (nameInp) nameInp.focus();
+    return;
+  }
+  const btn = document.getElementById('btnSaveTemplateName');
+  const prevText = btn ? btn.innerText : '✏️ Simpan Nama Frame';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = '⏳ Menyimpan...';
+  }
+  try {
+    const res = await fetch(`/api/templates/${activeTemplate.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert('Gagal mengganti nama frame: ' + (data.error || `HTTP ${res.status}`));
+      return;
+    }
+    activeTemplate.name = data.name || newName;
+    const item = templatesList.find(t => t.id === activeTemplate.id);
+    if (item) item.name = activeTemplate.name;
+    try { localStorage.setItem('pb_cached_templates', JSON.stringify(templatesList)); } catch (_) {}
+
+    const nameEl = document.getElementById('currentEditorTemplateName');
+    if (nameEl) nameEl.innerText = activeTemplate.name;
+    if (nameInp) nameInp.value = activeTemplate.name;
+    renderTemplatesGallery();
+    alert(`✅ Nama frame berhasil diubah menjadi "${activeTemplate.name}"!`);
+  } catch (e) {
+    console.error('saveActiveTemplateName error:', e);
+    alert('Gagal mengganti nama frame: ' + (e.message || 'Kesalahan jaringan'));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = prevText;
+    }
   }
 }
 

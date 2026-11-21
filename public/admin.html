@@ -1361,9 +1361,13 @@
                 <span class="sticker-badge sticker-mustard" style="font-size: 11px;">Canvas Interactive Editor</span>
                 <span id="currentEditorTypeBadge" class="sticker-badge sticker-purple" style="font-size: 11px;">Strip 2x6</span>
               </div>
-              <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown);">
+              <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">
                 Editor Slot: <span id="currentEditorTemplateName" style="color: var(--coral);">Pilih Template</span>
               </h3>
+              <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                <input type="text" id="editorTemplateNameInput" class="form-control" placeholder="Ketik nama frame baru..." style="min-width: 220px; max-width: 340px; padding: 7px 11px; font-size: 13px; font-weight: 700;" onkeydown="if(event.key==='Enter'){event.preventDefault();saveActiveTemplateName();}">
+                <button type="button" id="btnSaveTemplateName" class="btn btn-secondary" style="font-size: 12.5px; padding: 7px 12px;" onclick="saveActiveTemplateName()">✏️ Simpan Nama Frame</button>
+              </div>
             </div>
             <span class="sticker-badge sticker-teal" style="font-size: 12px;">Smart Green Chroma Connected 2D</span>
           </div>
@@ -2872,6 +2876,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.2"></script>
   <script src="/js/print-client.js?v=1.7"></script>
-  <script src="/js/admin.js?v=responsive-v7.5"></script>
+  <script src="/js/admin.js?v=responsive-v7.6"></script>
 </body>
 </html>
