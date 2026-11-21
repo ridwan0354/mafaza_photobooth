@@ -861,18 +861,24 @@ class KioskEngine {
 
   async fetchTemplates() {
     try {
-      const res = await fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&booth=kiosk`, { cache: 'no-store' });
+      const res = await this.fetchWithTimeout(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&booth=kiosk`, { cache: 'no-store' }, 2500);
       if (res.ok) {
         const fetched = await res.json();
-        if (Array.isArray(fetched)) {
+        if (Array.isArray(fetched) && fetched.length > 0) {
           this.templates = fetched;
           if (this.selectedTemplate && this.selectedTemplate.id) {
             const freshSelected = this.templates.find(t => t.id === this.selectedTemplate.id);
             if (freshSelected) this.selectedTemplate = freshSelected;
           }
-          if (this.templates.length > 0 && window.pbOfflineStore) {
+          if (window.pbOfflineStore) {
             window.pbOfflineStore.cacheConfig('templates_' + this.eventId, this.templates);
           }
+          this.templates.forEach(t => {
+            if (t && t.image_storage_key && !String(t.image_storage_key).startsWith('data:')) {
+              const preImg = new Image();
+              preImg.src = t.image_storage_key;
+            }
+          });
         }
       }
     } catch (e) {
@@ -1109,9 +1115,10 @@ class KioskEngine {
   }
 
   async ensureGuestPassReady() {
+    if (this.isLocalDirectMode() || !navigator.onLine) return;
     try {
       if (!this.guestPass) {
-        const res = await fetch('/api/guest-passes/issue', {
+        const res = await this.fetchWithTimeout('/api/guest-passes/issue', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1119,18 +1126,18 @@ class KioskEngine {
             eventId: this.eventId,
             baseUrl: window.location.origin
           })
-        });
+        }, 2200);
         if (res.ok) {
           this.guestPass = await res.json();
         }
       } else if (!this.guestPass.qrDataUrl) {
         const token = this.guestPass.token || this.guestPass.token_plain;
         if (token) {
-          const res = await fetch('/api/kiosk/qr/resolve', {
+          const res = await this.fetchWithTimeout('/api/kiosk/qr/resolve', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token, baseUrl: window.location.origin })
-          });
+          }, 2200);
           if (res.ok) {
             const data = await res.json();
             if (data && data.pass) {
@@ -1230,9 +1237,9 @@ class KioskEngine {
   async loadActiveGuestPassesForKiosk() {
     const sel = document.getElementById('kioskGuestPassQuickSelect');
     const badge = document.getElementById('kioskPassCountBadge');
-    if (!sel) return;
+    if (!sel || !navigator.onLine) return;
     try {
-      const res = await fetch(`/api/kiosk/guest-passes?eventId=${encodeURIComponent(this.eventId)}`);
+      const res = await this.fetchWithTimeout(`/api/kiosk/guest-passes?eventId=${encodeURIComponent(this.eventId)}`, {}, 2000);
       if (!res.ok) return;
       const passes = await res.json();
       this.cachedKioskPasses = passes;
@@ -5898,11 +5905,15 @@ async function verifyOperatorPin() {
 
   try {
     const eventId = (window.kiosk && window.kiosk.eventId) || localStorage.getItem('pb_active_event_id') || '';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2000);
     const res = await fetch('/api/kiosk/verify-operator-pin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ eventId, pin })
+      body: JSON.stringify({ eventId, pin }),
+      signal: ctrl.signal
     });
+    clearTimeout(timer);
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.valid) {
       window.location.href = '/admin?tab=photos';

@@ -55,6 +55,9 @@ class MingleBoothEngine {
   }
 
   async init() {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+    }
     this.setupAudio();
     this.setupCanvasPanAndZoom();
     this.setupLifecycleListeners();
@@ -69,6 +72,25 @@ class MingleBoothEngine {
     this.applyTopLiveLayout();
     this.startStatusPolling();
     this.setUsbMingleListen(false);
+  }
+
+  isLocalDirectMode() {
+    try {
+      const ls = localStorage.getItem('pb_kiosk_local_mode');
+      if (ls === 'true') return true;
+      if (ls === 'false') return false;
+    } catch (e) {}
+    return Boolean(this.eventConfig && this.eventConfig.localPrintMode);
+  }
+
+  async fetchWithTimeout(url, options = {}, timeoutMs = 2500) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   setupAudio() {
@@ -127,43 +149,74 @@ class MingleBoothEngine {
     try {
       const urlParams = new URLSearchParams(window.location.search);
       if (!urlParams.get('eventId')) {
-        const curRes = await fetch('/api/events/active/current');
-        if (curRes.ok) {
-          const curData = await curRes.json();
-          if (curData && curData.activeEventId) {
-            this.eventId = curData.activeEventId;
-            try { localStorage.setItem('pb_active_event_id', this.eventId); } catch (e) {}
+        try {
+          const curRes = await this.fetchWithTimeout('/api/events/active/current', {}, 1800);
+          if (curRes.ok) {
+            const curData = await curRes.json();
+            if (curData && curData.activeEventId) {
+              this.eventId = curData.activeEventId;
+              try { localStorage.setItem('pb_active_event_id', this.eventId); } catch (e) {}
+            }
           }
-        }
+        } catch (err) {}
       }
-      const evRes = await fetch(`/api/events/${encodeURIComponent(this.eventId)}`);
+      const evRes = await this.fetchWithTimeout(`/api/events/${encodeURIComponent(this.eventId)}`, {}, 2000);
       if (evRes.ok) {
         const ev = await evRes.json();
-        this.tenantId = ev.tenant_id || this.tenantId;
-        if (ev.config && ev.config.shotsCount) {
-          this.eventShotsCount = parseInt(ev.config.shotsCount, 10) || 1;
+        if (ev && !ev.offline) {
+          this.tenantId = ev.tenant_id || this.tenantId;
+          this.eventConfig = ev.config || {};
+          if (this.eventConfig.shotsCount) {
+            this.eventShotsCount = parseInt(this.eventConfig.shotsCount, 10) || 1;
+          }
+          if (window.pbOfflineStore) {
+            window.pbOfflineStore.cacheConfig('event_' + this.eventId, ev);
+          }
+          if (titleEl) titleEl.innerText = `Event: ${ev.name || 'Aktif'}`;
+          return;
         }
-        if (titleEl) titleEl.innerText = `Event: ${ev.name || 'Aktif'}`;
-        return;
       }
     } catch (e) {}
+
+    if (window.pbOfflineStore) {
+      try {
+        const cachedEv = await window.pbOfflineStore.getCachedConfig('event_' + this.eventId);
+        if (cachedEv) {
+          this.tenantId = cachedEv.tenant_id || this.tenantId;
+          this.eventConfig = cachedEv.config || {};
+          if (this.eventConfig.shotsCount) {
+            this.eventShotsCount = parseInt(this.eventConfig.shotsCount, 10) || 1;
+          }
+          if (titleEl) titleEl.innerText = `Event: ${cachedEv.name || 'Offline Siap'}`;
+          return;
+        }
+      } catch (e) {}
+    }
     if (titleEl) titleEl.innerText = 'Mingle Booth · Mode Siap';
   }
 
   async fetchTemplates() {
     try {
       const [mingleRes, allRes] = await Promise.all([
-        fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&scope=include_global&booth=mingle`, { cache: 'no-store' }),
-        fetch(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&scope=include_global`, { cache: 'no-store' })
+        this.fetchWithTimeout(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&scope=include_global&booth=mingle`, { cache: 'no-store' }, 2500),
+        this.fetchWithTimeout(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&scope=include_global`, { cache: 'no-store' }, 2500)
       ]);
       if (mingleRes.ok) {
         const mingleList = await mingleRes.json();
-        if (Array.isArray(mingleList)) this.templates = mingleList;
+        if (Array.isArray(mingleList) && mingleList.length > 0) {
+          this.templates = mingleList;
+          if (window.pbOfflineStore) {
+            window.pbOfflineStore.cacheConfig('mingle_templates_' + this.eventId, this.templates);
+          }
+        }
       }
       if (allRes.ok) {
         const allList = await allRes.json();
-        if (Array.isArray(allList)) {
+        if (Array.isArray(allList) && allList.length > 0) {
           this.allTemplates = allList.filter(t => (t.slots && t.slots.length <= 1) || t.orientation !== 'strip');
+          if (window.pbOfflineStore) {
+            window.pbOfflineStore.cacheConfig('mingle_all_templates_' + this.eventId, this.allTemplates);
+          }
         }
       }
       if (this.selectedTemplate && this.selectedTemplate.id) {
@@ -174,6 +227,27 @@ class MingleBoothEngine {
     } catch (e) {
       console.warn('Mingle template fetch fallback:', e);
     }
+
+    if ((!this.templates || this.templates.length === 0) && window.pbOfflineStore) {
+      try {
+        const cachedMingle = await window.pbOfflineStore.getCachedConfig('mingle_templates_' + this.eventId);
+        if (Array.isArray(cachedMingle) && cachedMingle.length > 0) this.templates = cachedMingle;
+      } catch (e) {}
+    }
+    if ((!this.allTemplates || this.allTemplates.length === 0) && window.pbOfflineStore) {
+      try {
+        const cachedAll = await window.pbOfflineStore.getCachedConfig('mingle_all_templates_' + this.eventId);
+        if (Array.isArray(cachedAll) && cachedAll.length > 0) this.allTemplates = cachedAll;
+      } catch (e) {}
+    }
+
+    // Pre-warm image URLs into browser/SW cache while signal is available
+    [...(this.templates || []), ...(this.allTemplates || [])].forEach(t => {
+      if (t && t.image_storage_key && !String(t.image_storage_key).startsWith('data:')) {
+        const preImg = new Image();
+        preImg.src = t.image_storage_key;
+      }
+    });
 
     if ((!this.templates || this.templates.length === 0) && (!this.allTemplates || this.allTemplates.length === 0)) {
       this.allTemplates = [{
@@ -1565,54 +1639,89 @@ class MingleBoothEngine {
     await this.syncFinalImageOnly();
   }
 
+  async saveMingleOfflineSession(finalBlob, { modeVal = 'single', printRequested = false, printCopies = 1 } = {}) {
+    if (!window.pbOfflineStore) return false;
+    const offlineCaps = [];
+    for (let i = 0; i < this.capturedPhotos.length; i++) {
+      try {
+        const b = await (await fetch(this.capturedPhotos[i])).blob();
+        offlineCaps.push({ poseIndex: i + 1, blob: b });
+      } catch (e) {}
+    }
+    await window.pbOfflineStore.saveSession({
+      id: this.sessionId,
+      tenantId: this.tenantId,
+      eventId: this.eventId,
+      deviceId: this.deviceId,
+      guestPassId: this.guestPass ? this.guestPass.id : null,
+      templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+      mode: modeVal,
+      finalImageBlob: finalBlob,
+      captures: offlineCaps,
+      printRequested: Boolean(printRequested),
+      printCopies: parseInt(printCopies, 10) || 1
+    });
+    return true;
+  }
+
   async issuePassCreateAndSync() {
     const qrImg = document.getElementById('mingleQrImg');
     const qrPh = document.getElementById('mingleQrPlaceholder');
     const qrHint = document.getElementById('mingleQrTapHint');
     const linkEl = document.getElementById('mingleGalleryLink');
     const statusEl = document.getElementById('mingleSyncStatus');
+    const isLocalMode = this.isLocalDirectMode();
+    const canTryNetwork = !isLocalMode && navigator.onLine !== false;
 
     if (!this.guestPass) {
       if (qrImg) qrImg.style.display = 'none';
       if (qrHint) qrHint.style.display = 'none';
       if (qrPh) {
         qrPh.style.display = 'block';
-        qrPh.innerText = 'Membuat QR Code Galeri...';
+        qrPh.innerText = canTryNetwork
+          ? 'Membuat QR Code Galeri...'
+          : (isLocalMode ? '🔌 Mode Lokal Aktif — Foto disimpan di perangkat' : '⚡ Offline — Foto disimpan lokal, QR siap setelah ada WiFi');
       }
-      if (statusEl) statusEl.innerText = '⏳ Mengunggah foto ke galeri tamu...';
+      if (statusEl) {
+        statusEl.innerText = canTryNetwork
+          ? '⏳ Mengunggah foto ke galeri tamu...'
+          : '⚡ Menyimpan foto di penyimpanan lokal perangkat...';
+      }
 
-      try {
-        const passRes = await fetch('/api/guest-passes/issue', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tenantId: this.tenantId,
-            eventId: this.eventId,
-            baseUrl: window.location.origin
-          })
-        });
-        if (passRes.ok) {
-          this.guestPass = await passRes.json();
-          if (this.guestPass.qrDataUrl && qrImg) {
-            qrImg.src = this.guestPass.qrDataUrl;
-            qrImg.style.display = 'block';
-            if (qrPh) qrPh.style.display = 'none';
-            if (qrHint) qrHint.style.display = 'block';
+      if (canTryNetwork) {
+        try {
+          const passRes = await this.fetchWithTimeout('/api/guest-passes/issue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenantId: this.tenantId,
+              eventId: this.eventId,
+              baseUrl: window.location.origin
+            })
+          }, 2500);
+          if (passRes.ok) {
+            this.guestPass = await passRes.json();
+            if (this.guestPass.qrDataUrl && qrImg) {
+              qrImg.src = this.guestPass.qrDataUrl;
+              qrImg.style.display = 'block';
+              if (qrPh) qrPh.style.display = 'none';
+              if (qrHint) qrHint.style.display = 'block';
+            }
+            const token = this.guestPass.token || this.guestPass.token_plain;
+            const gUrl = this.guestPass.galleryUrl || (token ? `/gallery/g/${token}` : null);
+            if (linkEl && gUrl) {
+              linkEl.href = gUrl;
+              linkEl.style.display = 'inline-block';
+            }
           }
-          const token = this.guestPass.token || this.guestPass.token_plain;
-          const gUrl = this.guestPass.galleryUrl || (token ? `/gallery/g/${token}` : null);
-          if (linkEl && gUrl) {
-            linkEl.href = gUrl;
-            linkEl.style.display = 'inline-block';
-          }
-        }
-      } catch (e) {}
+        } catch (e) {}
+      }
     }
 
-    if (!this.sessionId) {
+    if (!this.sessionId && canTryNetwork) {
       try {
         const modeVal = this.filesOnlyMode ? 'files_only' : (this.capturedPhotos.length > 1 ? 'multi' : 'single');
-        const sessRes = await fetch('/api/kiosk/sessions', {
+        const sessRes = await this.fetchWithTimeout('/api/kiosk/sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1623,7 +1732,7 @@ class MingleBoothEngine {
             mode: modeVal,
             templateId: this.selectedTemplate ? this.selectedTemplate.id : null
           })
-        });
+        }, 2500);
         if (sessRes.ok) {
           const sData = await sessRes.json();
           this.sessionId = sData.sessionId;
@@ -1632,7 +1741,7 @@ class MingleBoothEngine {
     }
 
     if (!this.sessionId) {
-      this.sessionId = 'sess_mgl_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      this.sessionId = 'sess_mgl_off_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     }
     await this.syncFinalImageOnly(true);
   }
@@ -1640,6 +1749,7 @@ class MingleBoothEngine {
   async syncFinalImageOnly(includeRaw = false, printRequested = false, printOpts = {}) {
     const canvas = document.getElementById('mingleFinalCanvas');
     const statusEl = document.getElementById('mingleSyncStatus');
+    const qrPh = document.getElementById('mingleQrPlaceholder');
     if (!this.sessionId) return null;
 
     let finalBlob = null;
@@ -1653,31 +1763,23 @@ class MingleBoothEngine {
     const printPaperSize = printOpts.paperSize || '';
     const paperConfirmed = !!printOpts.paperConfirmed;
 
-    if (!navigator.onLine) {
-      if (window.pbOfflineStore) {
-        const offlineCaps = [];
-        for (let i = 0; i < totalPhotos; i++) {
-          try {
-            const b = await (await fetch(this.capturedPhotos[i])).blob();
-            offlineCaps.push({ poseIndex: i + 1, blob: b });
-          } catch (e) {}
-        }
-        window.pbOfflineStore.saveSession({
-          id: this.sessionId,
-          tenantId: this.tenantId,
-          eventId: this.eventId,
-          deviceId: this.deviceId,
-          guestPassId: this.guestPass ? this.guestPass.id : null,
-          templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
-          mode: modeVal,
-          finalImageBlob: finalBlob,
-          captures: offlineCaps,
-          printRequested,
-          printCopies: parseInt(printCopies, 10) || 1
-        }).catch(() => {});
+    if (!navigator.onLine || this.isLocalDirectMode()) {
+      await this.saveMingleOfflineSession(finalBlob, {
+        modeVal,
+        printRequested: !this.isLocalDirectMode() && Boolean(printRequested),
+        printCopies
+      }).catch(() => {});
+      if (statusEl) {
+        statusEl.innerText = this.isLocalDirectMode()
+          ? `🔌 Mode Lokal: ${totalPhotos} foto aman tersimpan di perangkat.`
+          : `⚡ Disimpan offline (${totalPhotos} foto) — otomatis terkirim saat WiFi tersambung!`;
       }
-      if (statusEl) statusEl.innerText = '⚡ Disimpan lokal (Offline) — QR siap saat online';
-      return null;
+      if (!this.guestPass && qrPh) {
+        qrPh.innerText = this.isLocalDirectMode()
+          ? '🔌 Mode Lokal Aktif — Foto disimpan di perangkat'
+          : '⚡ Offline — QR & galeri tersedia setelah WiFi tersambung';
+      }
+      return { offlineSaved: true };
     }
 
     try {
@@ -1698,9 +1800,10 @@ class MingleBoothEngine {
         formData.append('mode', modeVal);
         if (this.guestPass && this.guestPass.id) formData.append('guestPassId', this.guestPass.id);
         if (this.selectedTemplate && this.selectedTemplate.id) formData.append('templateId', this.selectedTemplate.id);
-        const res = await fetch(`/api/kiosk/sessions/${this.sessionId}/complete`, { method: 'POST', body: formData });
-        const data = res.ok ? await res.json().catch(() => null) : null;
-        if (res.ok && statusEl) {
+        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${this.sessionId}/complete`, { method: 'POST', body: formData }, 10000);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json().catch(() => null);
+        if (statusEl) {
           const pj = data && data.printJob;
           if (printRequested) {
             statusEl.innerText = pj && pj.requiresPaperConfirm
@@ -1742,7 +1845,7 @@ class MingleBoothEngine {
           } catch (e) {}
         }
 
-        const res = await fetch(`/api/kiosk/sessions/${this.sessionId}/complete`, { method: 'POST', body: formData });
+        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${this.sessionId}/complete`, { method: 'POST', body: formData }, 12000);
         if (!res.ok) throw new Error('Gagal mengunggah batch foto');
         lastData = await res.json().catch(() => lastData);
         this.syncedCaptureCount = end;
@@ -1755,8 +1858,16 @@ class MingleBoothEngine {
       }
       return lastData;
     } catch (e) {
-      if (statusEl) statusEl.innerText = '⚠️ Gagal mengunggah ke server, mencoba ulang nanti.';
-      return null;
+      await this.saveMingleOfflineSession(finalBlob, {
+        modeVal,
+        printRequested: Boolean(printRequested),
+        printCopies
+      }).catch(() => {});
+      if (statusEl) statusEl.innerText = `⚡ WiFi terputus — ${totalPhotos} foto aman tersimpan lokal & otomatis terunggah saat ada sinyal!`;
+      if (!this.guestPass && qrPh) {
+        qrPh.innerText = '⚡ Sinyal hilang — foto disimpan di perangkat';
+      }
+      return { offlineSaved: true };
     }
   }
 
@@ -1779,6 +1890,12 @@ class MingleBoothEngine {
     this.setModalPrintPaper(is5rTpl ? '5R' : '4R');
     const readyCheck = document.getElementById('minglePaperAlreadyReadyCheck');
     if (readyCheck) readyCheck.checked = false;
+    const confirmBtn = document.getElementById('minglePrintModalConfirmBtn');
+    if (confirmBtn) {
+      confirmBtn.innerText = this.isLocalDirectMode()
+        ? '⚡ Cetak Langsung di Perangkat (Mode Lokal)'
+        : '🚀 Kirim Cetak ke Antrean Server';
+    }
     modal.style.display = 'flex';
   }
 
@@ -1871,6 +1988,12 @@ class MingleBoothEngine {
       this.openPrintOptionsModal();
       return;
     }
+    if (this.isLocalDirectMode()) {
+      this.printFromModalViaDevice();
+      await this.syncFinalImageOnly(false, false, printOpts);
+      this.showToast(`⚡ ${printOpts.copies || 1}× ${printOpts.paperLabel || '4R'} dicetak langsung & disimpan lokal!`, '🖨️', 2800);
+      return;
+    }
     const resData = await this.syncFinalImageOnly(false, true, printOpts);
     const job = resData && resData.printJob ? resData.printJob : null;
     if (job && job.requiresPaperConfirm) {
@@ -1879,6 +2002,8 @@ class MingleBoothEngine {
       this.showToast(`🖨️ ${printOpts.copies}× ${printOpts.paperLabel || '4R'} langsung dicetak di ${job.printerName || 'printer'}!`, '🖨️', 2800);
     } else if (job) {
       this.showToast(`✅ Antrean ${printOpts.paperLabel || '4R'} (${printOpts.copies}×) dikirim ke Server Admin!`, '🖨️', 3000);
+    } else if (resData && resData.offlineSaved) {
+      this.showToast(`⚡ WiFi terputus: Foto & antrean cetak (${printOpts.copies}×) disimpan lokal & dikirim otomatis saat ada WiFi!`, '⚡', 3500);
     } else {
       this.showToast('⚠️ Gagal mengirim ke server.', '⚠️', 2600);
     }

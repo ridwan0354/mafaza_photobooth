@@ -6,7 +6,7 @@
  * dan tetap bisa dibuka kembali saat di-refresh (F5 / reload).
  */
 
-const CACHE_NAME = 'mafaza-offline-v3.80';
+const CACHE_NAME = 'mafaza-offline-v3.81';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -31,7 +31,9 @@ const PRECACHE_ASSETS = [
   '/css/landing.css',
   '/assets/icons/icon.svg',
   '/assets/icons/logo-mafaza.png',
-  '/assets/logo-mafaza.jpg'
+  '/assets/logo-mafaza.jpg',
+  '/assets/templates/single-green-template.svg',
+  '/assets/templates/strip-green-template.svg'
 ];
 
 // Fallback JSON ketika offline agar API call tidak melempar uncaught network error
