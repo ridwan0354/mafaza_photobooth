@@ -81,9 +81,12 @@ class KioskEngine {
 
     this.setupOfflineEngine();
     await this.fetchEventConfig();
-    await this.fetchCameraConfig();
-    await this.fetchPrinterProfile();
-    await this.fetchTemplates();
+    await Promise.allSettled([
+      this.fetchCameraConfig(),
+      this.fetchPrinterProfile(),
+      this.fetchTemplates()
+    ]);
+    this.updateLocalModeUI();
     this.setupAudio();
     this.setupFullScreenSupport();
     this.setupKeyboardRemoteListeners();
@@ -165,6 +168,35 @@ class KioskEngine {
     });
   }
 
+  isLocalDirectMode() {
+    try {
+      const ls = localStorage.getItem('pb_kiosk_local_mode');
+      if (ls === 'true') return true;
+      if (ls === 'false') return false;
+    } catch (e) {}
+    return Boolean(this.eventConfig && this.eventConfig.localPrintMode);
+  }
+
+  async fetchWithTimeout(url, options = {}, timeoutMs = 2500) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  updateLocalModeUI() {
+    if (typeof this._updateOfflineBadge === 'function') {
+      this._updateOfflineBadge();
+    }
+    const modal = document.getElementById('kioskPrintOptionsModal');
+    if (modal && modal.style.display === 'flex') {
+      this.syncPrintOptionsModalLabels();
+    }
+  }
+
   setupOfflineEngine() {
     const updateOfflineBadge = () => {
       const badge = document.getElementById('kioskOfflineBadge');
@@ -172,9 +204,16 @@ class KioskEngine {
       if (!badge) return;
 
       const isOnline = navigator.onLine;
+      const isLocal = this.isLocalDirectMode();
       if (window.pbOfflineStore) {
         window.pbOfflineStore.getPendingCount().then((count) => {
-          if (!isOnline || count > 0) {
+          if (isLocal) {
+            badge.style.display = 'inline-flex';
+            badge.style.borderColor = '#D4A754';
+            badge.style.color = '#7a581a';
+            badge.style.background = 'rgba(212, 167, 84, 0.18)';
+            if (textEl) textEl.innerText = count > 0 ? `🔌 Mode Lokal (${count} foto tersimpan)` : '🔌 Mode Lokal • Cetak Langsung';
+          } else if (!isOnline || count > 0) {
             badge.style.display = 'inline-flex';
             if (!isOnline) {
               badge.style.borderColor = 'var(--coral)';
@@ -191,17 +230,32 @@ class KioskEngine {
             badge.style.display = 'none';
           }
         });
-      } else if (!isOnline) {
+      } else if (isLocal || !isOnline) {
         badge.style.display = 'inline-flex';
-        if (textEl) textEl.innerText = 'Mode Offline';
+        if (textEl) textEl.innerText = isLocal ? '🔌 Mode Lokal • Cetak Langsung' : 'Mode Offline';
       } else {
         badge.style.display = 'none';
       }
     };
+    this._updateOfflineBadge = updateOfflineBadge;
+
+    window.addEventListener('storage', (ev) => {
+      if (ev.key === 'pb_kiosk_local_mode') {
+        updateOfflineBadge();
+      }
+    });
+    try {
+      if (typeof BroadcastChannel === 'function') {
+        const ch = new BroadcastChannel('pb_kiosk_mode');
+        ch.onmessage = () => updateOfflineBadge();
+      }
+    } catch (e) {}
 
     window.addEventListener('online', () => {
       updateOfflineBadge();
-      if (window.pbToast) window.pbToast('🌐 Koneksi internet aktif kembali', 'info', 3000);
+      if (!this.isLocalDirectMode() && window.pbToast) {
+        window.pbToast('🌐 Koneksi internet aktif kembali', 'info', 3000);
+      }
     });
     window.addEventListener('offline', () => {
       updateOfflineBadge();
@@ -215,45 +269,53 @@ class KioskEngine {
 
   async fetchCameraConfig() {
     try {
-      const res = await fetch('/api/camera/status');
+      const res = await this.fetchWithTimeout('/api/camera/status', {}, 2000);
       if (res.ok) {
         const data = await res.json();
         this.cameraSystemStatus = data;
         this.cameraConfig = data.config || { cameraMode: 'sony_canon_flash', cameraBrand: 'sony_a7iii' };
+        return;
       }
-    } catch (e) {
-      this.cameraConfig = { cameraMode: 'sony_canon_flash', cameraBrand: 'sony_a7iii' };
+    } catch (e) {}
+    this.cameraConfig = this.cameraConfig || { cameraMode: 'sony_canon_flash', cameraBrand: 'sony_a7iii' };
+  }
+
+  applyPrinterProfileData(profile) {
+    if (!profile || !profile.name) return;
+    this.activePrinterName = profile.name;
+    this.cachedPrinterProfile = profile;
+    const shortName = profile.name.replace(/\s*series.*$/i, '').slice(0, 18);
+    const badge = document.getElementById('printerReadyBadge');
+    if (badge) badge.innerText = `● ${shortName} Ready`;
+
+    const st = profile.settings || {};
+    const select = document.getElementById('printCopiesSelect');
+    const maxCopies = parseInt(st.maxCopies, 10);
+    if (select && maxCopies >= 1) {
+      select.innerHTML = Array.from({ length: maxCopies }, (_, i) =>
+        `<option value="${i + 1}" ${i === 0 ? 'selected' : ''}>${i + 1} Lembar</option>`).join('');
+      select.value = '1';
+    }
+    if (st.mode === 'auto') {
+      this.autoPrintEnabled = true;
+      const autoToggle = document.getElementById('autoPrintToggle');
+      if (autoToggle) autoToggle.checked = true;
     }
   }
 
   async fetchPrinterProfile() {
     try {
-      const res = await fetch('/api/printers/profile');
+      const res = await this.fetchWithTimeout('/api/printers/profile', {}, 1800);
       if (res.ok) {
         const profile = await res.json();
-        if (profile && profile.name) {
-          this.activePrinterName = profile.name;
-          const shortName = profile.name.replace(/\s*series.*$/i, '').slice(0, 18);
-          const badge = document.getElementById('printerReadyBadge');
-          if (badge) badge.innerText = `● ${shortName} Ready`;
-
-          // Ikuti pengaturan dari menu Printer admin: maksimal lembar & mode cetak otomatis
-          const st = profile.settings || {};
-          const select = document.getElementById('printCopiesSelect');
-          const maxCopies = parseInt(st.maxCopies, 10);
-          if (select && maxCopies >= 1) {
-            const prev = parseInt(select.value, 10) || 1;
-            select.innerHTML = Array.from({ length: maxCopies }, (_, i) =>
-              `<option value="${i + 1}" ${i === 0 ? 'selected' : ''}>${i + 1} Lembar</option>`).join('');
-            select.value = '1';
-          }
-          if (st.mode === 'auto') {
-            this.autoPrintEnabled = true;
-            const autoToggle = document.getElementById('autoPrintToggle');
-            if (autoToggle) autoToggle.checked = true;
-          }
-        }
+        try { localStorage.setItem('pb_printer_profile_cache', JSON.stringify(profile)); } catch (e) {}
+        this.applyPrinterProfileData(profile);
+        return;
       }
+    } catch (e) {}
+    try {
+      const cached = localStorage.getItem('pb_printer_profile_cache');
+      if (cached) this.applyPrinterProfileData(JSON.parse(cached));
     } catch (e) {}
   }
 
@@ -275,7 +337,7 @@ class KioskEngine {
       const paramEventId = urlParams.get('eventId');
       if (!paramEventId) {
         try {
-          const activeRes = await fetch('/api/events/active/current');
+          const activeRes = await this.fetchWithTimeout('/api/events/active/current', {}, 1800);
           if (activeRes.ok) {
             const activeData = await activeRes.json();
             if (activeData.activeEventId) {
@@ -286,13 +348,14 @@ class KioskEngine {
         } catch (err) {}
       }
 
-      const res = await fetch(`/api/events/${this.eventId}`);
+      const res = await this.fetchWithTimeout(`/api/events/${this.eventId}`, {}, 2000);
       if (res.ok) {
         this.eventData = await res.json();
         if (this.eventData && window.pbOfflineStore) {
           window.pbOfflineStore.cacheConfig('event_' + this.eventId, this.eventData);
         }
         this.eventConfig = this.eventData.config || {};
+        this.updateLocalModeUI();
         if (this.eventConfig.shotsCount) {
           this.totalPosesRequired = parseInt(this.eventConfig.shotsCount) || 3;
         }
@@ -972,18 +1035,23 @@ class KioskEngine {
     this.sessionId = null;
     if (this.autoReturnTimerId) clearInterval(this.autoReturnTimerId);
 
-    // Refresh event config & event frames (non-blocking jika offline / lambat)
-    try {
-      await Promise.allSettled([
-        this.fetchEventConfig(),
-        this.fetchTemplates()
-      ]);
-    } catch (e) {
-      console.warn('Config refresh skipped on startSession:', e);
+    // Refresh event config & event frames (skip remote wait when Mode Lokal is active; cap timeout when online)
+    if (!this.isLocalDirectMode() && navigator.onLine !== false) {
+      try {
+        await Promise.race([
+          Promise.allSettled([
+            this.fetchEventConfig(),
+            this.fetchTemplates()
+          ]),
+          new Promise(r => setTimeout(r, 1500))
+        ]);
+      } catch (e) {
+        console.warn('Config refresh skipped on startSession:', e);
+      }
     }
 
-    // Jika event diatur Tidak Pakai Pindai QR, langsung masuk ke Pilih Frame (No. 1)
-    if (this.isQrScanDisabled()) {
+    // Jika Mode Lokal aktif atau event diatur Tidak Pakai Pindai QR, langsung masuk ke Pilih Frame (No. 1)
+    if (this.isLocalDirectMode() || this.isQrScanDisabled()) {
       this.stopQrScannerLoop();
       this.renderTemplateSelection('all');
       this.showScreen('screenTemplate');
@@ -1093,7 +1161,13 @@ class KioskEngine {
       if (qrFallback) qrFallback.style.display = 'none';
       if (qrHint) qrHint.style.display = 'block';
     } else {
-      if (qrFallback) qrFallback.innerText = 'QR Siap';
+      if (qrImg) qrImg.style.display = 'none';
+      if (qrFallback) {
+        qrFallback.style.display = 'block';
+        qrFallback.innerText = this.isLocalDirectMode()
+          ? '🔌 Mode Lokal Aktif — Foto disimpan di laptop'
+          : 'QR Siap';
+      }
       if (qrHint) qrHint.style.display = 'none';
     }
 
@@ -3223,14 +3297,14 @@ class KioskEngine {
       // Local bridge offline atau di perangkat mobile
     }
 
-    // 2. Jika bukan bridge lokal atau belum dapat data, fetch ke server
-    if (!data) {
+    // 2. Jika bukan bridge lokal atau belum dapat data, fetch ke server (kecuali Mode Lokal aktif)
+    if (!data && !this.isLocalDirectMode()) {
       try {
-        const res = await fetch('/api/camera/trigger-capture', {
+        const res = await this.fetchWithTimeout('/api/camera/trigger-capture', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ poseIndex, timeoutMs: 3800 })
-        });
+        }, 4500);
         if (res.ok) {
           data = await res.json();
         }
@@ -4034,40 +4108,47 @@ class KioskEngine {
   async processAndRenderFinal() {
     this.clearAllTimers();
     this.showScreen('screenProcessing');
+    const isLocalMode = this.isLocalDirectMode();
 
-    // 1. Ensure Guest Pass & QR Data URL exist BEFORE creating the session so guest_pass_id is always linked
-    await this.ensureGuestPassReady();
-
-    // 2. Create session in backend (if not already created for this run)
-    if (!this.sessionId) {
+    // 1. Ensure Guest Pass & QR Data URL exist BEFORE creating the session (skip when Mode Lokal is active)
+    if (!isLocalMode && navigator.onLine !== false) {
       try {
-        const sessRes = await fetch('/api/kiosk/sessions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tenantId: this.tenantId,
-            eventId: this.eventId,
-            deviceId: this.deviceId,
-            guestPassId: this.guestPass ? this.guestPass.id : null,
-            mode: this.selectedMode,
-            templateId: this.selectedTemplate ? this.selectedTemplate.id : null
-          })
-        });
-        if (sessRes.ok) {
-          const sessData = await sessRes.json();
-          this.sessionId = sessData.sessionId;
-        }
+        await Promise.race([this.ensureGuestPassReady(), new Promise(r => setTimeout(r, 2500))]);
       } catch (e) {}
+    }
 
-      // Fallback: Jika offline atau server tidak merespon, buat session ID offline lokal
+    // 2. Create session in backend (skip blocking network wait when Mode Lokal is active)
+    if (!this.sessionId) {
+      if (!isLocalMode && navigator.onLine !== false) {
+        try {
+          const sessRes = await this.fetchWithTimeout('/api/kiosk/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenantId: this.tenantId,
+              eventId: this.eventId,
+              deviceId: this.deviceId,
+              guestPassId: this.guestPass ? this.guestPass.id : null,
+              mode: this.selectedMode,
+              templateId: this.selectedTemplate ? this.selectedTemplate.id : null
+            })
+          }, 2500);
+          if (sessRes.ok) {
+            const sessData = await sessRes.json();
+            this.sessionId = sessData.sessionId;
+          }
+        } catch (e) {}
+      }
+
+      // Fallback: Mode Lokal / offline / sinyal lambat -> langsung buat session ID lokal seketika
       if (!this.sessionId) {
-        this.sessionId = 'sess_off_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-        console.log('⚡ Menggunakan sesi offline lokal:', this.sessionId);
+        this.sessionId = (isLocalMode ? 'sess_local_' : 'sess_off_') + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+        console.log('⚡ Menggunakan sesi lokal:', this.sessionId);
       }
     }
 
     try {
-      if (navigator.onLine !== false) {
+      if (!isLocalMode && navigator.onLine !== false) {
         await Promise.race([this.fetchTemplates(), new Promise(r => setTimeout(r, 1200))]);
       }
     } catch (e) {}
@@ -5217,58 +5298,83 @@ class KioskEngine {
         formData.append('boomerang', bmResult.blob, `boomerang_${Date.now()}.${bmResult.ext}`);
       }
 
-      if (!navigator.onLine) {
-        if (window.pbOfflineStore) {
-          window.pbOfflineStore.saveSession({
-            id: this.sessionId,
-            tenantId: this.tenantId,
-            eventId: this.eventId,
-            deviceId: this.deviceId,
-            guestPassId: this.guestPass ? this.guestPass.id : null,
-            templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
-            mode: this.selectedMode,
-            finalImageBlob: blob,
-            captures: rawBlobs,
-            liveClips: this.liveClips,
-            boomerangBlob: bmResult ? bmResult.blob : null,
-            boomerangExt: bmResult ? bmResult.ext : 'mp4',
-            printRequested: false,
-            printCopies: 1
-          }).catch(err => console.warn('Offline session save error:', err));
-        }
+      if (!navigator.onLine || this.isLocalDirectMode()) {
+        this.saveOfflineSessionBackup(blob, {
+          captures: rawBlobs,
+          boomerangBlob: bmResult ? bmResult.blob : null,
+          boomerangExt: bmResult ? bmResult.ext : 'mp4',
+          printRequested: false,
+          printCopies: 1
+        });
         return;
       }
 
       try {
-        const res = await fetch(`/api/kiosk/sessions/${this.sessionId}/complete`, {
+        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${this.sessionId}/complete`, {
           method: 'POST',
           body: formData
-        });
+        }, 12000);
         if (res.ok && needSyncRaw) {
           this.rawPosesSyncedForSession = this.sessionId;
         }
       } catch (e) {
         console.warn('Error syncing session, saving offline:', e);
-        if (window.pbOfflineStore) {
-          window.pbOfflineStore.saveSession({
-            id: this.sessionId,
-            tenantId: this.tenantId,
-            eventId: this.eventId,
-            deviceId: this.deviceId,
-            guestPassId: this.guestPass ? this.guestPass.id : null,
-            templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
-            mode: this.selectedMode,
-            finalImageBlob: blob,
-            captures: rawBlobs,
-            liveClips: this.liveClips,
-            boomerangBlob: bmResult ? bmResult.blob : null,
-            boomerangExt: bmResult ? bmResult.ext : 'mp4',
-            printRequested: false,
-            printCopies: 1
-          }).catch(err => console.warn('Offline session save error:', err));
-        }
+        this.saveOfflineSessionBackup(blob, {
+          captures: rawBlobs,
+          boomerangBlob: bmResult ? bmResult.blob : null,
+          boomerangExt: bmResult ? bmResult.ext : 'mp4',
+          printRequested: false,
+          printCopies: 1
+        });
       }
     }, 'image/jpeg', 0.88);
+  }
+
+  saveOfflineSessionBackup(finalImageBlob, opts = {}) {
+    if (!window.pbOfflineStore) return;
+    const captures = opts.captures || (this.posesCaptured || []).map((p, idx) => ({ poseIndex: idx + 1, blob: p }));
+    window.pbOfflineStore.saveSession({
+      id: this.sessionId,
+      tenantId: this.tenantId,
+      eventId: this.eventId,
+      deviceId: this.deviceId,
+      guestPassId: this.guestPass ? this.guestPass.id : null,
+      templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+      mode: this.selectedMode,
+      finalImageBlob,
+      captures,
+      liveClips: this.liveClips,
+      boomerangBlob: opts.boomerangBlob || null,
+      boomerangExt: opts.boomerangExt || 'mp4',
+      printRequested: Boolean(opts.printRequested),
+      printCopies: parseInt(opts.printCopies, 10) || 1
+    }).catch(err => console.warn('Offline session save error:', err));
+  }
+
+  syncPrintOptionsModalLabels() {
+    const isLocal = this.isLocalDirectMode();
+    const sub = document.getElementById('kioskPrintModalSubtitle');
+    const confirmBtn = document.getElementById('kioskPrintModalConfirmBtn');
+    const notice5r = document.getElementById('kioskPrint5rNoticeText');
+    const readyRow = document.getElementById('kioskPaperReadyRow');
+    if (sub) {
+      sub.innerText = isLocal
+        ? 'Mode Lokal Aktif: langsung cetak ke printer laptop tanpa kirim ke server'
+        : 'Pilih jumlah lembar & ukuran kertas sebelum dikirim ke antrean server';
+    }
+    if (confirmBtn) {
+      confirmBtn.innerText = isLocal
+        ? '⚡ Cetak Langsung di Laptop (Tanpa Server)'
+        : '🚀 Kirim Cetak ke Antrean Server';
+    }
+    if (notice5r) {
+      notice5r.innerHTML = isLocal
+        ? '<strong>⚠️ Kertas 5R (Mode Lokal):</strong> Pastikan kertas <strong>5R (13×18 cm)</strong> sudah terpasang di printer yang tercolok ke laptop ini sebelum mencetak.'
+        : '<strong>⚠️ Konfirmasi Kertas 5R:</strong> Laptop Stasiun Printer akan menampilkan popup pengingat ganti kertas 5R sebelum mencetak ke Epson.';
+    }
+    if (readyRow) {
+      readyRow.style.display = isLocal ? 'none' : 'flex';
+    }
   }
 
   openPrintOptionsModal() {
@@ -5290,6 +5396,7 @@ class KioskEngine {
 
     const readyCheck = document.getElementById('kioskPaperAlreadyReadyCheck');
     if (readyCheck) readyCheck.checked = false;
+    this.syncPrintOptionsModalLabels();
     modal.style.display = 'flex';
   }
 
@@ -5369,43 +5476,177 @@ class KioskEngine {
     this.printViaChromeDialog({ copies, paperSize, paperWidthIn, paperHeightIn, borderless: true });
   }
 
+  buildPrintableDataUrl(paperSize = '4x6', includeQr = true) {
+    const finalCanvas = document.getElementById('finalCanvas');
+    if (!finalCanvas) return null;
+
+    const qrPos = (this.selectedTemplate && this.selectedTemplate.qr_position) || 'bottom-right';
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = finalCanvas.width;
+    baseCanvas.height = finalCanvas.height;
+    const bCtx = baseCanvas.getContext('2d');
+    bCtx.drawImage(finalCanvas, 0, 0);
+
+    if (includeQr && qrPos !== 'none' && this.guestPass) {
+      try {
+        const qrImg = document.getElementById('guestQrCodeImg');
+        if (qrImg && qrImg.src && qrImg.complete && qrImg.naturalWidth > 0) {
+          this.drawQrOnCanvas(bCtx, baseCanvas.width, baseCanvas.height, qrImg, qrPos);
+        }
+      } catch (e) {}
+    }
+
+    // Untuk strip 2×6 pada kertas 4R, susun 2 strip berdampingan agar tidak ter-crop saat dicetak lokal
+    if (paperSize === '2x6' && baseCanvas.width > 0 && baseCanvas.width * 1.8 <= baseCanvas.height) {
+      const sheet = document.createElement('canvas');
+      sheet.width = baseCanvas.width * 2;
+      sheet.height = baseCanvas.height;
+      const sCtx = sheet.getContext('2d');
+      sCtx.fillStyle = '#ffffff';
+      sCtx.fillRect(0, 0, sheet.width, sheet.height);
+      sCtx.drawImage(baseCanvas, 0, 0);
+      sCtx.drawImage(baseCanvas, baseCanvas.width, 0);
+      return sheet.toDataURL('image/png');
+    }
+
+    return baseCanvas.toDataURL('image/png');
+  }
+
+  async printLocallyWithoutServer({ blob, copies, paperSize, paperLabel, btn, banner }) {
+    const qty = Math.max(1, parseInt(copies, 10) || 1);
+    const paperWidthIn = paperSize === '5x7' ? 5 : 4;
+    const paperHeightIn = paperSize === '5x7' ? 7 : 6;
+    const finalCanvas = document.getElementById('finalCanvas');
+    const isLandscape = finalCanvas ? (finalCanvas.width > finalCanvas.height) : false;
+
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = '⚡ Mencetak Langsung di Laptop...';
+    }
+    if (banner) {
+      banner.style.display = 'block';
+      banner.innerText = `⚡ Mode Lokal: Mencetak ${qty}× ${paperLabel} langsung ke printer laptop...`;
+    }
+
+    const imageDataUrl = this.buildPrintableDataUrl(paperSize, true);
+    let savedSettings = {};
+    let savedProfile = this.cachedPrinterProfile || {};
+    try { savedSettings = JSON.parse(localStorage.getItem('pb_printer_settings') || '{}'); } catch (e) {}
+    try {
+      if (!savedProfile || !savedProfile.settings) {
+        savedProfile = JSON.parse(localStorage.getItem('pb_printer_profile_cache') || '{}');
+      }
+    } catch (e) {}
+    const profSettings = savedProfile.settings || {};
+
+    let printedViaLocalAgent = false;
+    let agentPrinterName = savedSettings.model || this.activePrinterName || 'Printer Laptop';
+    if (imageDataUrl) {
+      try {
+        const res = await this.fetchWithTimeout('http://127.0.0.1:19899/print', {
+          method: 'POST',
+          mode: 'cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageDataUrl,
+            copies: qty,
+            paperSize,
+            paperWidthIn,
+            paperHeightIn,
+            orientation: isLandscape ? 'landscape' : 'portrait',
+            printerName: savedSettings.model || savedProfile.name || '',
+            driverName: savedProfile.driverName || savedSettings.model || '',
+            mediaType: savedSettings.mediaType || savedProfile.mediaType || 'photographic-glossy',
+            borderless: savedSettings.borderless !== undefined ? Boolean(savedSettings.borderless) : (profSettings.borderless !== false),
+            highDpi: savedSettings.highDpi !== undefined ? Boolean(savedSettings.highDpi) : (profSettings.highDpi !== false)
+          })
+        }, 2500);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.ok) {
+            printedViaLocalAgent = true;
+            if (data.printerName) agentPrinterName = data.printerName;
+          }
+        }
+      } catch (e) {
+        // Print Agent lokal tidak berjalan pada port 19899; lanjut dialog cetak browser seketika
+      }
+    }
+
+    if (!printedViaLocalAgent) {
+      this.printViaChromeDialog({
+        copies: qty,
+        paperSize,
+        paperWidthIn,
+        paperHeightIn,
+        borderless: true,
+        orientation: isLandscape ? 'landscape' : 'portrait'
+      });
+    }
+
+    // Simpan foto digital secara lokal (printRequested: false agar tidak mencetak dobel saat sync nanti)
+    if (blob) {
+      this.saveOfflineSessionBackup(blob, { printRequested: false, printCopies: qty });
+    }
+
+    if (btn) btn.innerHTML = printedViaLocalAgent ? `✅ ${qty}× ${paperLabel} Dicetak Langsung!` : `✅ Dialog Cetak ${qty}× ${paperLabel} Dibuka`;
+    if (banner) {
+      banner.style.display = 'block';
+      banner.innerHTML = printedViaLocalAgent
+        ? `🔌 <strong>Mode Lokal:</strong> <strong>${qty} lembar (${paperLabel})</strong> langsung dicetak ke <strong>${agentPrinterName}</strong> tanpa kirim ke server!`
+        : `🔌 <strong>Mode Lokal:</strong> Cetak langsung <strong>${qty} lembar (${paperLabel})</strong> dipicu dari browser laptop (tanpa kirim ke server).`;
+    }
+    setTimeout(() => {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '🖨️ Cetak Foto Sekarang';
+      }
+    }, 2800);
+  }
+
   async printCurrentSession(isAuto = false, opts = null) {
-    const copies = String((opts && opts.copies) || document.getElementById('printCopiesSelect').value || 1);
+    const copies = String((opts && opts.copies) || document.getElementById('printCopiesSelect')?.value || 1);
     const chosenPaperSize = (opts && opts.paperSize) || (this.selectedTemplate?.paper_format === '5R' ? '5x7' : (this.selectedMode === 'strip' ? '2x6' : '4x6'));
     const chosenPaperLabel = (opts && opts.paperLabel) || (chosenPaperSize === '5x7' ? '5R' : '4R');
     const paperConfirmed = opts ? !!opts.paperConfirmed : (chosenPaperLabel !== '5R');
     const finalCanvas = document.getElementById('finalCanvas');
     const btn = document.getElementById('btnPrintSession');
     const banner = document.getElementById('printStatusBanner');
+    const isLocalMode = this.isLocalDirectMode();
 
     if (btn) {
       btn.disabled = true;
-      btn.innerHTML = isAuto ? '⚡ Mencetak Otomatis...' : '⏳ Mengirim ke Antrean Server...';
+      btn.innerHTML = isLocalMode
+        ? '⚡ Mencetak Langsung di Laptop...'
+        : (isAuto ? '⚡ Mencetak Otomatis...' : '⏳ Mengirim ke Antrean Server...');
     }
     if (banner) {
       banner.style.display = 'block';
-      banner.innerText = `⏳ Mengirim pesanan ${chosenPaperLabel} (${copies} lbr) ke Server...`;
+      banner.innerText = isLocalMode
+        ? `🔌 Mode Lokal: Menyiapkan cetak ${chosenPaperLabel} (${copies} lbr) di laptop...`
+        : `⏳ Mengirim pesanan ${chosenPaperLabel} (${copies} lbr) ke Server...`;
     }
 
     finalCanvas.toBlob(async (blob) => {
-      // 1. Jika Offline (Mode Pesawat / Jaringan Terputus):
+      // 1. Jika Mode Lokal aktif -> langsung cetak di laptop tanpa menunggu / mengirim ke server!
+      if (isLocalMode) {
+        await this.printLocallyWithoutServer({
+          blob,
+          copies,
+          paperSize: chosenPaperSize,
+          paperLabel: chosenPaperLabel,
+          btn,
+          banner
+        });
+        return;
+      }
+
+      // 2. Jika Offline total (Mode Pesawat / Jaringan Terputus):
       if (!navigator.onLine) {
-        if (window.pbOfflineStore) {
-          window.pbOfflineStore.saveSession({
-            id: this.sessionId,
-            tenantId: this.tenantId,
-            eventId: this.eventId,
-            deviceId: this.deviceId,
-            guestPassId: this.guestPass ? this.guestPass.id : null,
-            templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
-            mode: this.selectedMode,
-            finalImageBlob: blob,
-            captures: this.posesCaptured.map((p, idx) => ({ poseIndex: idx + 1, blob: p })),
-            liveClips: this.liveClips,
-            printRequested: true,
-            printCopies: parseInt(copies, 10) || 1
-          }).catch(err => console.warn('Offline print session save error:', err));
-        }
+        this.saveOfflineSessionBackup(blob, {
+          printRequested: true,
+          printCopies: parseInt(copies, 10) || 1
+        });
 
         if (btn) btn.innerHTML = `✅ ${copies} Lembar Disimpan Offline`;
         if (banner) {
@@ -5421,7 +5662,7 @@ class KioskEngine {
         return;
       }
 
-      // 2. Jika Online (Kirim ke Server -> Laptop Stasiun Printer / Print Agent / Admin Progres):
+      // 3. Jika Online & Mode Server (Kirim ke Server -> Laptop Stasiun Printer / Print Agent / Admin Progres):
       const formData = new FormData();
       formData.append('finalImage', blob, `print_${Date.now()}.jpg`);
       formData.append('printRequested', 'true');
@@ -5436,10 +5677,10 @@ class KioskEngine {
       }
 
       try {
-        const res = await fetch(`/api/kiosk/sessions/${this.sessionId}/complete`, {
+        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${this.sessionId}/complete`, {
           method: 'POST',
           body: formData
-        });
+        }, 12000);
         if (res.ok) {
           const data = await res.json();
           const job = data.printJob || {};
@@ -5472,22 +5713,10 @@ class KioskEngine {
         }
       } catch (e) {
         console.warn('Print fetch failed, switching to offline fallback:', e);
-        if (window.pbOfflineStore) {
-          window.pbOfflineStore.saveSession({
-            id: this.sessionId,
-            tenantId: this.tenantId,
-            eventId: this.eventId,
-            deviceId: this.deviceId,
-            guestPassId: this.guestPass ? this.guestPass.id : null,
-            templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
-            mode: this.selectedMode,
-            finalImageBlob: blob,
-            captures: this.posesCaptured.map((p, idx) => ({ poseIndex: idx + 1, blob: p })),
-            liveClips: this.liveClips,
-            printRequested: true,
-            printCopies: parseInt(copies, 10) || 1
-          }).catch(() => {});
-        }
+        this.saveOfflineSessionBackup(blob, {
+          printRequested: true,
+          printCopies: parseInt(copies, 10) || 1
+        });
 
         if (btn) btn.innerHTML = `⚠️ Gagal Kirim, Disimpan Lokal`;
         if (banner) {
@@ -5540,26 +5769,9 @@ class KioskEngine {
     if (!finalCanvas) return;
     this.resetAutoReturnTimer(60);
 
-    let dataUrl = finalCanvas.toDataURL('image/png');
-    const qrPos = (this.selectedTemplate && this.selectedTemplate.qr_position) || 'bottom-right';
-
-    // Jika job.sheetUrl belum ada (misal cetak perangkat langsung sebelum job selesai),
-    // tempelkan QR khusus pada kanvas cetak cadangan tanpa mengubah finalCanvas asli
-    if ((!job || !job.sheetUrl) && qrPos !== 'none' && this.guestPass) {
-      try {
-        const printCanvas = document.createElement('canvas');
-        printCanvas.width = finalCanvas.width;
-        printCanvas.height = finalCanvas.height;
-        const pCtx = printCanvas.getContext('2d');
-        pCtx.drawImage(finalCanvas, 0, 0);
-
-        const qrImg = document.getElementById('guestQrCodeImg');
-        if (qrImg && qrImg.src && qrImg.complete && qrImg.naturalWidth > 0) {
-          this.drawQrOnCanvas(pCtx, printCanvas.width, printCanvas.height, qrImg, qrPos);
-          dataUrl = printCanvas.toDataURL('image/png');
-        }
-      } catch (e) {}
-    }
+    const paperSize = (job && job.paperSize) || (this.selectedMode === 'strip' ? '2x6' : '4x6');
+    const dataUrl = this.buildPrintableDataUrl(paperSize, !job || !job.sheetUrl);
+    if (!dataUrl) return;
 
     const copies = (job && job.copies) ? parseInt(job.copies, 10) : parseInt(document.getElementById('printCopiesSelect')?.value || '1', 10);
     window.pbPrintViaBrowser({ imageUrl: dataUrl, copies, job });

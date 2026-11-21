@@ -278,8 +278,13 @@
 
     // 7. Sinkronkan semua sesi yang pending secara berurutan
     isSyncing: false,
-    async syncAllPending(onProgress) {
+    async syncAllPending(onProgress, opts = {}) {
       if (this.isSyncing) return;
+      try {
+        if (!opts?.manual && localStorage.getItem('pb_kiosk_local_mode') === 'true') {
+          return;
+        }
+      } catch (e) {}
       if (!navigator.onLine) {
         console.log('📶 Masih offline, sinkronisasi ditunda...');
         return;
@@ -372,6 +377,9 @@
     initAutoSync() {
       // Event saat koneksi pulih
       window.addEventListener('online', () => {
+        try {
+          if (localStorage.getItem('pb_kiosk_local_mode') === 'true') return;
+        } catch (e) {}
         console.log('🌐 Koneksi internet terdeteksi pulih. Memulai sinkronisasi otomatis...');
         if (window.pbToast) window.pbToast('🌐 Internet terhubung! Memeriksa foto offline...', 'info', 3000);
         setTimeout(() => this.syncAllPending(), 1200);

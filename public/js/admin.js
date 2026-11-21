@@ -49,6 +49,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 
   setupAdminOfflineEngine();
+  syncKioskLocalModeUI(getStoredKioskLocalMode());
   await syncActiveEvent();
   await loadEvents();
   await loadOverview();
@@ -726,6 +727,14 @@ function populateSelectedEventConfig() {
   if (document.getElementById('m_collage')) document.getElementById('m_collage').checked = modes.includes('collage');
   if (document.getElementById('m_gif')) document.getElementById('m_gif').checked = modes.includes('gif');
   if (document.getElementById('m_boomerang')) document.getElementById('m_boomerang').checked = modes.includes('boomerang');
+
+  const lsLocal = (() => {
+    try { return localStorage.getItem('pb_kiosk_local_mode'); } catch (e) { return null; }
+  })();
+  const resolvedLocal = (lsLocal === 'true' || lsLocal === 'false')
+    ? (lsLocal === 'true')
+    : Boolean(cfg.localPrintMode);
+  syncKioskLocalModeUI(resolvedLocal);
 }
 
 let lastSelectedBgType = 'default';
@@ -1256,6 +1265,7 @@ async function saveEventConfig() {
     pinLock: document.getElementById('cfgPinLock').value,
     welcomeHeadline: welcomeHeadline,
     welcomeBtnText: welcomeBtnText,
+    localPrintMode: Boolean(document.getElementById('cfgLocalPrintMode')?.checked ?? getStoredKioskLocalMode()),
     kioskBackground: {
       type: bgType,
       url: bgType === 'default' ? '' : bgUrl,
@@ -3540,9 +3550,33 @@ async function loadPrintAgentStatus(isUserTriggered = false) {
   if (winLink) winLink.href = `/api/print-agent/download/windows?serverUrl=${origin}${tokenSuffix}`;
 
   try {
-    const res = await fetch('/api/print-agent/status');
-    if (!res.ok) throw new Error('status');
-    const st = await res.json();
+    let st = null;
+    let localDirect = false;
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 2000);
+      const res = await fetch('/api/print-agent/status', { signal: ctrl.signal, cache: 'no-store' });
+      clearTimeout(t);
+      if (res.ok) st = await res.json();
+    } catch (e) {}
+
+    if (!st || !st.online) {
+      try {
+        const lCtrl = new AbortController();
+        const lt = setTimeout(() => lCtrl.abort(), 700);
+        const lRes = await fetch('http://127.0.0.1:19899/status', { mode: 'cors', cache: 'no-store', signal: lCtrl.signal });
+        clearTimeout(lt);
+        if (lRes.ok) {
+          const lst = await lRes.json();
+          if (lst && lst.ok) {
+            st = { online: true, host: lst.host || 'Laptop Lokal', platform: lst.platform, printers: lst.printers || [] };
+            localDirect = true;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!st) throw new Error('status');
     cachedPrintAgentStatus = st;
 
     const savedSettings = (() => {
@@ -3553,7 +3587,7 @@ async function loadPrintAgentStatus(isUserTriggered = false) {
 
     if (st.online) {
       if (badge) {
-        badge.textContent = '🟢 Print Agent Online';
+        badge.textContent = localDirect ? '🟢 Print Agent Lokal Aktif' : '🟢 Print Agent Online';
         badge.style.background = 'rgba(39, 174, 96, 0.14)';
         badge.style.color = '#1e8449';
         badge.style.borderColor = 'rgba(39, 174, 96, 0.35)';
@@ -3563,7 +3597,7 @@ async function loadPrintAgentStatus(isUserTriggered = false) {
       if (text) text.textContent = `Komputer: ${hostName} (${st.platform === 'win32' ? 'Windows' : 'macOS'}) • ${pCount} printer terbaca • cetak otomatis tanpa popup`;
 
       if (pqBadge) {
-        pqBadge.textContent = '🟢 Print Agent Terhubung';
+        pqBadge.textContent = localDirect ? '🟢 Print Agent Lokal Terhubung' : '🟢 Print Agent Terhubung';
         pqBadge.style.background = 'rgba(39, 174, 96, 0.14)';
         pqBadge.style.color = '#1e8449';
         pqBadge.style.borderColor = 'rgba(39, 174, 96, 0.35)';
@@ -4794,6 +4828,76 @@ function printJobViaAdminBrowser(job, toastMsg) {
     setTimeout(() => { try { loadPrintJobs(); } catch (e) {} }, 600);
   });
 }
+
+function getStoredKioskLocalMode() {
+  try {
+    return localStorage.getItem('pb_kiosk_local_mode') === 'true';
+  } catch (e) {
+    return false;
+  }
+}
+
+function syncKioskLocalModeUI(enabled) {
+  const active = Boolean(enabled);
+  const el1 = document.getElementById('adminLocalModeToggle');
+  const el2 = document.getElementById('cfgLocalPrintMode');
+  const badge = document.getElementById('adminLocalModeBadge');
+  if (el1) el1.checked = active;
+  if (el2) el2.checked = active;
+  if (badge) {
+    badge.textContent = active ? '🟢 Mode Lokal Aktif' : '⚪ Mode Server';
+    badge.style.background = active ? 'rgba(39, 174, 96, 0.15)' : 'rgba(120,120,120,0.12)';
+    badge.style.color = active ? '#1e8449' : '#666';
+  }
+}
+
+async function setKioskLocalMode(enabled, source = 'admin') {
+  const active = Boolean(enabled);
+  try {
+    localStorage.setItem('pb_kiosk_local_mode', active ? 'true' : 'false');
+  } catch (e) {}
+  syncKioskLocalModeUI(active);
+
+  try {
+    if (typeof BroadcastChannel === 'function') {
+      const ch = new BroadcastChannel('pb_kiosk_mode');
+      ch.postMessage({ localPrintMode: active });
+      ch.close();
+    }
+  } catch (e) {}
+
+  if (window.pbToast) {
+    window.pbToast(
+      active
+        ? '🔌 Mode Lokal AKTIF — Kiosk langsung mencetak di laptop tanpa mengirim ke server dulu!'
+        : '🌐 Mode Server AKTIF — Kiosk kembali mengirim antrean cetak ke server.',
+      active ? 'ok' : 'warn',
+      4500
+    );
+  }
+
+  const targetEventId = currentEditingEventId || activeKioskEventId;
+  if (targetEventId) {
+    const evItem = Array.isArray(eventsList) ? eventsList.find(e => e.id === targetEventId) : null;
+    if (evItem) {
+      evItem.config = { ...(evItem.config || {}), localPrintMode: active };
+    }
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 2000);
+      await fetch(`/api/events/${encodeURIComponent(targetEventId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ localPrintMode: active }),
+        signal: ctrl.signal
+      });
+      clearTimeout(timer);
+    } catch (e) {
+      // Saat susah sinyal, localStorage tetap memastikan laptop Kiosk memakai Mode Lokal seketika
+    }
+  }
+}
+window.setKioskLocalMode = setKioskLocalMode;
 
 function toggleAdminBrowserPrintStation(enabled) {
   try {

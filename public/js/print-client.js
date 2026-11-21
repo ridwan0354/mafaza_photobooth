@@ -59,9 +59,29 @@
   async function getProfile() {
     if (cachedProfile) return cachedProfile;
     try {
-      const res = await fetch('/api/printers/profile');
-      if (res.ok) cachedProfile = await res.json();
-    } catch (e) {}
+      const localMode = localStorage.getItem('pb_kiosk_local_mode') === 'true';
+      const lsCache = localStorage.getItem('pb_printer_profile_cache');
+      if (lsCache) {
+        const parsed = JSON.parse(lsCache);
+        if (localMode || !navigator.onLine) {
+          cachedProfile = parsed;
+          return cachedProfile;
+        }
+      }
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 900);
+      const res = await fetch('/api/printers/profile', { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        cachedProfile = await res.json();
+        try { localStorage.setItem('pb_printer_profile_cache', JSON.stringify(cachedProfile)); } catch (e) {}
+      }
+    } catch (e) {
+      try {
+        const lsCache = localStorage.getItem('pb_printer_profile_cache');
+        if (lsCache) cachedProfile = JSON.parse(lsCache);
+      } catch (err) {}
+    }
     return cachedProfile;
   }
 
@@ -171,8 +191,8 @@
           try {
             window.focus();
             window.print();
-            if (job && job.printJobId) {
-              await fetch(`/api/print-jobs/${job.printJobId}/browser-printed`, { method: 'POST' }).catch(() => {});
+            if (job && job.printJobId && navigator.onLine !== false) {
+              fetch(`/api/print-jobs/${job.printJobId}/browser-printed`, { method: 'POST' }).catch(() => {});
             }
           } finally {
             setTimeout(cleanup, 1200);

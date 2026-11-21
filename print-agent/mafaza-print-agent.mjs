@@ -15,6 +15,7 @@
  */
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -573,14 +574,117 @@ async function tick() {
   }
 }
 
+async function executeLocalPrintJob(payload) {
+  if (!printersCache.length) {
+    printersCache = await listPrinters();
+    lastPrinterScan = Date.now();
+  }
+  const rawPaper = String(payload.paperSize || '4x6');
+  const paperWidthIn = Number(payload.paperWidthIn) || (rawPaper === '5x7' ? 5 : (rawPaper === '6x8' ? 6 : (rawPaper === 'A4' ? 8.27 : 4)));
+  const paperHeightIn = Number(payload.paperHeightIn) || (rawPaper === '5x7' ? 7 : (rawPaper === '6x8' ? 8 : (rawPaper === 'A4' ? 11.69 : 6)));
+  const job = {
+    id: `local_${Date.now()}`,
+    copies: Math.max(1, Math.min(20, parseInt(payload.copies, 10) || 1)),
+    options: {
+      printerName: payload.printerName || '',
+      driverName: payload.driverName || '',
+      paperSize: rawPaper,
+      paperWidthIn,
+      paperHeightIn,
+      orientation: payload.orientation || 'portrait',
+      mediaType: payload.mediaType || 'photographic-glossy',
+      borderless: payload.borderless !== false,
+      highDpi: payload.highDpi !== false
+    }
+  };
+  const printer = resolvePrinter(printersCache, job.options);
+  if (!printer) throw new Error('Tidak ada printer terpasang di laptop ini');
+
+  const dataUrl = String(payload.imageDataUrl || '');
+  const m = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
+  if (!m) throw new Error('Format gambar print lokal tidak valid');
+  const ext = m[1].toLowerCase() === 'png' ? 'png' : 'jpg';
+  const file = path.join(os.tmpdir(), `mafaza_local_${Date.now()}.${ext}`);
+  fs.writeFileSync(file, Buffer.from(m[2], 'base64'));
+  log(`🔌 [LOCAL PRINT] ${job.copies}× ${rawPaper} -> "${printer.name}"`);
+  try {
+    const result = PLATFORM === 'win32'
+      ? await printWindows(file, job, printer)
+      : await printUnix(file, job, printer);
+    log(`   ✅ [LOCAL PRINT] Sukses ke ${printer.name}`);
+    return { ok: true, printerName: printer.name, spoolerId: result.spoolerId, notes: result.notes };
+  } finally {
+    fs.unlink(file, () => {});
+  }
+}
+
+function startLocalPrintBridge() {
+  const localPort = Number(process.env.PB_LOCAL_PORT || 19899);
+  const server = http.createServer((req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Private-Network', 'true');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.method === 'GET' && req.url.startsWith('/status')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        ok: true,
+        localPrint: true,
+        host: os.hostname(),
+        platform: PLATFORM,
+        printers: printersCache
+      }));
+      return;
+    }
+
+    if (req.method === 'POST' && req.url.startsWith('/print')) {
+      const chunks = [];
+      let totalBytes = 0;
+      req.on('data', (c) => {
+        totalBytes += c.length;
+        if (totalBytes <= 45 * 1024 * 1024) chunks.push(c);
+      });
+      req.on('end', async () => {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          const result = await executeLocalPrintJob(body);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (err) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+      });
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: false, error: 'Not found' }));
+  });
+
+  server.on('error', (err) => {
+    log(`⚠️  Port Print Lokal 127.0.0.1:${localPort} tidak tersedia: ${err.message}`);
+  });
+  server.listen(localPort, '127.0.0.1', () => {
+    log(`🔌 Bridge Print Lokal aktif di http://127.0.0.1:${localPort} (cetak langsung tanpa internet)`);
+  });
+}
+
 async function main() {
-  if (!CONFIG.server || !CONFIG.key) {
+  const localOnly = process.argv.includes('--local') || process.env.PB_LOCAL_ONLY === '1';
+  if (!localOnly && (!CONFIG.server || !CONFIG.key)) {
     console.error('Konfigurasi belum lengkap. Isi config.json (server & key) atau unduh Print Agent dari menu Printer di dashboard admin.');
     process.exit(1);
   }
   console.log('==============================================================');
   console.log(' MAFAZA PRINT AGENT');
-  console.log(` Server  : ${CONFIG.server}`);
+  console.log(` Server  : ${CONFIG.server || '(Mode Lokal Saja)'}`);
   console.log(` Sistem  : ${PLATFORM} (${os.hostname()})${DRY_RUN ? '  [MODE UJI - TANPA CETAK]' : ''}`);
   console.log(' Biarkan jendela ini tetap terbuka agar cetak otomatis berjalan.');
   console.log('==============================================================');
@@ -588,8 +692,11 @@ async function main() {
   lastPrinterScan = Date.now();
   log(`Printer terdeteksi: ${printersCache.length ? printersCache.map((p) => p.name + (p.isDefault ? ' (default)' : '')).join(', ') : 'tidak ada'}`);
 
-  await tick();
-  setInterval(tick, Math.max(1000, CONFIG.intervalMs));
+  startLocalPrintBridge();
+  if (!localOnly && CONFIG.server && CONFIG.key) {
+    await tick();
+    setInterval(tick, Math.max(1000, CONFIG.intervalMs));
+  }
 }
 
 main();

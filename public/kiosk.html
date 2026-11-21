@@ -1281,7 +1281,7 @@
       <div class="photo-modal-header" style="margin-bottom: 14px;">
         <div>
           <h3 style="font-size: 20px; font-weight: 800; color: var(--caramel-brown); margin: 0;">🖨️ Atur Cetak Foto</h3>
-          <p style="font-size: 12px; color: var(--text-muted); margin: 2px 0 0;">Pilih jumlah lembar &amp; ukuran kertas sebelum dikirim ke antrean server</p>
+          <p id="kioskPrintModalSubtitle" style="font-size: 12px; color: var(--text-muted); margin: 2px 0 0;">Pilih jumlah lembar &amp; ukuran kertas sebelum dikirim ke antrean server</p>
         </div>
         <button type="button" class="photo-modal-close" onclick="kiosk.closePrintOptionsModal()">✕</button>
       </div>
@@ -1321,8 +1321,8 @@
 
       <!-- Notifikasi Kertas 5R + Opsi 1 Laptop -->
       <div id="kioskPrint5rNotice" style="display: none; background: #FFF8E6; border: 1.5px solid #D4A754; border-radius: 12px; padding: 10px 12px; margin-bottom: 14px; font-size: 11.5px; color: #5a3e1b; line-height: 1.45;">
-        <div><strong>⚠️ Konfirmasi Kertas 5R:</strong> Laptop Stasiun Printer akan menampilkan popup pengingat ganti kertas 5R sebelum mencetak ke Epson.</div>
-        <label style="display: flex; align-items: center; gap: 7px; margin-top: 8px; font-weight: 700; cursor: pointer;">
+        <div id="kioskPrint5rNoticeText"><strong>⚠️ Konfirmasi Kertas 5R:</strong> Laptop Stasiun Printer akan menampilkan popup pengingat ganti kertas 5R sebelum mencetak ke Epson.</div>
+        <label id="kioskPaperReadyRow" style="display: flex; align-items: center; gap: 7px; margin-top: 8px; font-weight: 700; cursor: pointer;">
           <input type="checkbox" id="kioskPaperAlreadyReadyCheck" style="accent-color: var(--coral);">
           <span>Kertas 5R sudah terpasang di printer (mode 1 laptop, langsung cetak)</span>
         </label>
@@ -1330,7 +1330,7 @@
 
       <!-- Aksi Kirim -->
       <div style="display: flex; flex-direction: column; gap: 8px;">
-        <button type="button" class="btn btn-coral" style="width: 100%; padding: 12px 16px; font-size: 14.5px; font-weight: 800;" onclick="kiosk.confirmSendServerPrint()">
+        <button id="kioskPrintModalConfirmBtn" type="button" class="btn btn-coral" style="width: 100%; padding: 12px 16px; font-size: 14.5px; font-weight: 800;" onclick="kiosk.confirmSendServerPrint()">
           🚀 Kirim Cetak ke Antrean Server
         </button>
         <div style="display: flex; gap: 8px;">
@@ -1451,8 +1451,8 @@
   </div>
 
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
-  <script src="/js/offline-store.js?v=1.1"></script>
-  <script src="/js/print-client.js?v=1.4"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v9.19"></script>
+  <script src="/js/offline-store.js?v=1.2"></script>
+  <script src="/js/print-client.js?v=1.7"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v9.20"></script>
 </body>
 </html>
