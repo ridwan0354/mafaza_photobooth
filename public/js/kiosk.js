@@ -27,6 +27,7 @@ class KioskEngine {
     this.autoReturnTimerId = null;
     this.audioCtx = null;
     this.isCountingDown = false;
+    this.isCapturingSnap = false;
     this.countdownTimerId = null;
     this.interPoseTimerId = null;
     this.reviewAutoAdvanceTimerId = null;
@@ -1572,6 +1573,8 @@ class KioskEngine {
 
   // Camera 3-Button Control Bar Handlers (Gambar 2 Screen 3)
   handleShutterClick() {
+    if (this.isCapturingSnap) return;
+
     // 1. Jika preview foto barusan sedang tampil:
     // Tutup preview hasil foto dan masuk ke tampilan Live Camera pose berikutnya TANPA langsung hitung mundur,
     // supaya para tamu bisa melihat kamera live dan menyusun posisi/gaya terlebih dahulu!
@@ -3192,52 +3195,101 @@ class KioskEngine {
       } else {
         clearInterval(this.countdownTimerId);
         this.countdownTimerId = null;
+        this.isCountingDown = false;
         updateDisplay(0);
-        this.triggerAudioJackFlash();
-        this.playShutterSound();
-        this.triggerShutterFlash();
-
-        const isWebcamOnly = Boolean(this.cameraConfig && this.cameraConfig.cameraMode === 'webcam_only');
-        if (!isWebcamOnly) {
-          // Hardware USB camera (Canon/Sony / Canon Bridge): trigger physical shutter release & flash,
-          // then show post-capture preview once the bright high-res photo arrives
-          this.triggerHardwareCameraAndFlash(poseIndex).then((gotHardwarePhoto) => {
-            if (!gotHardwarePhoto && !this.posesCaptured[poseIndex]) {
-              this.captureFrame(poseIndex);
-            }
-            setTimeout(() => {
-              this.stopPoseLiveRecording(poseIndex);
-            }, 350);
-            if (countdownBox) countdownBox.style.display = 'none';
-            this.isCountingDown = false;
-            this.handlePostCapture(poseIndex);
-          });
-        } else {
-          const lead = Math.max(0, Math.min(200, this.audioFlashLeadMs || 0));
-          if (lead > 0) {
-            setTimeout(() => {
-              this.captureFrame(poseIndex);
-            }, lead);
-          } else {
-            this.captureFrame(poseIndex);
-          }
-
-          // Stop live recording ~350ms after the snap so the flash moment is included
-          setTimeout(() => {
-            this.stopPoseLiveRecording(poseIndex);
-          }, 350);
-
-          setTimeout(() => {
-            if (countdownBox) countdownBox.style.display = 'none';
-            this.isCountingDown = false;
-            this.handlePostCapture(poseIndex);
-          }, 400 + lead);
-        }
+        this.executeSnapForPose(poseIndex, countdownBox);
       }
     }, 1000);
   }
 
+  executeSnapForPose(poseIndex, countdownBox = null, fromCountdown = true) {
+    if (this.isCapturingSnap) return;
+    this.isCapturingSnap = true;
+    this.isCountingDown = false;
+    const hideCountdown = () => {
+      if (countdownBox) countdownBox.style.display = 'none';
+    };
+
+    const isWebcamOnly = Boolean(this.cameraConfig && this.cameraConfig.cameraMode === 'webcam_only');
+    const hasAndroidNativeBridge = Boolean(typeof window !== 'undefined' && window.MafazaAndroidBridge);
+    const hasLocalCanonBridge = Boolean(this.canonUsbStreamActive || (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active));
+    const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) || '';
+    const isLocalServerHost = ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
+    const shouldWaitHardwareShutter = !isWebcamOnly && (hasAndroidNativeBridge || hasLocalCanonBridge || (isLocalServerHost && !this.isLocalDirectMode()));
+
+    if (shouldWaitHardwareShutter) {
+      if (hasLocalCanonBridge && !hasAndroidNativeBridge) {
+        // Canon EOS 1300D via USB Bridge butuh ~250ms untuk mirror drop sebelum rana fisik berbunyi;
+        // selaraskan bunyi cekrik & kilatan layar dengan momen rana fisik kamera
+        setTimeout(() => {
+          this.triggerAudioJackFlash();
+          this.playShutterSound();
+          this.triggerShutterFlash();
+        }, 240);
+      } else {
+        this.triggerAudioJackFlash();
+        this.playShutterSound();
+        this.triggerShutterFlash();
+      }
+      Promise.resolve(this.triggerHardwareCameraAndFlash(poseIndex))
+        .then((gotHardwarePhoto) => {
+          if (!gotHardwarePhoto && !this.posesCaptured[poseIndex]) {
+            this.captureFrame(poseIndex);
+          }
+          setTimeout(() => {
+            this.stopPoseLiveRecording(poseIndex);
+          }, 350);
+          hideCountdown();
+          this.handlePostCapture(poseIndex);
+        })
+        .catch(() => {
+          if (!this.posesCaptured[poseIndex]) {
+            this.captureFrame(poseIndex);
+          }
+          hideCountdown();
+          this.handlePostCapture(poseIndex);
+        })
+        .finally(() => {
+          this.isCapturingSnap = false;
+        });
+      return;
+    }
+
+    // Canon via Capture Card / EOS Webcam Utility / Browser camera:
+    // Tangkap frame video SEKETIKA pada detik ke-0 tanpa menunggu /api/camera/trigger-capture di server VPS
+    this.triggerAudioJackFlash();
+    this.playShutterSound();
+    this.triggerShutterFlash();
+    const lead = Math.max(0, Math.min(200, this.audioFlashLeadMs || 0));
+    const finalizeImmediateSnap = () => {
+      try {
+        this.captureFrame(poseIndex);
+        setTimeout(() => {
+          this.stopPoseLiveRecording(poseIndex);
+        }, 350);
+        if (fromCountdown && countdownBox) {
+          setTimeout(() => {
+            hideCountdown();
+            this.handlePostCapture(poseIndex);
+          }, 250);
+        } else {
+          hideCountdown();
+          this.handlePostCapture(poseIndex);
+        }
+      } finally {
+        this.isCapturingSnap = false;
+      }
+    };
+
+    if (lead > 0) {
+      setTimeout(finalizeImmediateSnap, lead);
+    } else {
+      finalizeImmediateSnap();
+    }
+  }
+
   triggerManualSnap() {
+    if (this.isCapturingSnap) return;
     let targetIndex = this.activePoseIndex;
     if (targetIndex === null || targetIndex === undefined || targetIndex >= this.totalPosesRequired) {
       targetIndex = this.posesCaptured.findIndex(p => p === null);
@@ -3245,35 +3297,8 @@ class KioskEngine {
     }
 
     this.clearAllTimers();
-    this.triggerAudioJackFlash();
-    this.playShutterSound();
-    this.triggerShutterFlash();
-
-    const isWebcamOnly = Boolean(this.cameraConfig && this.cameraConfig.cameraMode === 'webcam_only');
-    if (!isWebcamOnly) {
-      this.triggerHardwareCameraAndFlash(targetIndex).then((gotHardwarePhoto) => {
-        if (!gotHardwarePhoto && !this.posesCaptured[targetIndex]) {
-          this.captureFrame(targetIndex);
-        }
-        setTimeout(() => {
-          this.stopPoseLiveRecording(targetIndex);
-        }, 350);
-        this.handlePostCapture(targetIndex);
-      });
-    } else {
-      const lead = Math.max(0, Math.min(200, this.audioFlashLeadMs || 0));
-      if (lead > 0) {
-        setTimeout(() => {
-          this.captureFrame(targetIndex);
-        }, lead);
-      } else {
-        this.captureFrame(targetIndex);
-      }
-      setTimeout(() => {
-        this.stopPoseLiveRecording(targetIndex);
-      }, 350);
-      this.handlePostCapture(targetIndex);
-    }
+    const countdownBox = document.getElementById('countdownBox');
+    this.executeSnapForPose(targetIndex, countdownBox, false);
   }
 
   async triggerHardwareCameraAndFlash(poseIndex) {
@@ -3282,29 +3307,34 @@ class KioskEngine {
     }
 
     let data = null;
+    const hasLocalCanonBridge = Boolean(this.canonUsbStreamActive || (this.canonUsbBridgeInfo && this.canonUsbBridgeInfo.active));
+    const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) || '';
+    const isLocalServerHost = ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
 
-    // 1. Tembak langsung ke Canon USB Bridge lokal di 127.0.0.1:19898 jika aktif di Windows / macOS
-    try {
-      const localRes = await fetch('http://127.0.0.1:19898/capture', {
-        method: 'POST',
-        mode: 'cors',
-        cache: 'no-store'
-      });
-      if (localRes.ok) {
-        data = await localRes.json();
+    // 1. Tembak langsung ke Canon USB Bridge lokal di 127.0.0.1:19898 hanya jika bridge memang aktif
+    if (hasLocalCanonBridge) {
+      try {
+        const localRes = await this.fetchWithTimeout('http://127.0.0.1:19898/capture', {
+          method: 'POST',
+          mode: 'cors',
+          cache: 'no-store'
+        }, 4800);
+        if (localRes.ok) {
+          data = await localRes.json();
+        }
+      } catch (localErr) {
+        // Local bridge timeout atau putus
       }
-    } catch (localErr) {
-      // Local bridge offline atau di perangkat mobile
     }
 
-    // 2. Jika bukan bridge lokal atau belum dapat data, fetch ke server (kecuali Mode Lokal aktif)
-    if (!data && !this.isLocalDirectMode()) {
+    // 2. Hanya panggil server /api/camera/trigger-capture bila web dibuka dari localhost/studio sendiri (bukan VPS remote)
+    if (!data && !hasLocalCanonBridge && isLocalServerHost && !this.isLocalDirectMode()) {
       try {
         const res = await this.fetchWithTimeout('/api/camera/trigger-capture', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ poseIndex, timeoutMs: 3800 })
-        }, 4500);
+        }, 4200);
         if (res.ok) {
           data = await res.json();
         }
@@ -5787,6 +5817,8 @@ class KioskEngine {
 
   finishSession() {
     this.clearAllTimers();
+    this.isCountingDown = false;
+    this.isCapturingSnap = false;
     if (this.autoReturnTimerId) clearInterval(this.autoReturnTimerId);
 
     // Clear temporary data to protect guest privacy
