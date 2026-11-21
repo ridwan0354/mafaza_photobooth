@@ -398,7 +398,13 @@ class MingleBoothEngine {
     const sm = String(tpl.shots_mode || '1').toLowerCase();
     if (sm === 'unlimited') return 'unlimited';
     if (sm === 'slots') {
-      return (tpl.slots && tpl.slots.length > 0) ? tpl.slots.length : 1;
+      if (tpl.slots && tpl.slots.length > 0) {
+        const poseNums = tpl.slots.map((s, idx) => Math.max(1, parseInt(s.pose_index, 10) || (idx + 1)));
+        const uniquePoses = new Set(poseNums);
+        const maxPoseIdx = Math.max(...poseNums);
+        return Math.max(uniquePoses.size, maxPoseIdx);
+      }
+      return 1;
     }
     if (sm === 'event') {
       return this.eventShotsCount || 1;
@@ -1025,9 +1031,13 @@ class MingleBoothEngine {
           }
         } catch (e) {}
         await this.loadAndKeySelectedTemplate();
-        const slotsCount = (this.activeSlots && this.activeSlots.length) || 1;
+        const slotsArr = this.activeSlots || [];
+        const slotsCount = slotsArr.length || 1;
         if (!this.slotAssignments || this.slotAssignments.length !== slotsCount) {
-          this.slotAssignments = Array.from({ length: slotsCount }, (_, i) => i % this.capturedPhotos.length);
+          this.slotAssignments = Array.from({ length: slotsCount }, (_, i) => {
+            const pIdx = (slotsArr[i] && parseInt(slotsArr[i].pose_index, 10)) ? (parseInt(slotsArr[i].pose_index, 10) - 1) : i;
+            return pIdx % this.capturedPhotos.length;
+          });
         } else {
           this.slotAssignments = this.slotAssignments.map(idx => idx % this.capturedPhotos.length);
         }
@@ -1253,10 +1263,44 @@ class MingleBoothEngine {
     if (slotBadge) slotBadge.innerText = `Slot #${idx + 1} Aktif`;
   }
 
+  getSlotPoseIndex(slotIdx) {
+    const slots = (this.activeSlots && Array.isArray(this.activeSlots)) ? this.activeSlots : [];
+    const slot = slots[slotIdx];
+    return slot ? (parseInt(slot.pose_index, 10) || (slotIdx + 1)) : (slotIdx + 1);
+  }
+
+  getSyncedSlotIndices(slotIdx) {
+    const slots = (this.activeSlots && Array.isArray(this.activeSlots)) ? this.activeSlots : [];
+    if (slots.length === 0 || slotIdx < 0 || slotIdx >= slots.length) return [slotIdx];
+    const targetPose = this.getSlotPoseIndex(slotIdx);
+    const matches = [];
+    for (let i = 0; i < slots.length; i++) {
+      if (this.getSlotPoseIndex(i) === targetPose) matches.push(i);
+    }
+    return matches.length > 0 ? matches : [slotIdx];
+  }
+
+  syncDuplicateSlotTransforms(sourceIdx) {
+    if (!Array.isArray(this.slotTransforms) || !this.slotTransforms[sourceIdx]) return;
+    const src = this.slotTransforms[sourceIdx];
+    this.getSyncedSlotIndices(sourceIdx).forEach((i) => {
+      if (i === sourceIdx) return;
+      this.slotTransforms[i] = { panX: src.panX || 0, panY: src.panY || 0, zoom: src.zoom || 1.0 };
+    });
+  }
+
+  syncDuplicateSlotPhoto(sourceIdx, photoIdx) {
+    if (!Array.isArray(this.slotAssignments)) return;
+    this.getSyncedSlotIndices(sourceIdx).forEach((i) => {
+      this.slotAssignments[i] = photoIdx;
+    });
+  }
+
   async adjustActiveSlotZoom(delta) {
     const idx = typeof this.selectedSlotIdx === 'number' ? this.selectedSlotIdx : 0;
     const tr = this.getSlotTransform(idx);
     tr.zoom = Math.max(0.35, Math.min(3.5, Number(((tr.zoom || 1.0) + delta).toFixed(2))));
+    this.syncDuplicateSlotTransforms(idx);
     this.updateSlotZoomBadge();
     await this.renderResultCanvas();
     this.syncFinalImageOnly();
@@ -1384,7 +1428,7 @@ class MingleBoothEngine {
 
   async assignPhotoToActiveSlot(photoIdx) {
     if (!this.slotAssignments) return;
-    this.slotAssignments[this.selectedSlotIdx] = photoIdx;
+    this.syncDuplicateSlotPhoto(this.selectedSlotIdx, photoIdx);
     this.renderResultSlotBar();
     await this.renderResultCanvas();
     await this.syncFinalImageOnly(false, false);
@@ -1472,6 +1516,7 @@ class MingleBoothEngine {
         const pts = Array.from(activePointers.values());
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
         tr.zoom = Math.max(0.35, Math.min(3.5, pinchInitZoom * (dist / pinchInitDist)));
+        this.syncDuplicateSlotTransforms(idx);
         this.updateSlotZoomBadge();
         this.renderResultCanvas();
       } else if (dragging && activePointers.size === 1) {
@@ -1482,6 +1527,7 @@ class MingleBoothEngine {
         tr.panY += (e.clientY - lastY) * sy;
         lastX = e.clientX;
         lastY = e.clientY;
+        this.syncDuplicateSlotTransforms(idx);
         this.renderResultCanvas();
       }
     });
@@ -1513,6 +1559,7 @@ class MingleBoothEngine {
       }
       const tr = this.getSlotTransform(hitIdx);
       tr.zoom = Math.max(0.35, Math.min(3.5, (tr.zoom || 1.0) + (e.deltaY < 0 ? 0.08 : -0.08)));
+      this.syncDuplicateSlotTransforms(hitIdx);
       this.updateSlotZoomBadge();
       this.renderResultCanvas();
       scheduleSync();
@@ -1583,13 +1630,12 @@ class MingleBoothEngine {
     if (printBtn) printBtn.style.display = '';
 
     await this.loadAndKeySelectedTemplate();
-    const slotsCount = (this.activeSlots && this.activeSlots.length) || 1;
+    const slotsArr = this.activeSlots || [];
+    const slotsCount = slotsArr.length || 1;
     const photosCount = Math.max(1, this.capturedPhotos.length);
     this.slotAssignments = Array.from({ length: slotsCount }, (_, idx) => {
-      if (this.slotAssignments && this.slotAssignments[idx] !== undefined) {
-        return this.slotAssignments[idx] % photosCount;
-      }
-      return idx % photosCount;
+      const pIdx = (slotsArr[idx] && parseInt(slotsArr[idx].pose_index, 10)) ? (parseInt(slotsArr[idx].pose_index, 10) - 1) : idx;
+      return pIdx % photosCount;
     });
     this.slotTransforms = Array.from({ length: slotsCount }, (_, idx) => (
       (this.slotTransforms && this.slotTransforms[idx]) ? { ...this.slotTransforms[idx] } : { panX: 0, panY: 0, zoom: 1.0 }

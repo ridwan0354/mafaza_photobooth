@@ -2150,6 +2150,7 @@ async function deleteTemplate(templateId, templateName) {
 function updateSlotInspector() {
   const titleEl = document.getElementById('inspectorSlotTitle');
   const badgeEl = document.getElementById('inspectorSlotBadge');
+  const inpPose = document.getElementById('inpSlotPoseIndex');
   const inpX = document.getElementById('inpSlotX');
   const inpY = document.getElementById('inpSlotY');
   const inpW = document.getElementById('inpSlotW');
@@ -2161,6 +2162,10 @@ function updateSlotInspector() {
     titleEl.innerText = '📐 Penyesuaian Presisi Slot';
     badgeEl.innerText = 'Pilih Slot';
     badgeEl.className = 'sticker-badge sticker-mustard';
+    if (inpPose) {
+      inpPose.value = '1';
+      inpPose.disabled = true;
+    }
     inpX.value = '';
     inpY.value = '';
     inpW.value = '';
@@ -2173,9 +2178,15 @@ function updateSlotInspector() {
   }
 
   const slot = editorSlots[selectedSlotIndex];
-  titleEl.innerText = `📐 Slot Pose #${slot.pose_index}`;
+  const poseIdx = Math.max(1, parseInt(slot.pose_index, 10) || (selectedSlotIndex + 1));
+  slot.pose_index = poseIdx;
+  titleEl.innerText = `📐 Slot #${selectedSlotIndex + 1} (Pose #${poseIdx})`;
   badgeEl.innerText = `${Math.round(slot.width)} × ${Math.round(slot.height)} px`;
   badgeEl.className = 'sticker-badge sticker-purple';
+  if (inpPose) {
+    inpPose.disabled = false;
+    inpPose.value = String(Math.min(10, poseIdx));
+  }
   inpX.disabled = false;
   inpY.disabled = false;
   inpW.disabled = false;
@@ -2189,16 +2200,19 @@ function updateSlotInspector() {
 function onSlotParamChange() {
   if (selectedSlotIndex < 0 || !editorSlots[selectedSlotIndex]) return;
   const slot = editorSlots[selectedSlotIndex];
+  const inpPose = parseInt(document.getElementById('inpSlotPoseIndex')?.value, 10);
   const inpX = parseInt(document.getElementById('inpSlotX').value);
   const inpY = parseInt(document.getElementById('inpSlotY').value);
   const inpW = parseInt(document.getElementById('inpSlotW').value);
   const inpH = parseInt(document.getElementById('inpSlotH').value);
 
+  if (!isNaN(inpPose) && inpPose >= 1) slot.pose_index = inpPose;
   if (!isNaN(inpX)) slot.x = inpX;
   if (!isNaN(inpY)) slot.y = inpY;
   if (!isNaN(inpW) && inpW > 10) slot.width = inpW;
   if (!isNaN(inpH) && inpH > 10) slot.height = inpH;
 
+  updateSlotInspector();
   renderEditorCanvas();
   renderSlotsList();
 }
@@ -2240,28 +2254,40 @@ function renderSlotsList() {
     return;
   }
 
+  const poseCounts = {};
+  editorSlots.forEach((s) => {
+    const p = parseInt(s.pose_index, 10) || 1;
+    poseCounts[p] = (poseCounts[p] || 0) + 1;
+  });
+
   editorSlots.forEach((slot, idx) => {
     const isSelected = (idx === selectedSlotIndex);
+    const poseIdx = parseInt(slot.pose_index, 10) || (idx + 1);
+    const isTwin = (poseCounts[poseIdx] || 0) > 1;
     const item = document.createElement('div');
-    item.style.cssText = `background: ${isSelected ? 'rgba(236, 72, 153, 0.12)' : '#1e293b'}; border: 2px solid ${isSelected ? '#ec4899' : '#334155'}; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.15s;`;
+    item.style.cssText = `background: ${isSelected ? 'rgba(236, 72, 153, 0.12)' : '#1e293b'}; border: 2px solid ${isSelected ? '#ec4899' : '#334155'}; border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; cursor: pointer; transition: all 0.15s;`;
     item.onclick = (e) => {
-      if (e.target.tagName === 'BUTTON') return;
+      if (e.target.closest('button')) return;
       selectedSlotIndex = idx;
       renderSlotsList();
       updateSlotInspector();
       renderEditorCanvas();
     };
     item.innerHTML = `
-      <div>
-        <div style="display: flex; gap: 6px; align-items: center;">
-          <strong style="color: ${isSelected ? '#ec4899' : '#f472b6'}; font-size: 13.5px;">📸 Slot Pose #${slot.pose_index}</strong>
+      <div style="min-width: 0;">
+        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+          <strong style="color: ${isSelected ? '#ec4899' : '#f472b6'}; font-size: 13.5px;">📸 Slot #${idx + 1} · Pose #${poseIdx}</strong>
+          ${isTwin ? `<span style="font-size: 10px; background: #0ea5e9; color: white; padding: 1px 6px; border-radius: 4px; font-weight: 700;">🔗 Kembar</span>` : ''}
           ${isSelected ? `<span style="font-size: 10px; background: #ec4899; color: white; padding: 1px 6px; border-radius: 4px; font-weight: 700;">Terpilih</span>` : ''}
         </div>
         <div style="font-size: 11.5px; color: ${isSelected ? '#cbd5e1' : 'var(--text-muted)'}; font-family: monospace; margin-top: 2px;">
           x:${Math.round(slot.x)}, y:${Math.round(slot.y)} | ${Math.round(slot.width)}×${Math.round(slot.height)}px
         </div>
       </div>
-      <button class="btn btn-danger" style="padding: 4px 10px; font-size: 11.5px;" onclick="deleteSlot(${idx})">Hapus</button>
+      <div style="display: flex; gap: 6px; flex-shrink: 0;">
+        <button type="button" class="btn btn-secondary" style="padding: 4px 9px; font-size: 11.5px;" onclick="duplicateSlot(${idx})" title="Duplikat slot dengan Pose yang sama">📋 Duplikat</button>
+        <button type="button" class="btn btn-danger" style="padding: 4px 10px; font-size: 11.5px;" onclick="deleteSlot(${idx})">Hapus</button>
+      </div>
     `;
     container.appendChild(item);
   });
@@ -2308,8 +2334,16 @@ function drawEditorFrameNow(canvas, tplImg) {
   }
 
   // Draw detected/active slots as interactive overlays
+  const canvasPoseCounts = {};
+  editorSlots.forEach((s) => {
+    const p = parseInt(s.pose_index, 10) || 1;
+    canvasPoseCounts[p] = (canvasPoseCounts[p] || 0) + 1;
+  });
+
   editorSlots.forEach((slot, idx) => {
     const isSelected = (idx === selectedSlotIndex);
+    const poseIdx = parseInt(slot.pose_index, 10) || (idx + 1);
+    const isTwin = (canvasPoseCounts[poseIdx] || 0) > 1;
 
     ctx.fillStyle = isSelected ? 'rgba(236, 72, 153, 0.45)' : 'rgba(168, 85, 247, 0.3)';
     ctx.fillRect(slot.x, slot.y, slot.width, slot.height);
@@ -2319,7 +2353,7 @@ function drawEditorFrameNow(canvas, tplImg) {
     ctx.strokeRect(slot.x, slot.y, slot.width, slot.height);
 
     // Label on top-left of slot
-    const labelText = `📷 Pose #${slot.pose_index}`;
+    const labelText = isTwin ? `📷 Pose #${poseIdx} (Kembar)` : `📷 Pose #${poseIdx}`;
     ctx.font = 'bold 22px sans-serif';
     const textWidth = ctx.measureText(labelText).width;
     ctx.fillStyle = isSelected ? '#ec4899' : '#6b21a8';
@@ -2669,7 +2703,8 @@ async function runAutoGreenDetection(silentAndAutoSave = false) {
 }
 
 function addManualSlot() {
-  const newIndex = editorSlots.length + 1;
+  const maxPose = editorSlots.reduce((m, s) => Math.max(m, parseInt(s.pose_index, 10) || 0), 0);
+  const newIndex = maxPose + 1;
   const canvas = document.getElementById('templateEditorCanvas');
   const w = canvas ? Math.round(canvas.width * 0.8) : 500;
   editorSlots.push({
@@ -2685,9 +2720,91 @@ function addManualSlot() {
   renderEditorCanvas();
 }
 
+function duplicateSlot(index) {
+  const src = editorSlots[index];
+  if (!src) return;
+  const canvas = document.getElementById('templateEditorCanvas');
+  const cw = (canvas && canvas.width) || (activeTemplate && activeTemplate.width) || 1200;
+  const ch = (canvas && canvas.height) || (activeTemplate && activeTemplate.height) || 1800;
+  const halfW = Math.round(cw / 2);
+  const srcCenterX = src.x + (src.width / 2);
+
+  let nextX = src.x + 28;
+  let nextY = src.y + 28;
+  if (srcCenterX < halfW && (src.x + halfW + src.width) <= (cw + 20)) {
+    nextX = Math.min(cw - src.width, Math.round(src.x + halfW));
+    nextY = src.y;
+  } else if (srcCenterX >= halfW && (src.x - halfW) >= -20) {
+    nextX = Math.max(0, Math.round(src.x - halfW));
+    nextY = src.y;
+  } else {
+    nextX = Math.max(0, Math.min(cw - src.width, Math.round(nextX)));
+    nextY = Math.max(0, Math.min(ch - src.height, Math.round(nextY)));
+  }
+
+  editorSlots.push({
+    id: 'slot_dup_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+    pose_index: parseInt(src.pose_index, 10) || (index + 1),
+    x: nextX,
+    y: nextY,
+    width: src.width,
+    height: src.height
+  });
+  selectedSlotIndex = editorSlots.length - 1;
+  renderSlotsList();
+  renderEditorCanvas();
+}
+
+function duplicateLeftSlotsToRight() {
+  if (!activeTemplate) return;
+  const canvas = document.getElementById('templateEditorCanvas');
+  const cw = (canvas && canvas.width) || activeTemplate.width || 1200;
+  const halfW = Math.round(cw / 2);
+  const leftSlots = editorSlots.filter((s) => (s.x + (s.width / 2)) < halfW);
+  if (leftSlots.length === 0) {
+    alert('Belum ada slot di sisi kiri kanvas untuk diduplikat ke kanan.');
+    return;
+  }
+
+  let added = 0;
+  leftSlots.forEach((src, i) => {
+    const poseIdx = parseInt(src.pose_index, 10) || (i + 1);
+    const targetX = Math.max(halfW - 20, Math.min(cw - src.width, Math.round(src.x + halfW)));
+    const alreadyExists = editorSlots.some((other) => (
+      other !== src &&
+      (parseInt(other.pose_index, 10) || 1) === poseIdx &&
+      Math.abs(other.x - targetX) <= 30 &&
+      Math.abs(other.y - src.y) <= 30
+    ));
+    if (!alreadyExists) {
+      editorSlots.push({
+        id: 'slot_dup_' + Date.now() + '_' + i,
+        pose_index: poseIdx,
+        x: targetX,
+        y: src.y,
+        width: src.width,
+        height: src.height
+      });
+      added++;
+    }
+  });
+
+  if (added === 0) {
+    alert('Semua slot sisi kiri sudah memiliki pasangan duplikat di sisi kanan.');
+    return;
+  }
+
+  activeTemplate.shots_mode = 'slots';
+  const shotsSelect = document.getElementById('editorTemplateShotsMode');
+  if (shotsSelect) shotsSelect.value = 'slots';
+
+  selectedSlotIndex = editorSlots.length - 1;
+  renderSlotsList();
+  renderEditorCanvas();
+}
+
 function deleteSlot(index) {
   editorSlots.splice(index, 1);
-  editorSlots.forEach((s, idx) => s.pose_index = idx + 1);
   if (selectedSlotIndex >= editorSlots.length) {
     selectedSlotIndex = editorSlots.length - 1;
   }

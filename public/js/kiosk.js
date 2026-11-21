@@ -1225,7 +1225,7 @@ class KioskEngine {
   returnToCameraFromPreview() {
     if (this.autoReturnTimerId) clearInterval(this.autoReturnTimerId);
     const tplSlotsCount = (this.selectedTemplate && this.selectedTemplate.slots && this.selectedTemplate.slots.length > 0)
-      ? Math.max(this.selectedTemplate.slots.length, ...this.selectedTemplate.slots.map(s => s.pose_index || 1))
+      ? this.getSlotsUniquePoseCount(this.selectedTemplate.slots)
       : ((this.selectedMode === 'strip') ? 3 : 1);
     if (tplSlotsCount > this.totalPosesRequired) {
       this.totalPosesRequired = tplSlotsCount;
@@ -1410,6 +1410,14 @@ class KioskEngine {
     this.renderTemplateSelection(category);
   }
 
+  getSlotsUniquePoseCount(slots) {
+    if (!Array.isArray(slots) || slots.length === 0) return 1;
+    const poseNums = slots.map((s, idx) => Math.max(1, parseInt(s.pose_index, 10) || (idx + 1)));
+    const uniquePoses = new Set(poseNums);
+    const maxPoseIdx = Math.max(...poseNums);
+    return Math.max(uniquePoses.size, maxPoseIdx);
+  }
+
   resolveTemplatePosesCount(tpl) {
     const mode = tpl && tpl.shots_mode ? String(tpl.shots_mode).trim() : 'event';
     // 1. Jika template disetel eksplisit jumlah pose (1..10)
@@ -1417,11 +1425,10 @@ class KioskEngine {
     if (!isNaN(explicitNum) && explicitNum >= 1 && explicitNum <= 10) {
       return explicitNum;
     }
-    // 2. Jika template disetel mengikuti jumlah lubang hijau frame ('slots')
+    // 2. Jika template disetel mengikuti jumlah lubang foto frame ('slots') — pose duplikat dihitung 1x pose
     if (mode === 'slots') {
       if (tpl && Array.isArray(tpl.slots) && tpl.slots.length > 0) {
-        const maxPoseIdx = Math.max(...tpl.slots.map(s => parseInt(s.pose_index, 10) || 1));
-        return Math.max(tpl.slots.length, maxPoseIdx);
+        return this.getSlotsUniquePoseCount(tpl.slots);
       }
     }
     // 3. Default ('event'): ikut pengaturan Event aktif (atau event_shots_count dari template)
@@ -1434,7 +1441,7 @@ class KioskEngine {
       if (!isNaN(tplEvCount) && tplEvCount >= 1) return tplEvCount;
     }
     if (tpl && Array.isArray(tpl.slots) && tpl.slots.length > 0) {
-      return Math.max(tpl.slots.length, ...tpl.slots.map(s => parseInt(s.pose_index, 10) || 1));
+      return this.getSlotsUniquePoseCount(tpl.slots);
     }
     return (tpl && tpl.orientation === 'strip') ? 3 : 1;
   }
@@ -4832,6 +4839,7 @@ class KioskEngine {
 
       this.slotTransforms[idx].panX = (this.slotTransforms[idx].panX || 0) + dx;
       this.slotTransforms[idx].panY = (this.slotTransforms[idx].panY || 0) + dy;
+      this.syncDuplicateSlotTransforms(idx);
 
       this.renderFinalCanvas();
     });
@@ -4855,6 +4863,7 @@ class KioskEngine {
 
       const deltaZoom = e.deltaY < 0 ? 0.08 : -0.08;
       this.slotTransforms[idx].zoom = Math.max(0.35, Math.min(3.5, (this.slotTransforms[idx].zoom || 1.0) + deltaZoom));
+      this.syncDuplicateSlotTransforms(idx);
       this.renderFinalCanvas();
       this.resetAutoReturnTimer();
       this.debounceSyncSession();
@@ -4932,6 +4941,7 @@ class KioskEngine {
 
         this.slotTransforms[idx].panX = this.pinchState.initialPanX + deltaMidX;
         this.slotTransforms[idx].panY = this.pinchState.initialPanY + deltaMidY;
+        this.syncDuplicateSlotTransforms(idx);
 
         this.renderFinalCanvas();
       } else if (this.isDraggingPhoto && e.touches.length === 1) {
@@ -4944,6 +4954,7 @@ class KioskEngine {
 
         this.slotTransforms[idx].panX = (this.slotTransforms[idx].panX || 0) + dx;
         this.slotTransforms[idx].panY = (this.slotTransforms[idx].panY || 0) + dy;
+        this.syncDuplicateSlotTransforms(idx);
 
         this.renderFinalCanvas();
       }
@@ -5038,6 +5049,7 @@ class KioskEngine {
 
         this.slotTransforms[idx].panX = this.pinchState.initialPanX + deltaMidX;
         this.slotTransforms[idx].panY = this.pinchState.initialPanY + deltaMidY;
+        this.syncDuplicateSlotTransforms(idx);
         this.renderFinalCanvas();
       } else if (activePointers.size === 1 && this.isDraggingPhoto) {
         const dx = (e.clientX - this.dragState.lastClientX) * this.dragState.scaleX;
@@ -5046,6 +5058,7 @@ class KioskEngine {
         this.dragState.lastClientY = e.clientY;
         this.slotTransforms[idx].panX = (this.slotTransforms[idx].panX || 0) + dx;
         this.slotTransforms[idx].panY = (this.slotTransforms[idx].panY || 0) + dy;
+        this.syncDuplicateSlotTransforms(idx);
         this.renderFinalCanvas();
       }
     });
@@ -5139,10 +5152,43 @@ class KioskEngine {
     }).join('');
   }
 
+  getSlotPoseIndex(slotIdx) {
+    const slots = (this.selectedTemplate && Array.isArray(this.selectedTemplate.slots)) ? this.selectedTemplate.slots : [];
+    const slot = slots[slotIdx];
+    return slot ? (parseInt(slot.pose_index, 10) || (slotIdx + 1)) : (slotIdx + 1);
+  }
+
+  getSyncedSlotIndices(slotIdx) {
+    const slots = (this.selectedTemplate && Array.isArray(this.selectedTemplate.slots)) ? this.selectedTemplate.slots : [];
+    if (slots.length === 0 || slotIdx < 0 || slotIdx >= slots.length) return [slotIdx];
+    const targetPose = this.getSlotPoseIndex(slotIdx);
+    const matches = [];
+    for (let i = 0; i < slots.length; i++) {
+      if (this.getSlotPoseIndex(i) === targetPose) matches.push(i);
+    }
+    return matches.length > 0 ? matches : [slotIdx];
+  }
+
+  syncDuplicateSlotTransforms(sourceIdx) {
+    if (!Array.isArray(this.slotTransforms) || !this.slotTransforms[sourceIdx]) return;
+    const src = this.slotTransforms[sourceIdx];
+    this.getSyncedSlotIndices(sourceIdx).forEach((i) => {
+      if (i === sourceIdx) return;
+      this.slotTransforms[i] = { panX: src.panX || 0, panY: src.panY || 0, zoom: src.zoom || 1.0 };
+    });
+  }
+
+  syncDuplicateSlotPhoto(sourceIdx, photoIdx) {
+    if (!Array.isArray(this.slotAssignments)) return;
+    this.getSyncedSlotIndices(sourceIdx).forEach((i) => {
+      this.slotAssignments[i] = photoIdx;
+    });
+  }
+
   assignPhotoToActiveSlot(photoIdx) {
     if (typeof this.selectedPreviewSlotIndex !== 'number') return;
     const slotIdx = this.selectedPreviewSlotIndex;
-    this.slotAssignments[slotIdx] = photoIdx;
+    this.syncDuplicateSlotPhoto(slotIdx, photoIdx);
 
     this.renderFinalCanvas();
     this.renderPreviewPhotoTray();
@@ -5157,6 +5203,7 @@ class KioskEngine {
     if (!this.slotTransforms[idx]) this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
     this.slotTransforms[idx].panX += deltaX;
     this.slotTransforms[idx].panY += deltaY;
+    this.syncDuplicateSlotTransforms(idx);
     this.renderFinalCanvas();
     this.resetAutoReturnTimer();
     this.debounceSyncSession();
@@ -5167,6 +5214,7 @@ class KioskEngine {
     const idx = this.selectedPreviewSlotIndex;
     if (!this.slotTransforms[idx]) this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
     this.slotTransforms[idx].zoom = Math.max(0.35, Math.min(3.5, Number(((this.slotTransforms[idx].zoom || 1.0) + deltaZoom).toFixed(2))));
+    this.syncDuplicateSlotTransforms(idx);
     this.renderFinalCanvas();
     this.resetAutoReturnTimer();
     this.debounceSyncSession();
@@ -5176,6 +5224,7 @@ class KioskEngine {
     if (typeof this.selectedPreviewSlotIndex !== 'number') return;
     const idx = this.selectedPreviewSlotIndex;
     this.slotTransforms[idx] = { panX: 0, panY: 0, zoom: 1.0 };
+    this.syncDuplicateSlotTransforms(idx);
     this.renderFinalCanvas();
     this.resetAutoReturnTimer();
     this.debounceSyncSession();

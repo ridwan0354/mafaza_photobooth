@@ -1383,6 +1383,21 @@
                   <strong id="inspectorSlotTitle" style="color: #ec4899; font-size: 13px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">📐 Penyesuaian Presisi Slot</strong>
                   <span id="inspectorSlotBadge" class="sticker-badge sticker-mustard" style="font-size: 10px; flex-shrink: 0;">Pilih Slot</span>
                 </div>
+                <div style="margin-bottom: 10px;">
+                  <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Ambil Foto Pose ke- (Nomor Sama = Duplikat Kembar)</label>
+                  <select id="inpSlotPoseIndex" class="form-control" style="width: 100%; min-width: 0; box-sizing: border-box; padding: 7px 9px; font-size: 12.5px; font-weight: 700;" onchange="onSlotParamChange()">
+                    <option value="1">📸 Pose #1</option>
+                    <option value="2">📸 Pose #2</option>
+                    <option value="3">📸 Pose #3</option>
+                    <option value="4">📸 Pose #4</option>
+                    <option value="5">📸 Pose #5</option>
+                    <option value="6">📸 Pose #6</option>
+                    <option value="7">📸 Pose #7</option>
+                    <option value="8">📸 Pose #8</option>
+                    <option value="9">📸 Pose #9</option>
+                    <option value="10">📸 Pose #10</option>
+                  </select>
+                </div>
                 <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-bottom: 10px;">
                   <div style="min-width: 0;">
                     <label style="font-size: 11px; font-weight: 700; color: var(--text-muted); display: block; margin-bottom: 2px;">Posisi X (px)</label>
@@ -1532,6 +1547,7 @@
               <div style="display: flex; flex-direction: column; gap: 8px;">
                 <button class="btn btn-teal" style="font-size: 13px; width: 100%;" onclick="runAutoGreenDetection()">🔍 Deteksi Kotak Hijau → Slot (+ Hapus Hijau)</button>
                 <button class="btn btn-secondary" style="font-size: 13px; width: 100%;" onclick="addManualSlot()">+ Tambah Slot Pose Manual</button>
+                <button class="btn btn-secondary" style="font-size: 13px; width: 100%;" onclick="duplicateLeftSlotsToRight()">📑 Duplikat Kiri ➔ Kanan (Strip 2-Up Kembar)</button>
                 <button class="btn btn-secondary" style="font-size: 13px; width: 100%;" onclick="applySplit2UpLandscapeHelper()">✂️ Atur Cepat Split 2-Up (Potong Tengah)</button>
                 <button class="btn btn-coral" style="font-size: 13px; width: 100%;" onclick="saveTemplateVersion()">💾 Simpan &amp; Publikasikan untuk Kiosk</button>
               </div>
@@ -2856,6 +2872,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.2"></script>
   <script src="/js/print-client.js?v=1.7"></script>
-  <script src="/js/admin.js?v=responsive-v7.3"></script>
+  <script src="/js/admin.js?v=responsive-v7.4"></script>
 </body>
 </html>
