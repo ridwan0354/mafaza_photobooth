@@ -23,7 +23,8 @@ class MingleBoothEngine {
     this.activeTargetShots = 1;
     this.eventShotsCount = 1;
 
-    this.currentScreen = 'screenMingleSelect';
+    this.currentScreen = 'screenMingleWelcome';
+    this.currentAppliedBgKey = null;
     this.isProcessingCapture = false;
     this.capturedPhotos = [];
     this.syncedCaptureCount = 0;
@@ -173,6 +174,7 @@ class MingleBoothEngine {
             window.pbOfflineStore.cacheConfig('event_' + this.eventId, ev);
           }
           if (titleEl) titleEl.innerText = `Event: ${ev.name || 'Aktif'}`;
+          this.applyEventPresentation(ev.name);
           return;
         }
       }
@@ -188,11 +190,127 @@ class MingleBoothEngine {
             this.eventShotsCount = parseInt(this.eventConfig.shotsCount, 10) || 1;
           }
           if (titleEl) titleEl.innerText = `Event: ${cachedEv.name || 'Offline Siap'}`;
+          this.applyEventPresentation(cachedEv.name);
           return;
         }
       } catch (e) {}
     }
     if (titleEl) titleEl.innerText = 'Mingle Booth · Mode Siap';
+    this.applyEventPresentation(null);
+  }
+
+  applyEventPresentation(eventName) {
+    const brandEl = document.getElementById('mingleWelcomeBrandTitle');
+    if (brandEl) {
+      brandEl.innerText = eventName ? `MAFAZA • ${eventName}` : 'MAFAZA • Mingle';
+    }
+    if (eventName) {
+      document.title = `Mafaza — ${eventName}`;
+    }
+    this.applyMingleWelcomeText();
+    this.applyMingleBackground();
+  }
+
+  applyMingleWelcomeText() {
+    const headlineEl = document.getElementById('mingleWelcomeHeadlineText');
+    const startBtn = document.getElementById('mingleWelcomeStartBtn');
+    const headline = (this.eventConfig && this.eventConfig.welcomeHeadline) || 'Abadikan Momen Spesialmu Di Sini! 😊';
+    const btnText = (this.eventConfig && this.eventConfig.welcomeBtnText) || 'Mulai Foto ➔';
+
+    if (headlineEl) {
+      headlineEl.innerHTML = String(headline).replace(/\n/g, '<br>');
+    }
+    if (startBtn) {
+      startBtn.innerText = btnText;
+    }
+  }
+
+  extractYouTubeId(url) {
+    if (!url) return null;
+    const trimmed = String(url).trim();
+    const patterns = [
+      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/|youtube\.com\/live\/)([a-zA-Z0-9_-]{6,15})/,
+      /[?&]v=([a-zA-Z0-9_-]{6,15})/
+    ];
+    for (const re of patterns) {
+      const m = trimmed.match(re);
+      if (m && m[1]) return m[1];
+    }
+    return null;
+  }
+
+  applyMingleBackground() {
+    const wrapper = document.getElementById('mingleWrapper');
+    const bgContainer = document.getElementById('mingleCustomBgContainer');
+    const bgImg = document.getElementById('mingleBgImage');
+    const bgVideo = document.getElementById('mingleBgVideo');
+    const bgYtWrap = document.getElementById('mingleBgYoutubeWrap');
+    const bgYtIframe = document.getElementById('mingleBgYoutubeIframe');
+    const bgOverlay = document.getElementById('mingleBgOverlay');
+    const headlineEl = document.getElementById('mingleWelcomeHeadlineText');
+
+    if (!bgContainer) return;
+
+    const bgCfg = (this.eventConfig && this.eventConfig.kioskBackground) || { type: 'default', url: '', overlayOpacity: 35 };
+    const type = bgCfg.type || 'default';
+    const url = (bgCfg.url || '').trim();
+    const opacityVal = (bgCfg.overlayOpacity !== undefined && bgCfg.overlayOpacity !== null) ? parseInt(bgCfg.overlayOpacity, 10) : 35;
+    const opacityFloat = Math.max(0, Math.min(0.85, (isNaN(opacityVal) ? 35 : opacityVal) / 100));
+
+    if (type === 'default' || !url) {
+      this.currentAppliedBgKey = 'default';
+      bgContainer.style.display = 'none';
+      if (wrapper) wrapper.classList.remove('has-custom-bg');
+      if (bgImg) { bgImg.style.display = 'none'; bgImg.removeAttribute('src'); }
+      if (bgVideo) { bgVideo.style.display = 'none'; bgVideo.pause(); bgVideo.removeAttribute('src'); }
+      if (bgYtWrap) bgYtWrap.style.display = 'none';
+      if (bgYtIframe) bgYtIframe.src = '';
+      if (headlineEl) {
+        headlineEl.style.color = 'var(--caramel-brown)';
+        headlineEl.style.textShadow = '0 2px 4px rgba(123,72,46,0.05)';
+      }
+      return;
+    }
+
+    bgContainer.style.display = 'block';
+    if (wrapper) wrapper.classList.add('has-custom-bg');
+    if (bgOverlay) {
+      bgOverlay.style.background = `rgba(28, 18, 12, ${opacityFloat})`;
+    }
+    if (headlineEl) {
+      if (opacityVal >= 15) {
+        headlineEl.style.color = '#FFFBF5';
+        headlineEl.style.textShadow = '0 4px 20px rgba(0, 0, 0, 0.75)';
+      } else {
+        headlineEl.style.color = 'var(--caramel-brown)';
+        headlineEl.style.textShadow = '0 2px 14px rgba(255, 251, 245, 0.95)';
+      }
+    }
+
+    const bgKey = `${type}::${url}`;
+    if (this.currentAppliedBgKey === bgKey) return;
+    this.currentAppliedBgKey = bgKey;
+
+    if (bgImg) bgImg.style.display = 'none';
+    if (bgVideo) { bgVideo.style.display = 'none'; bgVideo.pause(); }
+    if (bgYtWrap) bgYtWrap.style.display = 'none';
+
+    if (type === 'youtube') {
+      const ytId = this.extractYouTubeId(url);
+      if (ytId && bgYtWrap && bgYtIframe) {
+        bgYtIframe.src = `https://www.youtube.com/embed/${ytId}?autoplay=1&mute=1&loop=1&playlist=${ytId}&controls=0&showinfo=0&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1`;
+        bgYtWrap.style.display = 'block';
+      }
+    } else if (type === 'video') {
+      if (bgVideo) {
+        bgVideo.src = url;
+        bgVideo.style.display = 'block';
+        bgVideo.play().catch(() => {});
+      }
+    } else if (bgImg) {
+      bgImg.src = url;
+      bgImg.style.display = 'block';
+    }
   }
 
   async fetchTemplates() {
@@ -437,7 +555,12 @@ class MingleBoothEngine {
     document.querySelectorAll('.mingle-screen').forEach(el => {
       el.classList.toggle('active', el.id === id);
     });
+    document.body.classList.toggle('mingle-on-welcome', id === 'screenMingleWelcome');
     this.currentScreen = id;
+  }
+
+  enterFrameSelection() {
+    this.openSelectScreen();
   }
 
   resetSessionCaptureState() {
@@ -715,16 +838,23 @@ class MingleBoothEngine {
 
   updateCameraStatusUI(st) {
     const pill = document.getElementById('mingleCamStatusPill');
+    const welcomePill = document.getElementById('mingleWelcomeCamPill');
     const readyLbl = document.getElementById('mingleReadyCamLabel');
     const toggleLvBtn = document.getElementById('btnToggleCanonLv');
     const waitDesc = document.getElementById('mingleWaitDesc');
-    if (!pill) return;
+    if (!pill && !welcomePill) return;
 
     if (st && st.active) {
       const driver = String(st.driverType || '').toLowerCase();
       const label = st.camera || (driver === 'sony' ? 'Sony USB' : driver === 'canon' ? 'Canon EOS' : 'Kamera USB');
-      pill.className = 'mingle-status-pill';
-      pill.innerText = `🟢 ${label} · Shutter Siap`;
+      if (pill) {
+        pill.className = 'mingle-status-pill';
+        pill.innerText = `🟢 ${label} · Shutter Siap`;
+      }
+      if (welcomePill) {
+        welcomePill.className = 'mingle-status-pill';
+        welcomePill.innerText = `🟢 ${label} · Siap`;
+      }
       if (readyLbl) readyLbl.innerText = `🟢 ${label} Terhubung (Tekan Shutter Kamera)`;
       if (toggleLvBtn) {
         toggleLvBtn.style.display = driver === 'canon' ? '' : 'none';
@@ -736,8 +866,15 @@ class MingleBoothEngine {
           : 'Live View aktif di layar agar tamu ikut melihat — jepret via kamera atau tombol layar.';
       }
     } else {
-      pill.className = 'mingle-status-pill offline';
-      pill.innerText = st && st.usbAttached ? '⏳ Menghubungkan USB...' : '📱 Mode Kamera Tablet (atau Colok USB)';
+      const offlineText = st && st.usbAttached ? '⏳ Menghubungkan USB...' : '📱 Mode Kamera Tablet (atau Colok USB)';
+      if (pill) {
+        pill.className = 'mingle-status-pill offline';
+        pill.innerText = offlineText;
+      }
+      if (welcomePill) {
+        welcomePill.className = 'mingle-status-pill offline';
+        welcomePill.innerText = st && st.usbAttached ? '⏳ USB...' : '📷 Kamera Tablet';
+      }
       if (readyLbl) readyLbl.innerText = '📱 Kamera Bawaan / Menunggu USB DSLR';
       if (toggleLvBtn) toggleLvBtn.style.display = 'none';
       if (waitDesc) waitDesc.innerText = 'Colok kamera Sony / Canon lewat USB OTG, atau jepret dengan kamera tablet.';
@@ -2083,7 +2220,10 @@ class MingleBoothEngine {
   }
 
   nextGuest() {
-    this.openSelectScreen();
+    this.setUsbMingleListen(false);
+    this.stopLiveViewLoop();
+    this.stopWebcam();
+    this.showScreen('screenMingleWelcome');
   }
 
   async toggleFullScreen() {

@@ -23,6 +23,21 @@
       -webkit-tap-highlight-color: transparent;
     }
 
+    .mingle-wrapper {
+      min-height: 100dvh;
+      width: 100%;
+      position: relative;
+      background: #FFF9F2;
+      overflow-x: hidden;
+    }
+
+    .mingle-wrapper .kiosk-custom-bg-container {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+
     .mingle-shell {
       min-height: 100dvh;
       display: flex;
@@ -32,6 +47,50 @@
       margin: 0 auto;
       box-sizing: border-box;
       gap: 14px;
+      position: relative;
+      z-index: 20;
+    }
+
+    body.mingle-on-welcome .mingle-topbar {
+      display: none !important;
+    }
+
+    #screenMingleWelcome {
+      min-height: calc(100dvh - 80px);
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      position: relative;
+    }
+
+    .mingle-welcome-top-left {
+      position: fixed;
+      top: 24px;
+      left: 24px;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+    }
+
+    .mingle-welcome-top-right {
+      position: fixed;
+      top: 24px;
+      right: 24px;
+      z-index: 40;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .mingle-wrapper.has-custom-bg .mingle-topbar,
+    .mingle-wrapper.has-custom-bg .mingle-hero-note,
+    .mingle-wrapper.has-custom-bg .mingle-frame-card,
+    .mingle-wrapper.has-custom-bg .mingle-card {
+      background: rgba(255, 253, 249, 0.94);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
     }
 
     .mingle-topbar {
@@ -683,7 +742,7 @@
     }
   </style>
 </head>
-<body>
+<body class="mingle-on-welcome">
   <div id="mingleToast" class="mingle-toast"></div>
 
   <div id="mingleProcessingOverlay" class="mingle-processing-overlay">
@@ -692,27 +751,78 @@
     <p id="mingleProcessingSub" style="margin: 0; font-size: 14px; color: #EAD8C7;">Tunggu sebentar, foto siap dalam sekejap.</p>
   </div>
 
-  <div class="mingle-shell">
-    <!-- Top Bar -->
-    <header class="mingle-topbar">
-      <div class="mingle-brand">
-        <img src="/assets/logo-mafaza.jpg" alt="Mafaza">
-        <div>
-          <h1 class="mingle-brand-title">📸 Mingle Booth · Foto Keliling</h1>
-          <div id="mingleEventTitle" class="mingle-brand-sub">Memuat event aktif...</div>
+  <div id="mingleWrapper" class="mingle-wrapper">
+    <!-- Dynamic Per-Event Custom Background (Sama persis dengan Kiosk) -->
+    <div id="mingleCustomBgContainer" class="kiosk-custom-bg-container" style="display: none;">
+      <img id="mingleBgImage" class="kiosk-bg-media" style="display: none;" alt="Event Background">
+      <video id="mingleBgVideo" class="kiosk-bg-media" autoplay loop muted playsinline style="display: none;"></video>
+      <div id="mingleBgYoutubeWrap" class="kiosk-bg-youtube-wrap" style="display: none;">
+        <iframe id="mingleBgYoutubeIframe" frameborder="0" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+      </div>
+      <div id="mingleBgOverlay" class="kiosk-bg-overlay"></div>
+    </div>
+
+    <div class="retro-corner-tl"></div>
+    <div class="retro-corner-br"></div>
+
+    <div class="mingle-shell">
+      <!-- Top Bar (Tampil saat memilih frame / memotret / hasil) -->
+      <header class="mingle-topbar">
+        <div class="mingle-brand">
+          <img src="/assets/logo-mafaza.jpg" alt="Mafaza">
+          <div>
+            <h1 class="mingle-brand-title">📸 Mingle Booth · Foto Keliling</h1>
+            <div id="mingleEventTitle" class="mingle-brand-sub">Memuat event aktif...</div>
+          </div>
         </div>
-      </div>
 
-      <div class="mingle-topbar-actions">
-        <span id="mingleCamStatusPill" class="mingle-status-pill offline">⏳ Memeriksa kamera...</span>
-        <button type="button" class="btn btn-secondary" style="padding: 7px 12px; font-size: 12px;" onclick="mingle.refreshAll()">🔄 Refresh</button>
-        <button type="button" class="btn btn-secondary" style="padding: 7px 12px; font-size: 12px;" onclick="mingle.toggleFullScreen()">⛶ Layar Penuh</button>
-        <a href="/kiosk?fullscreen=1" class="btn btn-coral" style="padding: 7px 14px; font-size: 12px; text-decoration: none;">🖥️ Mode Kiosk</a>
-      </div>
-    </header>
+        <div class="mingle-topbar-actions">
+          <span id="mingleCamStatusPill" class="mingle-status-pill offline">⏳ Memeriksa kamera...</span>
+          <button type="button" class="btn btn-secondary" style="padding: 7px 12px; font-size: 12px;" onclick="mingle.refreshAll()">🔄 Refresh</button>
+          <button type="button" class="btn btn-secondary" style="padding: 7px 12px; font-size: 12px;" onclick="mingle.toggleFullScreen()">⛶ Layar Penuh</button>
+          <a href="/kiosk?fullscreen=1" class="btn btn-coral" style="padding: 7px 14px; font-size: 12px; text-decoration: none;">🖥️ Mode Kiosk</a>
+        </div>
+      </header>
 
-    <!-- SCREEN 1: PILIH BINGKAI ATAU MODE JUAL FILE -->
-    <section id="screenMingleSelect" class="mingle-screen active">
+      <!-- SCREEN 0: WELCOME SAMBUTAN EVENT (SAMA PERSIS TAMPILAN KIOSK) -->
+      <section id="screenMingleWelcome" class="mingle-screen active">
+        <div class="mingle-welcome-top-left">
+          <div style="display: flex; align-items: center; gap: 8px; background: var(--cream-card); padding: 8px 18px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); box-shadow: 0 4px 12px rgba(123,72,46,0.12);">
+            <span style="font-size: 18px;">📷</span>
+            <span id="mingleWelcomeBrandTitle" style="font-family: var(--font-heading); font-size: 16px; font-weight: 700; color: var(--caramel-brown); letter-spacing: 0.8px;">MAFAZA</span>
+          </div>
+        </div>
+
+        <div class="mingle-welcome-top-right">
+          <span id="mingleWelcomeCamPill" class="mingle-status-pill offline" style="background: var(--cream-card); box-shadow: 0 4px 12px rgba(123,72,46,0.12);">📷 Mode Kamera Tablet</span>
+          <button type="button" onclick="mingle.toggleFullScreen()" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--coral); font-size: 13px; font-weight: 800; color: var(--coral); cursor: pointer; box-shadow: 0 4px 12px rgba(230,120,107,0.18);">
+            ⛶ Layar Penuh
+          </button>
+          <a href="/kiosk?fullscreen=1" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 700; color: var(--caramel-brown); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(123,72,46,0.1);">
+            🖥️ Mode Kiosk
+          </a>
+        </div>
+
+        <div style="max-width: 680px; position: relative; z-index: 25; text-align: center; padding: 16px;">
+          <h1 id="mingleWelcomeHeadlineText" style="font-size: 52px; font-weight: 800; color: var(--caramel-brown); line-height: 1.15; margin-bottom: 28px; text-shadow: 0 2px 4px rgba(123,72,46,0.05);">
+            Abadikan<br>Momen Spesialmu<br>Di Sini! 😊
+          </h1>
+
+          <div style="display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <button id="mingleWelcomeStartBtn" type="button" class="btn btn-coral btn-large" style="cursor: pointer;" onclick="mingle.enterFrameSelection()">
+              Mulai Foto ➔
+            </button>
+          </div>
+          <div style="margin-top: 14px;">
+            <button type="button" onclick="mingle.startFilesOnlyMode()" style="background: rgba(255, 251, 245, 0.88); backdrop-filter: blur(8px); padding: 6px 14px; border-radius: 999px; border: 1.5px solid var(--border-soft); color: var(--caramel-brown); font-size: 12px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.12);">
+              📁 Mode Jual File (Banyak Foto Tanpa Bingkai)
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCREEN 1: PILIH BINGKAI ATAU MODE JUAL FILE -->
+      <section id="screenMingleSelect" class="mingle-screen">
       <!-- Shortcut Mode Jual File / Banyak Foto (Tanpa Bingkai) -->
       <div class="mingle-files-mode-card" onclick="mingle.startFilesOnlyMode()">
         <div style="display: flex; align-items: center; gap: 14px; min-width: 0;">
@@ -728,11 +838,14 @@
       </div>
 
       <div class="mingle-hero-note">
-        <div>
-          <h2 style="margin: 0 0 4px; font-size: 20px; font-weight: 800; color: var(--caramel-brown);">Atau Pilih Bingkai Foto</h2>
-          <p id="mingleTemplateHint" style="margin: 0; font-size: 13px; color: var(--text-muted);">
-            Tunjukkan layar ke tamu, pilih bingkai &amp; jumlah jepretan (bisa 1×, multi-pose, atau bebas cekrek).
-          </p>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <button type="button" class="btn btn-secondary" style="padding: 7px 14px; font-size: 12.5px; flex-shrink: 0;" onclick="mingle.showScreen('screenMingleWelcome')">❮ Beranda</button>
+          <div>
+            <h2 style="margin: 0 0 4px; font-size: 20px; font-weight: 800; color: var(--caramel-brown);">Atau Pilih Bingkai Foto</h2>
+            <p id="mingleTemplateHint" style="margin: 0; font-size: 13px; color: var(--text-muted);">
+              Tunjukkan layar ke tamu, pilih bingkai &amp; jumlah jepretan (bisa 1×, multi-pose, atau bebas cekrek).
+            </p>
+          </div>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
           <select id="mingleSelectShotsOverride" onchange="mingle.setShotsOverride(this.value)" style="padding: 6px 10px; border-radius: 999px; border: 1.5px solid var(--border-soft); background: #FFF; font-size: 12px; font-weight: 800; color: var(--caramel-brown);">
@@ -927,6 +1040,7 @@
         </div>
       </div>
     </section>
+    </div>
   </div>
 
   <!-- Modal Ganti Frame di Layar Hasil Mingle -->
@@ -1034,6 +1148,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.2"></script>
   <script src="/js/print-client.js?v=1.7"></script>
-  <script src="/js/mingle.js?v=2.5"></script>
+  <script src="/js/mingle.js?v=2.6"></script>
 </body>
 </html>
