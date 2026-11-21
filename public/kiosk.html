@@ -588,8 +588,16 @@
         <button type="button" class="preview-slot-tab" data-orient="landscape" onclick="kiosk.setTemplateOrientFilter('landscape')">🖼️ Lanskap / Mendatar</button>
       </div>
 
-      <div id="templateListContainer" style="display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; margin-bottom: 28px; z-index: 20;">
+      <div id="templateListContainer" style="display: flex; gap: 24px; justify-content: center; flex-wrap: wrap; margin-bottom: 18px; z-index: 20;">
         <!-- Populated via JS -->
+      </div>
+
+      <!-- Pilihan Arah Foto Kamera (Ikut Frame / Langsung Potret / Langsung Lanskap) -->
+      <div id="templateCameraOrientRow" style="display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; padding: 8px 14px; background: rgba(255, 251, 245, 0.92); border: 1.5px solid var(--border-soft); border-radius: 999px; box-shadow: var(--shadow-warm); z-index: 25;">
+        <span style="font-size: 12.5px; font-weight: 800; color: var(--caramel-brown); margin-right: 4px;">📷 Arah Foto Kamera:</span>
+        <button type="button" class="preview-slot-tab active" data-cam-orient="auto" onclick="kiosk.setCameraCaptureOrientation('auto')">🔄 Ikut Frame</button>
+        <button type="button" class="preview-slot-tab" data-cam-orient="portrait" onclick="kiosk.setCameraCaptureOrientation('portrait')">📱 Potret</button>
+        <button type="button" class="preview-slot-tab" data-cam-orient="landscape" onclick="kiosk.setCameraCaptureOrientation('landscape')">🖼️ Lanskap</button>
       </div>
 
       <button class="btn btn-coral btn-large" style="z-index: 30;" onclick="kiosk.startCountdownSequence()">
@@ -645,11 +653,17 @@
           </button>
         </div>
 
-        <!-- Quick Aspect Ratio Toggle Top Right -->
-        <button type="button" onclick="event.stopPropagation(); kiosk.cycleCameraAspectRatio();" title="Ganti Rasio Bingkai Kamera (16:9 / 3:2 / 4:3)" style="position: absolute; top: 12px; right: 14px; z-index: 26; display: flex; align-items: center; gap: 5px; background: rgba(0, 0, 0, 0.72); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); color: #ffffff; font-size: 11px; font-weight: 800; cursor: pointer; transition: all 0.2s;">
-          <span>📐</span>
-          <span id="retroFrameRatioBadge">16:9</span>
-        </button>
+        <!-- Quick Portrait / Landscape & Aspect Ratio Toggle Top Right -->
+        <div style="position: absolute; top: 12px; right: 14px; z-index: 26; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <div onclick="event.stopPropagation()" style="display: inline-flex; align-items: center; background: rgba(0, 0, 0, 0.72); padding: 3px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); gap: 3px;">
+            <button type="button" id="btnCaptureOrientPortrait" onclick="event.stopPropagation(); kiosk.setCameraCaptureOrientation('portrait')" title="Ambil Foto Potret (Tegak)" style="background: transparent; color: #fff; border: none; border-radius: 999px; padding: 3px 9px; font-size: 10.5px; font-weight: 800; cursor: pointer;">📱 Potret</button>
+            <button type="button" id="btnCaptureOrientLandscape" onclick="event.stopPropagation(); kiosk.setCameraCaptureOrientation('landscape')" title="Ambil Foto Lanskap (Mendatar)" style="background: transparent; color: #fff; border: none; border-radius: 999px; padding: 3px 9px; font-size: 10.5px; font-weight: 800; cursor: pointer;">🖼️ Lanskap</button>
+          </div>
+          <button type="button" onclick="event.stopPropagation(); kiosk.cycleCameraAspectRatio();" title="Ganti Rasio Bingkai Kamera (16:9 / 3:2 / 4:3 / 2:3 / 3:4)" style="display: flex; align-items: center; gap: 5px; background: rgba(0, 0, 0, 0.72); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); color: #ffffff; font-size: 11px; font-weight: 800; cursor: pointer; transition: all 0.2s;">
+            <span>📐</span>
+            <span id="retroFrameRatioBadge">16:9</span>
+          </button>
+        </div>
 
         <!-- Corner photo brackets -->
         <div class="camera-bracket-tl"></div>
@@ -1453,6 +1467,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.2"></script>
   <script src="/js/print-client.js?v=1.7"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v9.21"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v9.22"></script>
 </body>
 </html>

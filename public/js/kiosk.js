@@ -43,6 +43,8 @@ class KioskEngine {
     this.cameraPanY = 0;
     this.cameraFitMode = localStorage.getItem('pb_camera_fit_mode') || 'cover';
     this.cameraAspectRatio = localStorage.getItem('pb_camera_aspect_ratio') || '16/9';
+    const savedCamOrient = localStorage.getItem('pb_camera_capture_orientation') || 'auto';
+    this.cameraCaptureOrientation = ['auto', 'portrait', 'landscape'].includes(savedCamOrient) ? savedCamOrient : 'auto';
     const savedRot = parseInt(localStorage.getItem('pb_camera_rotation') || '0', 10);
     this.cameraRotation = [0, 90, 180, 270].includes(savedRot) ? savedRot : 0;
 
@@ -94,6 +96,9 @@ class KioskEngine {
     this.setupMediaDeviceChangeListener();
     this.updateCameraFitButtonsUI();
     this.updateCameraAspectRatioButtonsUI();
+    if (typeof this.updateCameraCaptureOrientationUI === 'function') {
+      this.updateCameraCaptureOrientationUI();
+    }
     this.updateCameraRotationButtonsUI();
     this.applyCameraTransform();
     this.startCanonUsbAutoDetector();
@@ -1464,7 +1469,69 @@ class KioskEngine {
     this.renderTemplateSelection('all');
   }
 
+  setCameraCaptureOrientation(mode = 'auto') {
+    const clean = ['auto', 'portrait', 'landscape'].includes(mode) ? mode : 'auto';
+    this.cameraCaptureOrientation = clean;
+    try {
+      localStorage.setItem('pb_camera_capture_orientation', clean);
+    } catch (e) {}
+
+    if (clean === 'portrait') {
+      if (this.cameraAspectRatio !== '2/3' && this.cameraAspectRatio !== '3/4') {
+        this.setCameraAspectRatio('2/3');
+      }
+    } else if (clean === 'landscape') {
+      if (this.cameraAspectRatio === '2/3' || this.cameraAspectRatio === '3/4' || !this.cameraAspectRatio) {
+        this.setCameraAspectRatio('3/2');
+      }
+    } else if (this.selectedTemplate) {
+      this.applyCameraOrientationForTemplate(this.selectedTemplate);
+    }
+
+    this.updateCameraCaptureOrientationUI();
+  }
+
+  updateCameraCaptureOrientationUI() {
+    const mode = this.cameraCaptureOrientation || 'auto';
+    document.querySelectorAll('#templateCameraOrientRow .preview-slot-tab').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-cam-orient') === mode);
+    });
+
+    const isPortraitRatio = (this.cameraAspectRatio === '2/3' || this.cameraAspectRatio === '3/4');
+    const isPort = mode === 'portrait' || (mode === 'auto' && isPortraitRatio);
+    const btnP = document.getElementById('btnCaptureOrientPortrait');
+    const btnL = document.getElementById('btnCaptureOrientLandscape');
+    if (btnP) {
+      btnP.style.background = isPort ? 'var(--coral)' : 'transparent';
+      btnP.style.color = '#ffffff';
+    }
+    if (btnL) {
+      btnL.style.background = !isPort ? 'var(--coral)' : 'transparent';
+      btnL.style.color = '#ffffff';
+    }
+  }
+
   applyCameraOrientationForTemplate(tpl) {
+    const pref = this.cameraCaptureOrientation || 'auto';
+    if (pref === 'landscape') {
+      if (this.cameraAspectRatio === '2/3' || this.cameraAspectRatio === '3/4' || !this.cameraAspectRatio) {
+        this.setCameraAspectRatio('3/2');
+      } else {
+        this.applyCameraTransform();
+      }
+      this.updateCameraCaptureOrientationUI();
+      return;
+    }
+    if (pref === 'portrait') {
+      if (this.cameraAspectRatio !== '2/3' && this.cameraAspectRatio !== '3/4') {
+        this.setCameraAspectRatio('2/3');
+      } else {
+        this.applyCameraTransform();
+      }
+      this.updateCameraCaptureOrientationUI();
+      return;
+    }
+
     if (!tpl) return;
     const isLandTpl = this.isTemplateLandscape(tpl);
     const slots = Array.isArray(tpl.slots) ? tpl.slots : [];
@@ -1472,7 +1539,7 @@ class KioskEngine {
     const slotIsPortrait = primarySlot && primarySlot.height > primarySlot.width * 1.08;
 
     if (isLandTpl) {
-      // Pilih bingkai Lanskap -> kamera & viewport wajib lanskap
+      // Pilih bingkai Lanskap -> kamera & viewport lanskap
       if (this.cameraAspectRatio === '2/3' || this.cameraAspectRatio === '3/4' || !this.cameraAspectRatio) {
         this.setCameraAspectRatio('3/2');
       } else {
@@ -1491,6 +1558,7 @@ class KioskEngine {
     } else {
       this.applyCameraTransform();
     }
+    this.updateCameraCaptureOrientationUI();
   }
 
   applyPreviewOrientationLayout(tplWidth, tplHeight) {
@@ -3571,6 +3639,9 @@ class KioskEngine {
     }
     this.updateCameraFitButtonsUI();
     this.updateCameraAspectRatioButtonsUI();
+    if (typeof this.updateCameraCaptureOrientationUI === 'function') {
+      this.updateCameraCaptureOrientationUI();
+    }
     this.updateCameraRotationButtonsUI();
   }
 
@@ -3624,6 +3695,9 @@ class KioskEngine {
       frame.style.aspectRatio = ratio.replace('/', ' / ');
     }
     this.updateCameraAspectRatioButtonsUI();
+    if (typeof this.updateCameraCaptureOrientationUI === 'function') {
+      this.updateCameraCaptureOrientationUI();
+    }
     requestAnimationFrame(() => this.applyCameraTransform());
     if (window.pbNotify) {
       window.pbNotify.info(`📐 Rasio Bingkai Kamera: ${ratio}`, { duration: 1600 });
@@ -3634,6 +3708,8 @@ class KioskEngine {
     const order = ['16/9', '3/2', '4/3', '2/3', '3/4'];
     const idx = order.indexOf(this.cameraAspectRatio || '16/9');
     const next = order[(idx + 1) % order.length];
+    this.cameraCaptureOrientation = (next === '2/3' || next === '3/4') ? 'portrait' : 'landscape';
+    try { localStorage.setItem('pb_camera_capture_orientation', this.cameraCaptureOrientation); } catch (e) {}
     this.setCameraAspectRatio(next);
   }
 
