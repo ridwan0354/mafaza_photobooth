@@ -2096,12 +2096,18 @@ async function submitTemplateUpload(event) {
       await initializeManualSlotForUpload();
       alert(`🎉 Template "${created.name}" berhasil diunggah! Silakan atur kotak slot pose secara manual di Canvas Editor (penghapusan warna hijau otomatis dimatikan agar gambar hijau tidak ikut hilang).`);
     } else {
-      const err = await res.json();
-      alert('Gagal mengunggah template: ' + (err.error || 'Terjadi kesalahan pada server'));
+      const rawErr = await res.text();
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const parsedErr = JSON.parse(rawErr);
+        if (parsedErr && parsedErr.error) errMsg = parsedErr.error;
+      } catch (_) {}
+      alert('Gagal mengunggah template: ' + errMsg);
     }
   } catch (err) {
     console.error('Upload template error:', err);
-    alert('Terjadi kesalahan jaringan saat mengunggah template.');
+    const reason = (err && err.message) ? ` (${err.message})` : '';
+    alert(`Gagal terhubung ke server saat mengunggah template. Pastikan server aktif / koneksi stabil.${reason}`);
   } finally {
     if (btnSubmit) {
       btnSubmit.innerText = originalText;
