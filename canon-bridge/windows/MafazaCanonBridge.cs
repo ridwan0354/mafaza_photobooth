@@ -46,6 +46,13 @@ namespace MafazaCanonBridge
         private static long _capturedPhotoTime = 0;
         private static readonly object _captureLock = new object();
         private static EdsObjectEventHandler _objectEventHandler = null;
+        private static EdsCameraStateEventHandler _stateEventHandler = null;
+
+        // Stability & USB auto-recovery state (prevents black screen / stuck session on Canon 1300D)
+        private static long _lastKeepAliveTime = 0;
+        private static long _lastGoodEvfTime = 0;
+        private static int _evfConsecutiveErrors = 0;
+        private static int _consecutiveReconnectFails = 0;
 
         private static readonly DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         private static long GetCurrentUnixTimeMs()
@@ -255,8 +262,7 @@ namespace MafazaCanonBridge
         {
             long now = GetCurrentUnixTimeMs();
             long age = (_lastFrameTime > 0) ? (now - _lastFrameTime) : 999999;
-            // Selama kamera terkoneksi, anggap aktif agar Kiosk tidak memutus bridge saat mirror drop
-            bool active = _isConnected || (age < 5000);
+            bool active = (_cameraHandle != IntPtr.Zero && _isConnected && age < 10000) || (_activeMode == "digicamcontrol" && age < 5000);
 
             string json = string.Format(
                 "{{\"active\":{0},\"camera\":\"{1}\",\"mode\":\"{2}\",\"width\":1056,\"height\":704,\"ageMs\":{3},\"iso\":{4},\"tv\":{5},\"av\":{6},\"wb\":{7},\"ev\":{8},\"aeMode\":{9},\"cmdStatus\":\"{10}\",\"cmdError\":{11}}}",
@@ -441,12 +447,38 @@ namespace MafazaCanonBridge
                         continue;
                     }
 
-                    // 1. Ambil Live View frame jika EDSDK aktif
+                    // 1. Ambil Live View frame jika EDSDK aktif & jaga agar Canon 1300D tidak auto-sleep
                     if (_edsdkLoaded && _cameraHandle != IntPtr.Zero)
                     {
                         EdsGetEvent();
                         PumpWindowsMessages();
+
+                        long nowMs = GetCurrentUnixTimeMs();
+                        if ((nowMs - _lastKeepAliveTime) >= 10000)
+                        {
+                            _lastKeepAliveTime = nowMs;
+                            lock (_edsdkLock)
+                            {
+                                if (_cameraHandle != IntPtr.Zero && !_isCapturing)
+                                {
+                                    EdsSendCommand(_cameraHandle, 0x01 /* kEdsCameraCommand_ExtendShutDownTimer */, 0);
+                                }
+                            }
+                        }
+
                         DownloadEdsdkLiveViewFrame();
+
+                        bool streamFrozen = _lastGoodEvfTime > 0 && (GetCurrentUnixTimeMs() - _lastGoodEvfTime) > 8000;
+                        if (_cameraHandle != IntPtr.Zero && (_evfConsecutiveErrors >= 20 || streamFrozen))
+                        {
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine("[RECOVERY] Live View Canon terhenti/hitam. Mereset sesi USB otomatis...");
+                            Console.ResetColor();
+                            CloseCameraSession(false);
+                            Thread.Sleep(800);
+                            TryConnectEdsdkCamera();
+                        }
+
                         Thread.Sleep(33); // ~30 FPS
                         continue;
                     }
@@ -458,10 +490,19 @@ namespace MafazaCanonBridge
                         continue;
                     }
 
-                    // 3. Jika belum terhubung, coba deteksi kamera Canon setiap 2 detik
+                    // 3. Jika belum terhubung, coba deteksi kamera Canon secara otomatis (tanpa restart CMD)
                     _isConnected = false;
                     _activeMode = "searching";
-                    if (_edsdkLoaded)
+                    if (_consecutiveReconnectFails >= 4)
+                    {
+                        Console.WriteLine("[EDSDK] Menginisialisasi ulang driver Canon USB...");
+                        try { if (_edsdkLoaded) EdsTerminateSDK(); } catch { }
+                        _edsdkLoaded = false;
+                        _consecutiveReconnectFails = 0;
+                        Thread.Sleep(600);
+                        TryInitEdsdk();
+                    }
+                    else if (_edsdkLoaded)
                     {
                         TryConnectEdsdkCamera();
                     }
@@ -544,13 +585,11 @@ namespace MafazaCanonBridge
                             }
                         }
 
-                        // 4. Hidupkan kembali Live View EVF untuk preview di layar Kiosk
-                        uint evfMode = 1;
-                        EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref evfMode);
-                        Thread.Sleep(80);
-                        uint outDev = 2; // PC
-                        EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
-                        Thread.Sleep(150);
+                        // 4. Hidupkan kembali Live View EVF dengan retry agar tidak hitam saat kamera masih sibuk menulis kartu SD
+                        EnableLiveViewWithRetry(_cameraHandle, 12);
+                        _evfConsecutiveErrors = 0;
+                        _lastGoodEvfTime = GetCurrentUnixTimeMs();
+                        _lastKeepAliveTime = _lastGoodEvfTime;
                     }
                 }
                 else if (_activeMode == "digicamcontrol")
@@ -756,8 +795,14 @@ namespace MafazaCanonBridge
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         public delegate uint EdsObjectEventHandler(uint inEvent, IntPtr inRef, IntPtr inContext);
 
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
+        public delegate uint EdsCameraStateEventHandler(uint inEvent, uint inParameter, IntPtr inContext);
+
         [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsSetObjectEventHandler(IntPtr inCameraRef, uint inEvent, EdsObjectEventHandler inHandler, IntPtr inContext);
+
+        [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
+        private static extern uint EdsSetCameraStateEventHandler(IntPtr inCameraRef, uint inEvent, EdsCameraStateEventHandler inHandler, IntPtr inContext);
 
         [DllImport("EDSDK.dll", CallingConvention = CallingConvention.StdCall)]
         private static extern uint EdsGetDirectoryItemInfo(IntPtr inRef, out EdsDirectoryItemInfo outDirItemInfo);
@@ -874,6 +919,82 @@ namespace MafazaCanonBridge
             }
         }
 
+        private static void CloseCameraSession(bool keepSdkLoaded)
+        {
+            lock (_frameLock)
+            {
+                _latestJpeg = null;
+                _lastFrameTime = 0;
+            }
+            _isConnected = false;
+            _activeMode = "searching";
+            _evfConsecutiveErrors = 0;
+            _lastGoodEvfTime = 0;
+
+            lock (_edsdkLock)
+            {
+                if (_evfStreamRef != IntPtr.Zero)
+                {
+                    try { EdsRelease(_evfStreamRef); } catch { }
+                    _evfStreamRef = IntPtr.Zero;
+                }
+                if (_cameraHandle != IntPtr.Zero)
+                {
+                    try { EdsCloseSession(_cameraHandle); } catch { }
+                    try { EdsRelease(_cameraHandle); } catch { }
+                    _cameraHandle = IntPtr.Zero;
+                }
+            }
+            if (!keepSdkLoaded)
+            {
+                _consecutiveReconnectFails++;
+            }
+        }
+
+        private static bool EnableLiveViewWithRetry(IntPtr cam, int maxAttempts)
+        {
+            if (cam == IntPtr.Zero) return false;
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                uint evfMode = 1;
+                uint err1 = EdsSetPropertyData(cam, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref evfMode);
+                Thread.Sleep(50);
+                uint outDev = 2; // PC
+                uint err2 = EdsSetPropertyData(cam, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
+                EdsGetEvent();
+                PumpWindowsMessages();
+                if (err1 == 0 && err2 == 0)
+                {
+                    return true;
+                }
+                Thread.Sleep(90);
+            }
+            return false;
+        }
+
+        private static uint OnStateEvent(uint inEvent, uint inParameter, IntPtr inContext)
+        {
+            if (inEvent == 0x00000301 /* kEdsStateEvent_Shutdown */)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("[EDSDK-STATE] Kamera dimatikan atau kabel USB terputus. Menyiapkan sambung ulang otomatis...");
+                Console.ResetColor();
+                CloseCameraSession(true);
+            }
+            else if (inEvent == 0x00000303 /* kEdsStateEvent_WillSoonShutDown */)
+            {
+                try
+                {
+                    if (_cameraHandle != IntPtr.Zero)
+                    {
+                        EdsSendCommand(_cameraHandle, 0x01 /* kEdsCameraCommand_ExtendShutDownTimer */, 0);
+                    }
+                }
+                catch { }
+            }
+            return 0;
+        }
+
         private static void TryConnectEdsdkCamera()
         {
             if (!_edsdkLoaded) return;
@@ -898,18 +1019,22 @@ namespace MafazaCanonBridge
                                 _isConnected = true;
                                 _activeMode = "edsdk";
                                 _cameraName = "Canon EOS Camera (EDSDK USB)";
+                                _evfConsecutiveErrors = 0;
+                                _consecutiveReconnectFails = 0;
+                                _lastKeepAliveTime = GetCurrentUnixTimeMs();
+                                _lastGoodEvfTime = _lastKeepAliveTime;
 
-                                // Enable EVF (Live View)
-                                uint evfMode = 1;
-                                EdsSetPropertyData(cam, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref evfMode);
-                                Thread.Sleep(150);
-                                uint outDev = 2; // PC
-                                EdsSetPropertyData(cam, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
-                                Thread.Sleep(200);
+                                // Enable EVF (Live View) with retry for Canon 1300D stability
+                                EnableLiveViewWithRetry(cam, 6);
 
-                                // Register Object Event Handler for high-res photo transfer
+                                // Register Object & State Event Handlers
                                 _objectEventHandler = new EdsObjectEventHandler(OnObjectEvent);
                                 EdsSetObjectEventHandler(cam, 0x00000200 /* kEdsObjectEvent_All */, _objectEventHandler, IntPtr.Zero);
+                                _stateEventHandler = new EdsCameraStateEventHandler(OnStateEvent);
+                                EdsSetCameraStateEventHandler(cam, 0x00000300 /* kEdsStateEvent_All */, _stateEventHandler, IntPtr.Zero);
+
+                                // Extend shutdown timer right away
+                                EdsSendCommand(cam, 0x01 /* kEdsCameraCommand_ExtendShutDownTimer */, 0);
 
                                 // Set SaveTo = Both (SD Card + PC) and notify large capacity
                                 uint saveTo = 3; // kEdsSaveTo_Both
@@ -921,12 +1046,28 @@ namespace MafazaCanonBridge
                                 Console.WriteLine("[EDSDK] Kamera Canon EOS terhubung via USB! Live view aktif.");
                                 Console.ResetColor();
                             }
+                            else
+                            {
+                                _consecutiveReconnectFails++;
+                                try { EdsRelease(cam); } catch { }
+                            }
                         }
+                    }
+                    else
+                    {
+                        _consecutiveReconnectFails++;
                     }
                     EdsRelease(cameraList);
                 }
+                else
+                {
+                    _consecutiveReconnectFails++;
+                }
             }
-            catch { }
+            catch
+            {
+                _consecutiveReconnectFails++;
+            }
         }
 
         private static uint OnObjectEvent(uint inEvent, IntPtr inRef, IntPtr inContext)
@@ -1036,19 +1177,28 @@ namespace MafazaCanonBridge
                             {
                                 byte[] frameData = new byte[len];
                                 Marshal.Copy(ptr, frameData, 0, (int)len);
+                                long nowFrame = GetCurrentUnixTimeMs();
                                 lock (_frameLock)
                                 {
                                     _latestJpeg = frameData;
-                                    _lastFrameTime = GetCurrentUnixTimeMs();
+                                    _lastFrameTime = nowFrame;
                                 }
+                                _lastGoodEvfTime = nowFrame;
+                                _evfConsecutiveErrors = 0;
                                 _isConnected = true;
                                 _activeMode = "edsdk";
                             }
                         }
                         else if (err != 0xA102 /* OBJECT_NOTREADY */ && !_isCapturing)
                         {
-                            uint outDev = 2;
-                            EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
+                            _evfConsecutiveErrors++;
+                            if (_evfConsecutiveErrors % 4 == 1)
+                            {
+                                uint evfMode = 1;
+                                EdsSetPropertyData(_cameraHandle, 0x501 /* kEdsPropID_Evf_Mode */, 0, 4, ref evfMode);
+                                uint outDev = 2;
+                                EdsSetPropertyData(_cameraHandle, 0x500 /* kEdsPropID_Evf_OutputDevice */, 0, 4, ref outDev);
+                            }
                         }
                         EdsRelease(evfImageRef);
                     }

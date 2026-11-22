@@ -72,18 +72,28 @@ echo.
 echo ======================================================================
 echo  PETUNJUK PENTING:
 echo  1. Pastikan aplikasi 'EOS Webcam Utility' atau 'EOS Utility' DITUTUP
-echo     agar kabel USB kamera Canon tidak terkunci / sibuk.
-echo  2. Sambungkan kabel USB dari Kamera Canon EOS ke port USB Laptop/PC.
-echo  3. Putar dial kamera ke mode M / Av / Tv lalu nyalakan kamera.
+echo     (termasuk di System Tray pojok kanan bawah) agar USB kamera
+echo     Canon EOS 1300D tidak berebut / terkunci.
+echo  2. Matikan Auto Power Off di menu kamera Canon EOS 1300D (Disable)
+echo     agar layar Live View tidak tiba-tiba mati/hitam saat menunggu tamu.
+echo  3. Sambungkan kabel USB kamera Canon EOS lalu nyalakan ke mode M / Av.
 echo  4. Jendela ini harus tetap terbuka selama Kiosk Photobooth berjalan.
-echo     (Atau jalankan 'Pasang-AutoStart-Windows.bat' agar jalan di background)
 echo ======================================================================
 echo.
 
 if exist "MafazaCanonBridge.exe" (
     MafazaCanonBridge.exe
-    echo.
-    echo [INFO] MafazaCanonBridge telah berhenti. Tekan sembarang tombol untuk keluar...
+    if errorlevel 1 (
+        echo.
+        echo [PERHATIAN] Windows memblokir atau menghentikan MafazaCanonBridge.exe.
+        echo             Jika muncul pesan "Device Guard" / "Smart App Control":
+        echo             Windows 11 memblokir file .exe lokal tanpa sertifikat.
+        echo             Buka Windows Security - App ^& browser control untuk mengecek
+        echo             status Smart App Control, atau hubungi admin laptop jika perangkat kantor.
+    ) else (
+        echo.
+        echo [INFO] MafazaCanonBridge telah berhenti.
+    )
     pause
 ) else (
     echo [ERROR] File MafazaCanonBridge.exe tidak ditemukan.

@@ -2044,6 +2044,7 @@ class KioskEngine {
     }
 
     this.canonUsbStreamActive = true;
+    let frameFailCount = 0;
     const drawNextFrame = async () => {
       if (!this.canonUsbStreamActive) return;
       try {
@@ -2055,11 +2056,24 @@ class KioskEngine {
           bmp.close();
           return;
         }
+        frameFailCount = 0;
         ctx.drawImage(bmp, 0, 0, w, h);
         bmp.close();
         this.canonUsbLoopTimer = setTimeout(drawNextFrame, 42);
       } catch (err) {
         if (!this.canonUsbStreamActive) return;
+        frameFailCount++;
+        if (frameFailCount === 15 || frameFailCount % 30 === 0) {
+          ctx.fillStyle = '#1A120E';
+          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = '#FFF9F2';
+          ctx.font = 'bold 26px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('Menyambung ulang ke Canon EOS...', w / 2, h / 2 - 14);
+          ctx.fillStyle = '#F5B895';
+          ctx.font = '18px sans-serif';
+          ctx.fillText('Pastikan kamera ON & EOS Webcam Utility tertutup', w / 2, h / 2 + 22);
+        }
         this.canonUsbLoopTimer = setTimeout(drawNextFrame, 220);
       }
     };
