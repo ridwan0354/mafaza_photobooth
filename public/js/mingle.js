@@ -73,6 +73,71 @@ class MingleBoothEngine {
     this.applyTopLiveLayout();
     this.startStatusPolling();
     this.setUsbMingleListen(false);
+    this.replenishGuestPassPool().catch(() => {});
+  }
+
+  getGuestPassPoolKey() {
+    return `pb_guest_pass_pool_${this.tenantId || 'default'}_${this.eventId || 'default'}`;
+  }
+
+  popGuestPassFromPool() {
+    try {
+      const key = this.getGuestPassPoolKey();
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      const pool = JSON.parse(raw);
+      if (!Array.isArray(pool) || pool.length === 0) return null;
+      const idx = pool.findIndex(p => p && p.id && (p.token || p.token_plain) && p.qrDataUrl);
+      if (idx === -1) return null;
+      const picked = pool.splice(idx, 1)[0];
+      localStorage.setItem(key, JSON.stringify(pool));
+      if (navigator.onLine !== false) {
+        setTimeout(() => this.replenishGuestPassPool().catch(() => {}), 300);
+      }
+      return picked;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async replenishGuestPassPool(targetCount = 4) {
+    if (navigator.onLine === false || this._replenishingPassPool) return;
+    this._replenishingPassPool = true;
+    try {
+      const key = this.getGuestPassPoolKey();
+      let pool = [];
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+        if (Array.isArray(parsed)) pool = parsed.filter(p => p && p.id && (p.token || p.token_plain) && p.qrDataUrl);
+      } catch (e) {}
+
+      while (pool.length < targetCount && navigator.onLine !== false) {
+        const res = await this.fetchWithTimeout('/api/guest-passes/issue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId: this.tenantId,
+            eventId: this.eventId,
+            baseUrl: window.location.origin
+          })
+        }, 2200);
+        if (!res.ok) break;
+        const pass = await res.json();
+        if (!pass || !pass.id || !pass.qrDataUrl) break;
+        pool.push({
+          id: pass.id,
+          token: pass.token || pass.token_plain,
+          token_plain: pass.token_plain || pass.token,
+          galleryUrl: pass.galleryUrl,
+          fullQrUrl: pass.fullQrUrl,
+          qrDataUrl: pass.qrDataUrl
+        });
+        try { localStorage.setItem(key, JSON.stringify(pool)); } catch (e) { break; }
+      }
+    } catch (e) {
+    } finally {
+      this._replenishingPassPool = false;
+    }
   }
 
   isLocalDirectMode() {
@@ -1871,7 +1936,12 @@ class MingleBoothEngine {
           : '⚡ Menyimpan foto di penyimpanan lokal perangkat...';
       }
 
-      if (canTryNetwork) {
+      if (isLocalMode || navigator.onLine === false) {
+        const cachedPass = this.popGuestPassFromPool();
+        if (cachedPass) this.guestPass = cachedPass;
+      }
+
+      if (!this.guestPass && navigator.onLine !== false) {
         try {
           const passRes = await this.fetchWithTimeout('/api/guest-passes/issue', {
             method: 'POST',
@@ -1881,23 +1951,31 @@ class MingleBoothEngine {
               eventId: this.eventId,
               baseUrl: window.location.origin
             })
-          }, 2500);
+          }, 2200);
           if (passRes.ok) {
             this.guestPass = await passRes.json();
-            if (this.guestPass.qrDataUrl && qrImg) {
-              qrImg.src = this.guestPass.qrDataUrl;
-              qrImg.style.display = 'block';
-              if (qrPh) qrPh.style.display = 'none';
-              if (qrHint) qrHint.style.display = 'block';
-            }
-            const token = this.guestPass.token || this.guestPass.token_plain;
-            const gUrl = this.guestPass.galleryUrl || (token ? `/gallery/g/${token}` : null);
-            if (linkEl && gUrl) {
-              linkEl.href = gUrl;
-              linkEl.style.display = 'inline-block';
-            }
           }
         } catch (e) {}
+      }
+
+      if (!this.guestPass) {
+        const fallbackPass = this.popGuestPassFromPool();
+        if (fallbackPass) this.guestPass = fallbackPass;
+      }
+
+      if (this.guestPass) {
+        if (this.guestPass.qrDataUrl && qrImg) {
+          qrImg.src = this.guestPass.qrDataUrl;
+          qrImg.style.display = 'block';
+          if (qrPh) qrPh.style.display = 'none';
+          if (qrHint) qrHint.style.display = 'block';
+        }
+        const token = this.guestPass.token || this.guestPass.token_plain;
+        const gUrl = this.guestPass.galleryUrl || (token ? `/gallery/g/${token}` : null);
+        if (linkEl && gUrl) {
+          linkEl.href = gUrl;
+          linkEl.style.display = 'inline-block';
+        }
       }
     }
 
@@ -2142,15 +2220,111 @@ class MingleBoothEngine {
     await this.printResult({ copies, paperSize, paperLabel: this.modalPrintPaper, paperConfirmed });
   }
 
-  printFromModalViaDevice() {
+  drawQrCardAt(ctx, startX, startY, w, h, qrImg, targetSizePx) {
+    const qrSize = Math.max(52, Math.round(targetSizePx));
+    const pad = Math.max(4, Math.round(qrSize * 0.05));
+    const cardSize = qrSize + pad * 2;
+    const sx = Math.max(0, Math.min(w - cardSize, Math.round(startX)));
+    const sy = Math.max(0, Math.min(h - cardSize, Math.round(startY)));
+
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+      ctx.roundRect(sx, sy, cardSize, cardSize, 8);
+    } else {
+      ctx.rect(sx, sy, cardSize, cardSize);
+    }
+    ctx.fill();
+    ctx.drawImage(qrImg, sx + pad, sy + pad, qrSize, qrSize);
+    ctx.restore();
+  }
+
+  async resolveMinglePrintableQrImage() {
+    const domImg = document.getElementById('mingleQrImg');
+    if (domImg && domImg.src && domImg.complete && domImg.naturalWidth > 0) return domImg;
+    const qrSrc = (this.guestPass && this.guestPass.qrDataUrl) || (domImg && domImg.src) || '';
+    if (!qrSrc || !qrSrc.startsWith('data:')) return null;
+    try {
+      const img = new Image();
+      img.src = qrSrc;
+      await Promise.race([
+        new Promise((res) => { img.onload = res; img.onerror = res; }),
+        new Promise((res) => setTimeout(res, 600))
+      ]);
+      return img.naturalWidth > 0 ? img : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async buildPrintableDataUrl() {
+    const canvas = document.getElementById('mingleFinalCanvas');
+    if (!canvas) return null;
+
+    const tpl = this.selectedTemplate || null;
+    const rawQrCoords = (tpl && Array.isArray(tpl.qr_coords) && tpl.qr_coords.length > 0) ? tpl.qr_coords : null;
+    const qrPos = (tpl && tpl.qr_position) || 'bottom-right';
+    const qrEnabled = Boolean(rawQrCoords) || (qrPos !== 'none');
+
+    const baseCanvas = document.createElement('canvas');
+    baseCanvas.width = canvas.width;
+    baseCanvas.height = canvas.height;
+    const bCtx = baseCanvas.getContext('2d');
+    bCtx.drawImage(canvas, 0, 0);
+
+    if (qrEnabled && !this.guestPass) {
+      const cachedPass = this.popGuestPassFromPool();
+      if (cachedPass) this.guestPass = cachedPass;
+    }
+
+    if (qrEnabled && this.guestPass) {
+      const qrImg = await this.resolveMinglePrintableQrImage();
+      if (qrImg) {
+        const w = baseCanvas.width;
+        const h = baseCanvas.height;
+        if (rawQrCoords) {
+          const refW = (tpl && tpl.width) || w;
+          const refH = (tpl && tpl.height) || h;
+          const sx = w / Math.max(1, refW);
+          const sy = h / Math.max(1, refH);
+          for (const item of rawQrCoords) {
+            const sizePx = Math.max(60, Math.round((Number(item.size) || 150) * Math.min(sx, sy)));
+            this.drawQrCardAt(bCtx, (Number(item.x) || 0) * sx, (Number(item.y) || 0) * sy, w, h, qrImg, sizePx);
+          }
+        } else if (qrPos === 'dual-bottom-right') {
+          const halfW = Math.round(w / 2);
+          const qSize = Math.round(Math.min(w, h) * 0.115);
+          this.drawQrCardAt(bCtx, halfW - qSize - 32, h - qSize - 32, w, h, qrImg, qSize);
+          this.drawQrCardAt(bCtx, w - qSize - 32, h - qSize - 32, w, h, qrImg, qSize);
+        } else {
+          const qSize = (w <= 700) ? 100 : 140;
+          const pad = Math.max(4, Math.round(qSize * 0.05));
+          const cardSize = qSize + pad * 2;
+          const margin = (w <= 700) ? 18 : 32;
+          let sx = w - cardSize - margin;
+          let sy = h - cardSize - margin;
+          if (qrPos === 'bottom-left') { sx = margin; }
+          else if (qrPos === 'top-right') { sy = margin; }
+          else if (qrPos === 'top-left') { sx = margin; sy = margin; }
+          this.drawQrCardAt(bCtx, sx, sy, w, h, qrImg, qSize);
+        }
+      }
+    }
+
+    return baseCanvas.toDataURL('image/png');
+  }
+
+  async printFromModalViaDevice() {
     const modal = document.getElementById('minglePrintOptionsModal');
     if (modal) modal.style.display = 'none';
     const canvas = document.getElementById('mingleFinalCanvas');
     const copies = this.modalPrintCopies || 1;
     const is5r = this.modalPrintPaper === '5R';
     if (window.pbPrintViaBrowser && canvas) {
+      const printableUrl = await this.buildPrintableDataUrl();
       window.pbPrintViaBrowser({
-        imageUrl: canvas.toDataURL('image/png'),
+        imageUrl: printableUrl || canvas.toDataURL('image/png'),
         copies,
         job: {
           paperSize: is5r ? '5x7' : '4x6',
@@ -2172,7 +2346,7 @@ class MingleBoothEngine {
       return;
     }
     if (this.isLocalDirectMode()) {
-      this.printFromModalViaDevice();
+      await this.printFromModalViaDevice();
       await this.syncFinalImageOnly(false, false, printOpts);
       this.showToast(`⚡ ${printOpts.copies || 1}× ${printOpts.paperLabel || '4R'} dicetak langsung & disimpan lokal!`, '🖨️', 2800);
       return;

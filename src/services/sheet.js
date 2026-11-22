@@ -546,11 +546,12 @@ export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
 
     const marginKey = Math.round(scale * 100);
     const hasCustomQr = Array.isArray(options.qrCoords) && options.qrCoords.length > 0;
+    const qrEnabled = hasCustomQr || (options.qrPosition && options.qrPosition !== 'none');
     const qrPayloadSpec = hasCustomQr ? options.qrCoords : options.qrPosition;
     const qrSpecHash = hasCustomQr
       ? crypto.createHash('md5').update(JSON.stringify(options.qrCoords)).digest('hex').slice(0, 6)
       : (options.qrPosition || 'bottom-right');
-    const qrKey = options.qrPosition && options.qrPosition !== 'none' && options.qrUrl
+    const qrKey = qrEnabled && options.qrUrl
       ? `_qr_${qrSpecHash}_${crypto.createHash('md5').update(options.qrUrl).digest('hex').slice(0, 8)}`
       : '';
     const orientKey = isLandscapeImg ? '_ls' : '';
@@ -562,7 +563,7 @@ export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
     let baseImg = img;
 
     // Stempel 1 atau 2 QR code jika dikonfigurasi (ditempelkan pada tiap strip sebelum disusun 2up agar kedua strip ada QR-nya)
-    if (options.qrUrl && options.qrPosition && options.qrPosition !== 'none') {
+    if (options.qrUrl && qrEnabled) {
       const tplSize = (options.qrTemplateWidth && options.qrTemplateHeight)
         ? { width: options.qrTemplateWidth, height: options.qrTemplateHeight }
         : null;

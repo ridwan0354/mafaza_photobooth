@@ -90,6 +90,7 @@ class KioskEngine {
       this.fetchTemplates()
     ]);
     this.updateLocalModeUI();
+    this.replenishGuestPassPool().catch(() => {});
     this.setupAudio();
     this.setupFullScreenSupport();
     this.setupKeyboardRemoteListeners();
@@ -362,6 +363,7 @@ class KioskEngine {
         }
         this.eventConfig = this.eventData.config || {};
         this.updateLocalModeUI();
+    this.replenishGuestPassPool().catch(() => {});
         if (this.eventConfig.shotsCount) {
           this.totalPosesRequired = parseInt(this.eventConfig.shotsCount) || 3;
         }
@@ -1119,10 +1121,42 @@ class KioskEngine {
     this.showScreen('screenTemplate');
   }
 
-  async ensureGuestPassReady() {
-    if (this.isLocalDirectMode() || !navigator.onLine) return;
+  getGuestPassPoolKey() {
+    return `pb_guest_pass_pool_${this.tenantId || 'default'}_${this.eventId || 'default'}`;
+  }
+
+  popGuestPassFromPool() {
     try {
-      if (!this.guestPass) {
+      const key = this.getGuestPassPoolKey();
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      const pool = JSON.parse(raw);
+      if (!Array.isArray(pool) || pool.length === 0) return null;
+      const idx = pool.findIndex(p => p && p.id && (p.token || p.token_plain) && p.qrDataUrl);
+      if (idx === -1) return null;
+      const picked = pool.splice(idx, 1)[0];
+      localStorage.setItem(key, JSON.stringify(pool));
+      if (navigator.onLine !== false) {
+        setTimeout(() => this.replenishGuestPassPool().catch(() => {}), 300);
+      }
+      return picked;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async replenishGuestPassPool(targetCount = 4) {
+    if (navigator.onLine === false || this._replenishingPassPool) return;
+    this._replenishingPassPool = true;
+    try {
+      const key = this.getGuestPassPoolKey();
+      let pool = [];
+      try {
+        const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+        if (Array.isArray(parsed)) pool = parsed.filter(p => p && p.id && (p.token || p.token_plain) && p.qrDataUrl);
+      } catch (e) {}
+
+      while (pool.length < targetCount && navigator.onLine !== false) {
         const res = await this.fetchWithTimeout('/api/guest-passes/issue', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1132,10 +1166,55 @@ class KioskEngine {
             baseUrl: window.location.origin
           })
         }, 2200);
-        if (res.ok) {
-          this.guestPass = await res.json();
+        if (!res.ok) break;
+        const pass = await res.json();
+        if (!pass || !pass.id || !pass.qrDataUrl) break;
+        pool.push({
+          id: pass.id,
+          token: pass.token || pass.token_plain,
+          token_plain: pass.token_plain || pass.token,
+          galleryUrl: pass.galleryUrl,
+          fullQrUrl: pass.fullQrUrl,
+          qrDataUrl: pass.qrDataUrl
+        });
+        try { localStorage.setItem(key, JSON.stringify(pool)); } catch (e) { break; }
+      }
+    } catch (e) {
+    } finally {
+      this._replenishingPassPool = false;
+    }
+  }
+
+  async ensureGuestPassReady() {
+    try {
+      if (!this.guestPass) {
+        // Mode Lokal / offline: ambil instan (0ms) dari cadangan QR lokal terlebih dahulu bila tersedia
+        if (this.isLocalDirectMode() || navigator.onLine === false) {
+          const cachedPass = this.popGuestPassFromPool();
+          if (cachedPass) {
+            this.guestPass = cachedPass;
+            return;
+          }
         }
-      } else if (!this.guestPass.qrDataUrl) {
+        if (navigator.onLine !== false) {
+          const res = await this.fetchWithTimeout('/api/guest-passes/issue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenantId: this.tenantId,
+              eventId: this.eventId,
+              baseUrl: window.location.origin
+            })
+          }, 1800);
+          if (res.ok) {
+            this.guestPass = await res.json();
+            return;
+          }
+        }
+        // Fallback jika request online gagal/timeout: tetap pakai cadangan pool offline jika ada
+        const fallbackPass = this.popGuestPassFromPool();
+        if (fallbackPass) this.guestPass = fallbackPass;
+      } else if (!this.guestPass.qrDataUrl && navigator.onLine !== false) {
         const token = this.guestPass.token || this.guestPass.token_plain;
         if (token) {
           const res = await this.fetchWithTimeout('/api/kiosk/qr/resolve', {
@@ -1153,6 +1232,10 @@ class KioskEngine {
       }
     } catch (err) {
       console.warn('Failed to ensure guest pass QR:', err);
+      if (!this.guestPass) {
+        const fallbackPass = this.popGuestPassFromPool();
+        if (fallbackPass) this.guestPass = fallbackPass;
+      }
     }
   }
 
@@ -4230,12 +4313,10 @@ class KioskEngine {
     this.showScreen('screenProcessing');
     const isLocalMode = this.isLocalDirectMode();
 
-    // 1. Ensure Guest Pass & QR Data URL exist BEFORE creating the session (skip when Mode Lokal is active)
-    if (!isLocalMode && navigator.onLine !== false) {
-      try {
-        await Promise.race([this.ensureGuestPassReady(), new Promise(r => setTimeout(r, 2500))]);
-      } catch (e) {}
-    }
+    // 1. Ensure Guest Pass & QR Data URL exist BEFORE creating the session (termasuk dari cadangan lokal saat Mode Lokal / sinyal lemah)
+    try {
+      await Promise.race([this.ensureGuestPassReady(), new Promise(r => setTimeout(r, 2200))]);
+    } catch (e) {}
 
     // 2. Create session in backend (skip blocking network wait when Mode Lokal is active)
     if (!this.sessionId) {
@@ -5638,24 +5719,54 @@ class KioskEngine {
     this.printViaChromeDialog({ copies, paperSize, paperWidthIn, paperHeightIn, borderless: true });
   }
 
-  buildPrintableDataUrl(paperSize = '4x6', includeQr = true) {
+  async resolvePrintableQrImage() {
+    const domImg = document.getElementById('guestQrCodeImg');
+    if (domImg && domImg.src && domImg.complete && domImg.naturalWidth > 0) {
+      return domImg;
+    }
+    const qrSrc = (this.guestPass && this.guestPass.qrDataUrl) || (domImg && domImg.src) || '';
+    if (!qrSrc || !qrSrc.startsWith('data:')) return null;
+    try {
+      const loaded = new Image();
+      loaded.src = qrSrc;
+      await Promise.race([
+        new Promise((res) => { loaded.onload = res; loaded.onerror = res; }),
+        new Promise((res) => setTimeout(res, 600))
+      ]);
+      return loaded.naturalWidth > 0 ? loaded : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async buildPrintableDataUrl(paperSize = '4x6', includeQr = true) {
     const finalCanvas = document.getElementById('finalCanvas');
     if (!finalCanvas) return null;
 
-    const qrPos = (this.selectedTemplate && this.selectedTemplate.qr_position) || 'bottom-right';
+    const tpl = this.selectedTemplate || null;
+    const rawQrCoords = (tpl && Array.isArray(tpl.qr_coords) && tpl.qr_coords.length > 0) ? tpl.qr_coords : null;
+    const qrPos = (tpl && tpl.qr_position) || 'bottom-right';
+    const qrEnabled = Boolean(rawQrCoords) || (qrPos !== 'none');
+
     const baseCanvas = document.createElement('canvas');
     baseCanvas.width = finalCanvas.width;
     baseCanvas.height = finalCanvas.height;
     const bCtx = baseCanvas.getContext('2d');
     bCtx.drawImage(finalCanvas, 0, 0);
 
-    if (includeQr && qrPos !== 'none' && this.guestPass) {
-      try {
-        const qrImg = document.getElementById('guestQrCodeImg');
-        if (qrImg && qrImg.src && qrImg.complete && qrImg.naturalWidth > 0) {
-          this.drawQrOnCanvas(bCtx, baseCanvas.width, baseCanvas.height, qrImg, qrPos);
-        }
-      } catch (e) {}
+    if (includeQr && qrEnabled) {
+      if (!this.guestPass) {
+        try { await this.ensureGuestPassReady(); } catch (e) {}
+      }
+      if (this.guestPass) {
+        try {
+          const qrImg = await this.resolvePrintableQrImage();
+          if (qrImg) {
+            const tplSize = (tpl && tpl.width && tpl.height) ? { width: tpl.width, height: tpl.height } : null;
+            this.drawQrOnCanvas(bCtx, baseCanvas.width, baseCanvas.height, qrImg, rawQrCoords || qrPos, tplSize);
+          }
+        } catch (e) {}
+      }
     }
 
     // Untuk strip 2×6 pada kertas 4R, susun 2 strip berdampingan agar tidak ter-crop saat dicetak lokal
@@ -5690,7 +5801,7 @@ class KioskEngine {
       banner.innerText = `⚡ Mode Lokal: Mencetak ${qty}× ${paperLabel} langsung ke printer laptop...`;
     }
 
-    const imageDataUrl = this.buildPrintableDataUrl(paperSize, true);
+    const imageDataUrl = await this.buildPrintableDataUrl(paperSize, true);
     let savedSettings = {};
     let savedProfile = this.cachedPrinterProfile || {};
     try { savedSettings = JSON.parse(localStorage.getItem('pb_printer_settings') || '{}'); } catch (e) {}
@@ -5895,23 +6006,12 @@ class KioskEngine {
     }, 'image/jpeg', 0.88);
   }
 
-  drawQrOnCanvas(ctx, w, h, qrImg, position = 'bottom-right') {
-    if (!qrImg || position === 'none') return;
-    const isStrip = (w <= 700);
-    const qrSize = isStrip ? 100 : 140;
+  drawQrCardAt(ctx, startX, startY, w, h, qrImg, targetSizePx) {
+    const qrSize = Math.max(52, Math.round(targetSizePx));
     const pad = Math.max(4, Math.round(qrSize * 0.05));
     const cardSize = qrSize + pad * 2;
-    const marginX = isStrip ? 18 : 32;
-    const marginY = isStrip ? 18 : 32;
-
-    let sx = 0, sy = 0;
-    switch (position) {
-      case 'bottom-left': sx = marginX; sy = h - cardSize - marginY; break;
-      case 'top-right': sx = w - cardSize - marginX; sy = marginY; break;
-      case 'top-left': sx = marginX; sy = marginY; break;
-      case 'bottom-right':
-      default: sx = w - cardSize - marginX; sy = h - cardSize - marginY; break;
-    }
+    const sx = Math.max(0, Math.min(w - cardSize, Math.round(startX)));
+    const sy = Math.max(0, Math.min(h - cardSize, Math.round(startY)));
 
     ctx.save();
     ctx.fillStyle = '#ffffff';
@@ -5926,13 +6026,62 @@ class KioskEngine {
     ctx.restore();
   }
 
-  printViaChromeDialog(job = null) {
+  drawQrOnCanvas(ctx, w, h, qrImg, positionOrList = 'bottom-right', tplSize = null) {
+    if (!qrImg || positionOrList === 'none') return;
+
+    if (Array.isArray(positionOrList) && positionOrList.length > 0) {
+      const refW = (tplSize && tplSize.width) || w;
+      const refH = (tplSize && tplSize.height) || h;
+      const sx = w / Math.max(1, refW);
+      const sy = h / Math.max(1, refH);
+      for (const item of positionOrList) {
+        const sizePx = Math.max(60, Math.round((Number(item.size) || 150) * Math.min(sx, sy)));
+        this.drawQrCardAt(
+          ctx,
+          (Number(item.x) || 0) * sx,
+          (Number(item.y) || 0) * sy,
+          w,
+          h,
+          qrImg,
+          sizePx
+        );
+      }
+      return;
+    }
+
+    const isStrip = (w <= 700);
+    const qrSize = isStrip ? 100 : 140;
+    const pad = Math.max(4, Math.round(qrSize * 0.05));
+    const cardSize = qrSize + pad * 2;
+    const marginX = isStrip ? 18 : 32;
+    const marginY = isStrip ? 18 : 32;
+
+    if (positionOrList === 'dual-bottom-right') {
+      const halfW = Math.round(w / 2);
+      const qSize = Math.round(Math.min(w, h) * 0.115);
+      this.drawQrCardAt(ctx, halfW - qSize - marginX, h - qSize - marginY, w, h, qrImg, qSize);
+      this.drawQrCardAt(ctx, w - qSize - marginX, h - qSize - marginY, w, h, qrImg, qSize);
+      return;
+    }
+
+    let sx = 0, sy = 0;
+    switch (positionOrList) {
+      case 'bottom-left': sx = marginX; sy = h - cardSize - marginY; break;
+      case 'top-right': sx = w - cardSize - marginX; sy = marginY; break;
+      case 'top-left': sx = marginX; sy = marginY; break;
+      case 'bottom-right':
+      default: sx = w - cardSize - marginX; sy = h - cardSize - marginY; break;
+    }
+    this.drawQrCardAt(ctx, sx, sy, w, h, qrImg, qrSize);
+  }
+
+  async printViaChromeDialog(job = null) {
     const finalCanvas = document.getElementById('finalCanvas');
     if (!finalCanvas) return;
     this.resetAutoReturnTimer(60);
 
     const paperSize = (job && job.paperSize) || (this.selectedMode === 'strip' ? '2x6' : '4x6');
-    const dataUrl = this.buildPrintableDataUrl(paperSize, !job || !job.sheetUrl);
+    const dataUrl = await this.buildPrintableDataUrl(paperSize, !job || !job.sheetUrl);
     if (!dataUrl) return;
 
     const copies = (job && job.copies) ? parseInt(job.copies, 10) : parseInt(document.getElementById('printCopiesSelect')?.value || '1', 10);

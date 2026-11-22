@@ -138,12 +138,11 @@ export async function createQrWithLogoDataUrl(url, options = {}) {
   return `data:image/png;base64,${pngBuf.toString('base64')}`;
 }
 
-export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', baseUrl = '') {
+export function createGuestPassRecordSync(tenantId, eventId, issuedVia = 'booth', baseUrl = '') {
   const tokenPlain = 'gst_' + crypto.randomBytes(16).toString('hex');
   const tokenHash = crypto.createHash('sha256').update(tokenPlain).digest('hex');
   const passId = 'pass_' + crypto.randomBytes(8).toString('hex');
 
-  // Verify event exists; if not, fallback to first active event for tenant
   let validEventId = eventId;
   const ev = db.prepare('SELECT id, tenant_id, config_json FROM events WHERE id = ?').get(validEventId);
   let validTenantId = tenantId || (ev ? ev.tenant_id : 'tenant_studiokeren_01');
@@ -157,7 +156,6 @@ export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', ba
     validTenantId = ev.tenant_id;
   }
 
-  // Tentukan masa berlaku berdasarkan konfigurasi event
   let expiresAtClause = "datetime('now', '+365 days')";
   const expiryParams = [];
   const targetEv = ev || db.prepare('SELECT config_json FROM events WHERE id = ?').get(validEventId);
@@ -181,10 +179,8 @@ export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', ba
     VALUES (?, ?, ?, ?, ?, 'active', ?, ${expiresAtClause})
   `).run(passId, validTenantId, validEventId, tokenHash, tokenPlain, issuedVia, ...expiryParams);
 
-  // Universal URL: e.g. /gallery/g/:tokenPlain
   const galleryUrl = `/gallery/g/${tokenPlain}`;
   const fullQrUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}${galleryUrl}` : galleryUrl;
-  const qrDataUrl = await createQrWithLogoDataUrl(fullQrUrl, { size: 340 });
 
   return {
     id: passId,
@@ -194,8 +190,16 @@ export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', ba
     token_plain: tokenPlain,
     galleryUrl,
     fullQrUrl,
-    qrDataUrl,
     status: 'active'
+  };
+}
+
+export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', baseUrl = '') {
+  const pass = createGuestPassRecordSync(tenantId, eventId, issuedVia, baseUrl);
+  const qrDataUrl = await createQrWithLogoDataUrl(pass.fullQrUrl, { size: 340 });
+  return {
+    ...pass,
+    qrDataUrl
   };
 }
 
