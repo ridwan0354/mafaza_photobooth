@@ -197,6 +197,9 @@ class KioskEngine {
   }
 
   updateLocalModeUI() {
+    if (typeof window !== 'undefined') {
+      window.__pbEventLocalMode = Boolean(this.eventConfig && this.eventConfig.localPrintMode);
+    }
     if (typeof this._updateOfflineBadge === 'function') {
       this._updateOfflineBadge();
     }
@@ -267,12 +270,27 @@ class KioskEngine {
     window.addEventListener('storage', (ev) => {
       if (ev.key === 'pb_kiosk_local_mode') {
         updateOfflineBadge();
+        if (ev.newValue !== 'true' && navigator.onLine !== false && window.pbOfflineStore) {
+          window.pbOfflineStore.syncAllPending();
+        }
       }
     });
     try {
       if (typeof BroadcastChannel === 'function') {
         const ch = new BroadcastChannel('pb_kiosk_mode');
-        ch.onmessage = () => updateOfflineBadge();
+        ch.onmessage = (msg) => {
+          if (msg && msg.data && msg.data.localPrintMode === false) {
+            if (this.eventConfig) this.eventConfig.localPrintMode = false;
+            if (typeof window !== 'undefined') window.__pbEventLocalMode = false;
+            if (navigator.onLine !== false && window.pbOfflineStore) {
+              window.pbOfflineStore.syncAllPending();
+            }
+          } else if (msg && msg.data && msg.data.localPrintMode === true) {
+            if (this.eventConfig) this.eventConfig.localPrintMode = true;
+            if (typeof window !== 'undefined') window.__pbEventLocalMode = true;
+          }
+          updateOfflineBadge();
+        };
       }
     } catch (e) {}
 
@@ -5714,7 +5732,7 @@ class KioskEngine {
         const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${this.sessionId}/complete`, {
           method: 'POST',
           body: formData
-        }, 12000);
+        }, 35000);
         if (res.ok && needSyncRaw) {
           this.rawPosesSyncedForSession = this.sessionId;
         }
@@ -6125,7 +6143,7 @@ class KioskEngine {
         const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${this.sessionId}/complete`, {
           method: 'POST',
           body: formData
-        }, 12000);
+        }, 35000);
         if (res.ok) {
           const data = await res.json();
           const job = data.printJob || {};

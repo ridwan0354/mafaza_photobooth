@@ -253,83 +253,134 @@
       });
     },
 
-    // 6. Unggah satu sesi ke server
+    isLocalDirectMode() {
+      try {
+        const ls = localStorage.getItem('pb_kiosk_local_mode');
+        if (ls === 'true') return true;
+        if (ls === 'false') return false;
+      } catch (e) {}
+      return Boolean(typeof window !== 'undefined' && window.__pbEventLocalMode);
+    },
+
+    async disableLocalModeAndSync() {
+      try { localStorage.setItem('pb_kiosk_local_mode', 'false'); } catch (e) {}
+      if (typeof window !== 'undefined') window.__pbEventLocalMode = false;
+      try {
+        if (typeof BroadcastChannel === 'function') {
+          const ch = new BroadcastChannel('pb_kiosk_mode');
+          ch.postMessage({ localPrintMode: false });
+          ch.close();
+        }
+      } catch (e) {}
+      this.notifyChange();
+      if (navigator.onLine) {
+        await this.syncAllPending(null, { manual: true });
+      }
+      if (this._galleryOpen) {
+        await this.renderLocalGalleryModal();
+      }
+    },
+
+    // 6. Unggah satu sesi ke server (mendukung batching 2 pose per request agar aman di WiFi lambat / limit proxy)
     async uploadSession(session) {
-      const formData = new FormData();
-      formData.append('tenantId', session.tenantId || 'tenant_studiokeren_01');
-      formData.append('eventId', session.eventId || 'event_wedding_dimas_sarah');
-      formData.append('deviceId', session.deviceId || 'dev_kiosk_win_01');
-      formData.append('localSessionId', session.id);
-      formData.append('mode', session.mode || 'single');
-      formData.append('startedAt', session.startedAt || new Date().toISOString());
-      formData.append('printRequested', session.printRequested ? 'true' : 'false');
-      formData.append('printCopies', String(session.printCopies || 1));
-      if (session.printPaperSize) formData.append('printPaperSize', session.printPaperSize);
-      if (session.paperConfirmed) formData.append('paperConfirmed', 'true');
-      if (session.guestPassId) formData.append('guestPassId', session.guestPassId);
-      if (session.templateId) formData.append('templateId', session.templateId);
-
-      // Final Image
+      const caps = Array.isArray(session.captures) ? session.captures : [];
+      const totalCaps = caps.length;
+      const batchSize = 2;
       const finalBlob = dataUrlToBlob(session.finalImage);
-      if (finalBlob) {
-        formData.append('finalImage', finalBlob, `final_off_${session.id}.jpg`);
+      const url = `/api/kiosk/sessions/${encodeURIComponent(session.id)}/complete`;
+
+      const postFormWithTimeout = async (formData, timeoutMs = 35000) => {
+        const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+        const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+        try {
+          const res = await fetch(url, ctrl ? { method: 'POST', body: formData, signal: ctrl.signal } : { method: 'POST', body: formData });
+          if (!res.ok) {
+            const errJson = await res.json().catch(() => null);
+            throw new Error((errJson && errJson.error) || `Server returned HTTP ${res.status}`);
+          }
+          return await res.json();
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      };
+
+      const appendCommonFields = (fd, isLastBatch) => {
+        fd.append('tenantId', session.tenantId || 'tenant_studiokeren_01');
+        fd.append('eventId', session.eventId || 'event_wedding_dimas_sarah');
+        fd.append('deviceId', session.deviceId || 'dev_kiosk_win_01');
+        fd.append('localSessionId', session.id);
+        fd.append('mode', session.mode || 'single');
+        fd.append('startedAt', session.startedAt || new Date().toISOString());
+        const doPrint = isLastBatch && Boolean(session.printRequested);
+        fd.append('printRequested', doPrint ? 'true' : 'false');
+        fd.append('printCopies', String(session.printCopies || 1));
+        if (session.printPaperSize) fd.append('printPaperSize', session.printPaperSize);
+        if (session.paperConfirmed) fd.append('paperConfirmed', 'true');
+        if (session.guestPassId) fd.append('guestPassId', session.guestPassId);
+        if (session.templateId) fd.append('templateId', session.templateId);
+      };
+
+      const appendMotionAssets = (fd) => {
+        if (session.liveClips && session.liveClips.length > 0) {
+          session.liveClips.forEach(clip => {
+            const clipBlob = dataUrlToBlob(clip.dataUrl);
+            if (clipBlob) {
+              fd.append('liveClips', clipBlob, `live_pose_${clip.index}_${Date.now()}.${clip.ext || 'mp4'}`);
+            }
+          });
+          const firstClipBlob = dataUrlToBlob(session.liveClips[0].dataUrl);
+          if (firstClipBlob) {
+            fd.append('livePhoto', firstClipBlob, `livephoto_${Date.now()}.${session.liveClips[0].ext || 'mp4'}`);
+          }
+        }
+        if (session.boomerang && session.boomerang.dataUrl) {
+          const bmBlob = dataUrlToBlob(session.boomerang.dataUrl);
+          if (bmBlob) {
+            fd.append('boomerang', bmBlob, `boomerang_${Date.now()}.${session.boomerang.ext || 'mp4'}`);
+          }
+        }
+      };
+
+      if (totalCaps === 0) {
+        const fd = new FormData();
+        appendCommonFields(fd, true);
+        if (finalBlob) fd.append('finalImage', finalBlob, `final_off_${session.id}.jpg`);
+        appendMotionAssets(fd);
+        return await postFormWithTimeout(fd);
       }
 
-      // Raw captures
-      if (session.captures && session.captures.length > 0) {
-        session.captures.forEach(c => {
-          const cBlob = dataUrlToBlob(c.dataUrl);
+      let lastData = null;
+      for (let offset = 0; offset < totalCaps; offset += batchSize) {
+        const end = Math.min(totalCaps, offset + batchSize);
+        const isLastBatch = (end >= totalCaps);
+        const fd = new FormData();
+        appendCommonFields(fd, isLastBatch);
+        fd.append('captureStartIndex', String(offset));
+        if (offset === 0 && finalBlob) {
+          fd.append('finalImage', finalBlob, `final_off_${session.id}.jpg`);
+        }
+        for (let i = offset; i < end; i++) {
+          const c = caps[i];
+          const cBlob = c ? dataUrlToBlob(c.dataUrl) : null;
           if (cBlob) {
-            formData.append('captures', cBlob, `pose_${c.poseIndex}_${Date.now()}.jpg`);
+            fd.append('captures', cBlob, `pose_${c.poseIndex || (i + 1)}_${Date.now()}.jpg`);
           }
-        });
-      }
-
-      // Live clips
-      if (session.liveClips && session.liveClips.length > 0) {
-        session.liveClips.forEach(clip => {
-          const clipBlob = dataUrlToBlob(clip.dataUrl);
-          if (clipBlob) {
-            formData.append('liveClips', clipBlob, `live_pose_${clip.index}_${Date.now()}.${clip.ext || 'mp4'}`);
-          }
-        });
-        // Sediakan livePhoto thumbnail
-        const firstClipBlob = dataUrlToBlob(session.liveClips[0].dataUrl);
-        if (firstClipBlob) {
-          formData.append('livePhoto', firstClipBlob, `livephoto_${Date.now()}.${session.liveClips[0].ext || 'mp4'}`);
         }
-      }
-
-      // Boomerang
-      if (session.boomerang && session.boomerang.dataUrl) {
-        const bmBlob = dataUrlToBlob(session.boomerang.dataUrl);
-        if (bmBlob) {
-          formData.append('boomerang', bmBlob, `boomerang_${Date.now()}.${session.boomerang.ext || 'mp4'}`);
+        if (isLastBatch) {
+          appendMotionAssets(fd);
         }
+        lastData = await postFormWithTimeout(fd);
       }
-
-      const res = await fetch(`/api/kiosk/sessions/${encodeURIComponent(session.id)}/complete`, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!res.ok) {
-        throw new Error(`Server returned HTTP ${res.status}`);
-      }
-
-      const data = await res.json();
-      return data;
+      return lastData;
     },
 
     // 7. Sinkronkan semua sesi yang pending secara berurutan
     isSyncing: false,
     async syncAllPending(onProgress, opts = {}) {
       if (this.isSyncing) return;
-      try {
-        if (!opts?.manual && localStorage.getItem('pb_kiosk_local_mode') === 'true') {
-          return;
-        }
-      } catch (e) {}
+      if (!opts?.manual && this.isLocalDirectMode()) {
+        return;
+      }
       if (!navigator.onLine) {
         console.log('📶 Masih offline, sinkronisasi ditunda...');
         return;
@@ -341,6 +392,7 @@
       this.isSyncing = true;
       console.log(`🚀 Memulai sinkronisasi ${pending.length} sesi foto offline...`);
       let successCount = 0;
+      let lastErrorMsg = '';
 
       try {
         for (let i = 0; i < pending.length; i++) {
@@ -353,20 +405,25 @@
             await this.deleteSession(item.id);
             successCount++;
           } catch (err) {
+            lastErrorMsg = String((err && err.message) || err || 'Gagal terhubung ke server');
             console.warn(`Gagal mengunggah sesi ${item.id}:`, err);
-            // Tambahkan hitungan percobaan
+            // Tambahkan hitungan percobaan & simpan pesan error agar terlihat di Galeri Lokal
             const db = await openDB();
-            const tx = db.transaction(STORE_SESSIONS, 'readwrite');
-            item.syncAttempts = (item.syncAttempts || 0) + 1;
-            item.lastSyncError = String(err.message || err);
-            tx.objectStore(STORE_SESSIONS).put(item);
+            await new Promise((res) => {
+              const tx = db.transaction(STORE_SESSIONS, 'readwrite');
+              item.syncAttempts = (item.syncAttempts || 0) + 1;
+              item.lastSyncError = lastErrorMsg;
+              tx.objectStore(STORE_SESSIONS).put(item);
+              tx.oncomplete = res;
+              tx.onerror = res;
+            });
           }
         }
 
-        if (successCount > 0) {
-          if (window.pbToast) {
-            window.pbToast(`✅ Berhasil mengunggah ${successCount} sesi foto offline ke server cloud!`, 'success', 4500);
-          }
+        if (successCount > 0 && window.pbToast) {
+          window.pbToast(`✅ Berhasil mengunggah ${successCount} sesi foto ke server!`, 'success', 4500);
+        } else if (opts?.manual && lastErrorMsg && window.pbToast) {
+          window.pbToast(`⚠️ Gagal kirim: ${lastErrorMsg}`, 'error', 4500);
         }
       } finally {
         this.isSyncing = false;
@@ -480,6 +537,7 @@
               <div id="pbOfflineGalleryNetStatus" style="font-size:12px;font-weight:700;margin-top:3px;color:#6E584B;">Memeriksa...</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button type="button" id="pbOfflineDisableLocalBtn" class="btn btn-coral" style="display:none;padding:8px 14px;font-size:12.5px;font-weight:800;border-radius:999px;cursor:pointer;">🌐 Aktifkan Kirim Otomatis</button>
               <button type="button" id="pbOfflineGallerySyncBtn" class="btn btn-teal" style="padding:8px 14px;font-size:12.5px;font-weight:800;border-radius:999px;cursor:pointer;">🔄 Kirim Semua ke Server</button>
               <button type="button" id="pbOfflineGalleryCloseBtn" style="width:36px;height:36px;border-radius:50%;border:none;background:rgba(123,72,46,0.14);color:#7B482E;font-size:16px;font-weight:800;cursor:pointer;">✕</button>
             </div>
@@ -493,6 +551,9 @@
       modal.addEventListener('click', () => this.closeLocalGallery());
       document.body.appendChild(modal);
       document.getElementById('pbOfflineGalleryCloseBtn').onclick = () => this.closeLocalGallery();
+      document.getElementById('pbOfflineDisableLocalBtn').onclick = async () => {
+        await this.disableLocalModeAndSync();
+      };
       document.getElementById('pbOfflineGallerySyncBtn').onclick = async () => {
         if (!navigator.onLine) {
           if (window.pbToast) window.pbToast('⚠️ WiFi/Internet belum tersambung. Nyalakan WiFi dulu di tenda.', 'warn', 3500);
@@ -600,13 +661,22 @@
       if (!body || !netEl) return;
 
       const isOnline = navigator.onLine !== false;
+      const isLocalMode = this.isLocalDirectMode();
       const pending = await this.getPendingSessions();
       pending.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       const history = this.getRecentSyncedHistory();
 
-      netEl.innerHTML = isOnline
-        ? `<span style="color:#1F5B56;">🟢 WiFi/Internet Tersambung · ${pending.length} foto menunggu kirim</span>`
-        : `<span style="color:#B93829;">⚡ Tanpa Internet (Offline) · ${pending.length} foto aman tersimpan di tablet</span>`;
+      if (!isOnline) {
+        netEl.innerHTML = `<span style="color:#B93829;">⚡ Tanpa Internet (Offline) · ${pending.length} foto aman tersimpan di perangkat</span>`;
+      } else if (isLocalMode) {
+        netEl.innerHTML = `<span style="color:#8A5A12;">🔌 Mode Lokal Aktif (otomatis kirim ke server dimatikan meski internet nyala) · ${pending.length} foto tersimpan</span>`;
+      } else {
+        netEl.innerHTML = `<span style="color:#1F5B56;">🟢 WiFi/Internet Tersambung · ${pending.length} foto menunggu kirim</span>`;
+      }
+      const disableLocalBtn = document.getElementById('pbOfflineDisableLocalBtn');
+      if (disableLocalBtn) {
+        disableLocalBtn.style.display = isLocalMode ? '' : 'none';
+      }
       if (syncBtn) {
         syncBtn.style.display = pending.length > 0 ? '' : 'none';
         syncBtn.disabled = !isOnline || this.isSyncing;
@@ -648,6 +718,7 @@
               </div>
               <div style="font-size:12px;font-weight:800;color:#7B482E;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${this._escapeHtml(s.templateName || (s.mode === 'files_only' ? '📁 File HD Tanpa Bingkai' : '🖼️ Foto Booth'))}</div>
               <div style="display:flex;gap:4px;flex-wrap:wrap;">${printTag}${qrTag}</div>
+              ${s.lastSyncError ? `<div style="font-size:10.5px;font-weight:700;color:#B93829;background:#FFF0EC;border:1px solid #F2C7C0;border-radius:8px;padding:4px 7px;line-height:1.3;">⚠️ Gagal kirim: ${this._escapeHtml(s.lastSyncError)}</div>` : ''}
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:auto;">
                 <button type="button" class="btn btn-secondary" data-action="view" data-id="${this._escapeHtml(s.id)}" style="flex:1;padding:6px 8px;font-size:11px;font-weight:800;border-radius:999px;cursor:pointer;">👁️ Cek Foto</button>
                 <button type="button" class="btn btn-secondary" data-action="toggle-print" data-id="${this._escapeHtml(s.id)}" style="flex:1;padding:6px 8px;font-size:11px;font-weight:800;border-radius:999px;cursor:pointer;">🖨️ ${s.printRequested ? 'Batal Cetak' : 'Antre Cetak'}</button>
@@ -730,9 +801,7 @@
     initAutoSync() {
       // Event saat koneksi pulih
       window.addEventListener('online', () => {
-        try {
-          if (localStorage.getItem('pb_kiosk_local_mode') === 'true') return;
-        } catch (e) {}
+        if (this.isLocalDirectMode()) return;
         console.log('🌐 Koneksi internet terdeteksi pulih. Memulai sinkronisasi otomatis...');
         if (window.pbToast) window.pbToast('🌐 Internet terhubung! Memeriksa foto offline...', 'info', 3000);
         setTimeout(() => this.syncAllPending(), 1200);

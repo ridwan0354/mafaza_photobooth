@@ -183,12 +183,19 @@ class MingleBoothEngine {
   }
 
   isLocalDirectMode() {
+    let ls = null;
     try {
-      const ls = localStorage.getItem('pb_kiosk_local_mode');
-      if (ls === 'true') return true;
-      if (ls === 'false') return false;
+      ls = localStorage.getItem('pb_kiosk_local_mode');
     } catch (e) {}
+    if (ls === 'true') return true;
+    if (ls === 'false') return false;
     return Boolean(this.eventConfig && this.eventConfig.localPrintMode);
+  }
+
+  syncGlobalEventLocalFlag() {
+    if (typeof window !== 'undefined') {
+      window.__pbEventLocalMode = Boolean(this.eventConfig && this.eventConfig.localPrintMode);
+    }
   }
 
   async fetchWithTimeout(url, options = {}, timeoutMs = 2500) {
@@ -255,6 +262,32 @@ class MingleBoothEngine {
     window.addEventListener('offline', () => {
       this.updateOfflineGalleryBadge();
     });
+    window.addEventListener('storage', (ev) => {
+      if (ev.key === 'pb_kiosk_local_mode') {
+        this.updateOfflineGalleryBadge();
+        if (ev.newValue !== 'true' && navigator.onLine !== false && window.pbOfflineStore) {
+          window.pbOfflineStore.syncAllPending();
+        }
+      }
+    });
+    try {
+      if (typeof BroadcastChannel === 'function') {
+        const ch = new BroadcastChannel('pb_kiosk_mode');
+        ch.onmessage = (msg) => {
+          if (msg && msg.data && msg.data.localPrintMode === false && this.eventConfig) {
+            this.eventConfig.localPrintMode = false;
+            this.syncGlobalEventLocalFlag();
+          } else if (msg && msg.data && msg.data.localPrintMode === true && this.eventConfig) {
+            this.eventConfig.localPrintMode = true;
+            this.syncGlobalEventLocalFlag();
+          }
+          this.updateOfflineGalleryBadge();
+          if (msg && msg.data && msg.data.localPrintMode === false && navigator.onLine !== false && window.pbOfflineStore) {
+            window.pbOfflineStore.syncAllPending();
+          }
+        };
+      }
+    } catch (e) {}
     if (window.pbOfflineStore && typeof window.pbOfflineStore.subscribe === 'function') {
       window.pbOfflineStore.subscribe(() => {
         this.updateOfflineGalleryBadge();
@@ -279,17 +312,29 @@ class MingleBoothEngine {
       }
     } catch (e) {}
     const isOnline = navigator.onLine !== false;
-    const label = count > 0
-      ? (isOnline ? `🔄 Mengirim (${count}) · 📂 Galeri` : `📦 Belum Terkirim (${count})`)
-      : (isOnline ? '📂 Galeri Lokal' : '⚡ Offline · 📂 Galeri');
+    const isLocal = this.isLocalDirectMode();
+    let label;
+    if (isLocal) {
+      label = count > 0 ? `🔌 Mode Lokal (${count}) · 📂 Galeri` : '🔌 Mode Lokal · 📂 Galeri';
+    } else if (count > 0) {
+      label = isOnline ? `🔄 Mengirim (${count}) · 📂 Galeri` : `📦 Belum Terkirim (${count})`;
+    } else {
+      label = isOnline ? '📂 Galeri Lokal' : '⚡ Offline · 📂 Galeri';
+    }
 
     for (const id of ['btnMingleOfflineGallery', 'btnMingleWelcomeOfflineGallery']) {
       const btn = document.getElementById(id);
       if (!btn) continue;
       btn.textContent = label;
-      btn.style.borderColor = count > 0 ? (isOnline ? '#5F8F8A' : '#E6786B') : '';
-      btn.style.background = count > 0 ? (isOnline ? 'rgba(95, 143, 138, 0.16)' : '#FFF0EC') : '';
-      btn.style.color = count > 0 ? (isOnline ? '#1F5B56' : '#B93829') : '';
+      if (isLocal) {
+        btn.style.borderColor = '#D4A754';
+        btn.style.background = '#FFF8E6';
+        btn.style.color = '#7A5210';
+      } else {
+        btn.style.borderColor = count > 0 ? (isOnline ? '#5F8F8A' : '#E6786B') : '';
+        btn.style.background = count > 0 ? (isOnline ? 'rgba(95, 143, 138, 0.16)' : '#FFF0EC') : '';
+        btn.style.color = count > 0 ? (isOnline ? '#1F5B56' : '#B93829') : '';
+      }
     }
   }
 
@@ -369,6 +414,8 @@ class MingleBoothEngine {
     }
     this.applyMingleWelcomeText();
     this.applyMingleBackground();
+    this.syncGlobalEventLocalFlag();
+    this.updateOfflineGalleryBadge();
     this.syncDefaultEventFilter(false);
     this.applyMingleVideoTransform();
   }
@@ -2385,7 +2432,7 @@ class MingleBoothEngine {
               eventId: snap.eventId,
               baseUrl: window.location.origin
             })
-          }, 1400);
+          }, 4000);
           if (passRes.ok) {
             snap.guestPass = await passRes.json();
           }
@@ -2428,7 +2475,7 @@ class MingleBoothEngine {
             mode: modeVal,
             templateId: snap.templateId
           })
-        }, 1500);
+        }, 4500);
         if (sessRes.ok) {
           const sData = await sessRes.json();
           snap.sessionId = sData.sessionId;
@@ -2522,7 +2569,7 @@ class MingleBoothEngine {
     try {
       const startOffset = includeRaw ? snapSyncedOffset : totalPhotos;
       const unsyncedCount = Math.max(0, totalPhotos - startOffset);
-      const batchSize = 5;
+      const batchSize = 2;
 
       if (unsyncedCount === 0) {
         const formData = new FormData();
@@ -2538,7 +2585,7 @@ class MingleBoothEngine {
         formData.append('eventId', snapEventId);
         if (snapPassId) formData.append('guestPassId', snapPassId);
         if (snapTemplateId) formData.append('templateId', snapTemplateId);
-        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${snapSessionId}/complete`, { method: 'POST', body: formData }, 7500);
+        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${snapSessionId}/complete`, { method: 'POST', body: formData }, 30000);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json().catch(() => null);
         if (this.sessionId === snapSessionId && statusEl) {
@@ -2589,7 +2636,7 @@ class MingleBoothEngine {
           } catch (e) {}
         }
 
-        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${snapSessionId}/complete`, { method: 'POST', body: formData }, 8500);
+        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${snapSessionId}/complete`, { method: 'POST', body: formData }, 30000);
         if (!res.ok) throw new Error('Gagal mengunggah batch foto');
         lastData = await res.json().catch(() => lastData);
         if (this.sessionId === snapSessionId) {

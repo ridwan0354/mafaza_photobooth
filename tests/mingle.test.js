@@ -1148,3 +1148,131 @@ test('Shared print-safe photo filter engine, Kiosk/Mingle parity, offline print 
     db.prepare('DELETE FROM events WHERE id = ?').run(createdEv.id);
   }
 });
+
+test('Mode Lokal clearly shows active banner, disables auto-sync until turned off, and uploads in 2-pose batches', async () => {
+  const vm = (await import('node:vm')).default;
+  const offlineSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/offline-store.js'), 'utf8');
+  const mingleSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const kioskSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/kiosk.js'), 'utf8');
+
+  // Verify Mingle & Kiosk badge/timeout wiring
+  assert.match(mingleSrc, /Mode Lokal \(\$\{count\}\) · 📂 Galeri/);
+  assert.match(mingleSrc, /30000/);
+  assert.match(kioskSrc, /35000/);
+
+  const lsState = new Map([['pb_kiosk_local_mode', 'true']]);
+  const storedRecords = new Map([[
+    'sess_local_3poses',
+    {
+      id: 'sess_local_3poses',
+      tenantId: 'tenant_studiokeren_01',
+      eventId: 'event_wedding_dimas_sarah',
+      finalImage: 'data:image/jpeg;base64,QQ==',
+      captures: [
+        { poseIndex: 1, dataUrl: 'data:image/jpeg;base64,QQ==' },
+        { poseIndex: 2, dataUrl: 'data:image/jpeg;base64,QQ==' },
+        { poseIndex: 3, dataUrl: 'data:image/jpeg;base64,QQ==' }
+      ],
+      printRequested: true,
+      printCopies: 2,
+      printPaperSize: '5x7',
+      paperConfirmed: true,
+      synced: false,
+      createdAt: Date.now()
+    }
+  ]]);
+
+  const uploadBatches = [];
+  class MockFormData {
+    constructor() { this.fields = []; }
+    append(k, v, name) { this.fields.push({ k, v, name }); }
+  }
+
+  const mockIdb = {
+    open() {
+      const req = {};
+      setTimeout(() => {
+        const dbObj = {
+          objectStoreNames: { contains: () => true },
+          transaction() {
+            const tx = { oncomplete: null };
+            const objStore = {
+              get(id) {
+                const r = {};
+                setTimeout(() => { r.result = storedRecords.get(id) || null; if (r.onsuccess) r.onsuccess(); }, 0);
+                return r;
+              },
+              getAll() {
+                const r = {};
+                setTimeout(() => { r.result = Array.from(storedRecords.values()); if (r.onsuccess) r.onsuccess(); }, 0);
+                return r;
+              },
+              put(rec) {
+                const r = {};
+                storedRecords.set(rec.id, rec);
+                setTimeout(() => { if (r.onsuccess) r.onsuccess(); if (tx.oncomplete) tx.oncomplete(); }, 0);
+                return r;
+              },
+              delete(id) {
+                const r = {};
+                storedRecords.delete(id);
+                setTimeout(() => { if (r.onsuccess) r.onsuccess(); if (tx.oncomplete) tx.oncomplete(); }, 0);
+                return r;
+              }
+            };
+            tx.objectStore = () => objStore;
+            return tx;
+          }
+        };
+        req.result = dbObj;
+        if (req.onsuccess) req.onsuccess();
+      }, 0);
+      return req;
+    }
+  };
+
+  const oCtx = vm.createContext({
+    indexedDB: mockIdb,
+    window: { addEventListener() {} },
+    document: { addEventListener() {}, getElementById: () => null },
+    localStorage: {
+      getItem: (k) => (lsState.has(k) ? lsState.get(k) : null),
+      setItem: (k, v) => lsState.set(k, String(v))
+    },
+    navigator: { onLine: true },
+    FormData: MockFormData,
+    fetch: async (url, opts) => {
+      uploadBatches.push({ url, fields: opts.body.fields });
+      return { ok: true, status: 200, json: async () => ({ success: true }) };
+    },
+    Blob: globalThis.Blob,
+    AbortController: globalThis.AbortController,
+    atob: globalThis.atob,
+    Uint8Array, Promise, Math, Date, JSON, Array, Number, String, Boolean,
+    setTimeout, clearTimeout, setInterval: () => 1, console
+  });
+  vm.runInContext(offlineSrc, oCtx);
+  const store = oCtx.window.pbOfflineStore;
+
+  assert.equal(store.isLocalDirectMode(), true);
+  // While Mode Lokal is ON, automatic background sync must NOT upload
+  await store.syncAllPending();
+  assert.equal(uploadBatches.length, 0);
+  assert.equal(storedRecords.size, 1);
+
+  // Turning off Mode Lokal immediately syncs the queued session in 2 batches (2 poses + 1 pose)
+  await store.disableLocalModeAndSync();
+  assert.equal(lsState.get('pb_kiosk_local_mode'), 'false');
+  assert.equal(store.isLocalDirectMode(), false);
+  assert.equal(storedRecords.size, 0, 'Queued session synced & cleared after disabling Mode Lokal');
+  assert.equal(uploadBatches.length, 2, '3 captures uploaded in 2 batches (2 + 1)');
+  const b0 = uploadBatches[0].fields;
+  const b1 = uploadBatches[1].fields;
+  assert.equal(b0.find(f => f.k === 'captureStartIndex')?.v, '0');
+  assert.equal(b0.find(f => f.k === 'printRequested')?.v, 'false', 'Print only dispatched on final batch');
+  assert.equal(b0.filter(f => f.k === 'captures').length, 2);
+  assert.equal(b1.find(f => f.k === 'captureStartIndex')?.v, '2');
+  assert.equal(b1.find(f => f.k === 'printRequested')?.v, 'true');
+  assert.equal(b1.filter(f => f.k === 'captures').length, 1);
+  await new Promise(r => setTimeout(r, 20));
+});
