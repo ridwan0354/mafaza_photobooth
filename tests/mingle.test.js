@@ -62,6 +62,7 @@ test('Mingle page assets and Express /mingle route are wired', () => {
   assert.match(mingleHtml, /screenMingleResult/);
   assert.match(mingleJs, /mafaza:physical-shutter/);
   assert.match(mingleJs, /booth=mingle/);
+  assert.doesNotMatch(mingleJs, /scope=include_global/, 'mingle must only load templates belonging to the active event');
 });
 
 test('Templates support 4R & 5R Portrait and Landscape presets and print sheet preserves landscape orientation', async () => {

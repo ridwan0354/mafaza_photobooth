@@ -474,12 +474,12 @@ class MingleBoothEngine {
   async fetchTemplates() {
     try {
       const [mingleRes, allRes] = await Promise.all([
-        this.fetchWithTimeout(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&scope=include_global&booth=mingle`, { cache: 'no-store' }, 2500),
-        this.fetchWithTimeout(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&scope=include_global`, { cache: 'no-store' }, 2500)
+        this.fetchWithTimeout(`/api/templates?eventId=${encodeURIComponent(this.eventId)}&booth=mingle`, { cache: 'no-store' }, 2500),
+        this.fetchWithTimeout(`/api/templates?eventId=${encodeURIComponent(this.eventId)}`, { cache: 'no-store' }, 2500)
       ]);
       if (mingleRes.ok) {
         const mingleList = await mingleRes.json();
-        if (Array.isArray(mingleList) && mingleList.length > 0) {
+        if (Array.isArray(mingleList)) {
           this.templates = mingleList;
           if (window.pbOfflineStore) {
             window.pbOfflineStore.cacheConfig('mingle_templates_' + this.eventId, this.templates);
@@ -488,7 +488,7 @@ class MingleBoothEngine {
       }
       if (allRes.ok) {
         const allList = await allRes.json();
-        if (Array.isArray(allList) && allList.length > 0) {
+        if (Array.isArray(allList)) {
           this.allTemplates = allList.filter(t => (t.slots && t.slots.length <= 1) || t.orientation !== 'strip');
           if (window.pbOfflineStore) {
             window.pbOfflineStore.cacheConfig('mingle_all_templates_' + this.eventId, this.allTemplates);
