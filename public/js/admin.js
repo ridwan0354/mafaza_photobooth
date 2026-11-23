@@ -3943,9 +3943,12 @@ async function loadRecentPhotos(filterEventId = null) {
 
     const currentEventObj = targetEventId ? (eventsList || []).find(e => e.id === targetEventId) : null;
     const eventNameLabel = currentEventObj ? currentEventObj.name : (targetEventId ? 'Event Terpilih' : 'Semua Event');
+    const pendingOrderCount = cachedRecentPhotos.filter(p => !p.print_job_id && (parseInt(p.requested_print_copies, 10) || 0) > 0).length;
 
     if (countBadge) {
-      countBadge.textContent = `${cachedRecentPhotos.length} Foto Berframe (${eventNameLabel})`;
+      countBadge.textContent = pendingOrderCount > 0
+        ? `${cachedRecentPhotos.length} Foto Berframe (${eventNameLabel}) · ${pendingOrderCount} Pesanan Cetak`
+        : `${cachedRecentPhotos.length} Foto Berframe (${eventNameLabel})`;
     }
 
     // 1. Render Overview Grid (Beranda, up to 6 items)
@@ -3987,12 +3990,25 @@ async function loadRecentPhotos(filterEventId = null) {
           const imgSrc = photo.file_path || '';
           const timeStr = photo.created_at ? new Date(photo.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-';
           const isPrinted = !!photo.print_job_id;
+          const reqOrder = getPhotoRequestedPrintOrder(photo);
           const printBadgeHtml = isPrinted 
             ? `<span style="font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 99px; background: rgba(39, 174, 96, 0.12); color: #27ae60; border: 1px solid rgba(39, 174, 96, 0.25);">🟢 Dicetak (${photo.print_copies || 1}x)</span>`
             : `<span style="font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 99px; background: rgba(120, 120, 120, 0.12); color: var(--text-muted); border: 1px solid var(--border-soft);">⚪ Belum Cetak</span>`;
+          const orderNoticeHtml = (!isPrinted && reqOrder)
+            ? `<div style="font-size: 11px; font-weight: 800; color: #7A4B0E; background: #FFF4D6; border: 1px solid #E5B95C; border-radius: 10px; padding: 5px 8px; display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <span>📝 Pesanan Cetak</span>
+                <span>${escapeHtml(reqOrder.paperLabel)} · ${reqOrder.copies}×</span>
+              </div>`
+            : '';
+          const cardHighlightStyle = (!isPrinted && reqOrder)
+            ? 'border: 2px solid #D4A754; background: #FFFDF7;'
+            : 'background: #fff;';
+          const printBtnLabel = (!isPrinted && reqOrder)
+            ? `🖨️ Cetak ${escapeHtml(reqOrder.paperLabel)} (${reqOrder.copies}×)`
+            : '🖨️ Cetak';
 
           return `
-            <div class="card-pop" style="padding: 12px; background: #fff; border-radius: 16px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 4px 14px rgba(123, 72, 46, 0.06);">
+            <div class="card-pop" style="padding: 12px; ${cardHighlightStyle} border-radius: 16px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 4px 14px rgba(123, 72, 46, 0.06);">
               <div style="height: 220px; background: var(--cream-bg); border-radius: 12px; overflow: hidden; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid var(--border-soft);" onclick="openPhotoPreviewByIndex(${idx})">
                 <img src="${imgSrc}" onerror="this.onerror=null; this.style.opacity='0.2';" style="max-height: 100%; max-width: 100%; object-fit: contain; border-radius: 8px;">
               </div>
@@ -4008,12 +4024,14 @@ async function loadRecentPhotos(filterEventId = null) {
                 ${timeStr}
               </div>
 
-              <div style="display: flex; gap: 8px; margin-top: 4px;">
+              ${orderNoticeHtml}
+
+              <div style="display: flex; gap: 8px; margin-top: auto;">
                 <button class="btn btn-secondary" style="flex: 1; padding: 7px 10px; font-size: 12.5px; font-weight: 700; background: #fff;" onclick="openPhotoPreviewByIndex(${idx})">
                   👁️ Lihat
                 </button>
-                <button class="btn btn-coral" style="flex: 1; padding: 7px 10px; font-size: 12.5px; font-weight: 700;" onclick="promptQuickPrint(${idx})">
-                  🖨️ Cetak
+                <button class="btn btn-coral" style="flex: 1; padding: 7px 10px; font-size: 12px; font-weight: 700;" onclick="promptQuickPrint(${idx})">
+                  ${printBtnLabel}
                 </button>
               </div>
             </div>
@@ -4090,10 +4108,14 @@ function openPhotoPreviewModal(photo) {
   if (title) title.textContent = `Hasil Foto: ${photo.event_name || 'Photobooth'}`;
   if (eventBadge) eventBadge.textContent = photo.event_name || 'Event Aktif';
 
+  const previewReqOrder = getPhotoRequestedPrintOrder(photo);
   if (printStatus) {
     if (photo.print_job_id || photo.spooler_job_id) {
       printStatus.className = 'badge-pill badge-active';
       printStatus.textContent = '🟢 Terkirim ke Spooler';
+    } else if (previewReqOrder) {
+      printStatus.className = 'badge-pill badge-pending';
+      printStatus.textContent = `⚪ Belum Dicetak · 📝 Pesanan: ${previewReqOrder.paperLabel} (${previewReqOrder.copies}×)`;
     } else {
       printStatus.className = 'badge-pill badge-pending';
       printStatus.textContent = '⚪ Belum Dicetak';
@@ -4352,6 +4374,24 @@ async function executeModalReprint() {
   }
 }
 
+function formatAdminPaperLabel(paperCode) {
+  const raw = String(paperCode || '').trim().toUpperCase();
+  if (!raw) return '4R';
+  if (raw === '5R' || raw === '5X7' || raw === '1500X2100' || raw === '2100X1500') return '5R';
+  if (raw === '2X6' || raw === 'STRIP') return 'Strip';
+  return '4R';
+}
+
+function getPhotoRequestedPrintOrder(photo) {
+  const copies = parseInt(photo && photo.requested_print_copies, 10) || 0;
+  if (copies <= 0) return null;
+  return {
+    copies,
+    paperCode: photo.requested_print_paper || '4x6',
+    paperLabel: formatAdminPaperLabel(photo.requested_print_paper || photo.template_paper_size || '4R')
+  };
+}
+
 let pendingQuickPrintPhoto = null;
 let quickPrintPaperChoice = '4R';
 
@@ -4402,20 +4442,26 @@ function promptQuickPrint(index) {
   if (sessLabel) sessLabel.textContent = photo.session_id ? `Sesi: ${photo.session_id}` : 'Foto Kiosk';
   if (timeLabel) timeLabel.textContent = photo.created_at ? new Date(photo.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '-';
 
+  const reqOrder = getPhotoRequestedPrintOrder(photo);
+
   if (historyBadge) {
     if (photo.print_job_id) {
       historyBadge.innerHTML = `<span class="badge-pill badge-active" style="font-size: 10.5px;">🟢 Riwayat: Sudah dicetak (${photo.print_copies || 1}x)</span>`;
+    } else if (reqOrder) {
+      historyBadge.innerHTML = `<span class="badge-pill badge-pending" style="font-size: 10.5px;">⚪ Belum Dicetak · 📝 Pesanan: ${escapeHtml(reqOrder.paperLabel)} (${reqOrder.copies}×)</span>`;
     } else {
       historyBadge.innerHTML = `<span class="badge-pill badge-pending" style="font-size: 10.5px;">⚪ Belum Pernah Dicetak</span>`;
     }
   }
 
-  // Default copies: 2 jika photostrip, atau 1 jika single
-  const defaultCopies = (photo.session_mode === 'strip') ? 2 : 1;
+  // Default copies: pesanan tamu jika ada, else 2 jika photostrip, atau 1 jika single
+  const defaultCopies = reqOrder ? reqOrder.copies : ((photo.session_mode === 'strip') ? 2 : 1);
   selectQuickPrintCopies(defaultCopies);
 
-  // Deteksi ukuran kertas default (5R jika template / riwayat cetak sebelumnya 5R)
-  const is5rPhoto = /5r|5x7|1500x2100|2100x1500/i.test(`${photo.template_name || ''} ${photo.paper_size || ''}`);
+  // Deteksi ukuran kertas default (pesanan tamu jika ada, else dari template/riwayat)
+  const is5rPhoto = reqOrder
+    ? reqOrder.paperLabel === '5R'
+    : /5r|5x7|1500x2100|2100x1500/i.test(`${photo.template_name || ''} ${photo.template_paper_size || ''} ${photo.paper_size || ''}`);
   setQuickPrintPaper(is5rPhoto ? '5R' : '4R');
   const readyCheck = document.getElementById('quickPrintPaperAlreadyReadyCheck');
   if (readyCheck) readyCheck.checked = false;

@@ -1360,6 +1360,64 @@
     </div>
   </div>
 
+  <!-- Modal Catatan Pesanan Cetak saat Selesai · Tamu Berikutnya (untuk cetak di tenda / offline keliling) -->
+  <div id="mingleFinishPrintOrderModal" style="display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(24, 14, 9, 0.84); backdrop-filter: blur(6px); align-items: center; justify-content: center; padding: 18px;" onclick="mingle.closeFinishPrintOrderModal(event)">
+    <div style="background: #FFFDF9; border: 2px solid var(--border-soft, #EAD8C7); border-radius: 24px; padding: 22px 24px; max-width: 470px; width: 92vw; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 14px;">
+        <div>
+          <h3 style="margin: 0; font-size: 19px; font-weight: 800; color: var(--caramel-brown);">📝 Mau Cetak di Tenda Nanti?</h3>
+          <p style="margin: 3px 0 0; font-size: 12px; color: var(--text-muted); line-height: 1.4;">Catat ukuran kertas &amp; jumlah cetak tamu agar langsung muncul di halaman Admin saat WiFi tersambung.</p>
+        </div>
+        <button type="button" onclick="mingle.closeFinishPrintOrderModal()" style="width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(123,72,46,0.12); color: var(--caramel-brown); font-size: 16px; font-weight: 800; cursor: pointer;">✕</button>
+      </div>
+
+      <!-- Jumlah Cetak -->
+      <div style="background: #FFF6EB; border: 1.5px solid var(--border-soft, #EAD8C7); border-radius: 16px; padding: 12px 14px; margin-bottom: 14px;">
+        <div style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">📄 Mau cetak berapa lembar?</div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+          <div style="display: inline-flex; align-items: center; gap: 10px;">
+            <button type="button" class="btn btn-secondary" style="width: 38px; height: 38px; padding: 0; font-size: 18px; font-weight: 800;" onclick="mingle.adjustFinishOrderCopies(-1)">−</button>
+            <strong id="mingleFinishOrderQty" style="font-size: 22px; min-width: 32px; text-align: center; color: #381E11;">1</strong>
+            <button type="button" class="btn btn-secondary" style="width: 38px; height: 38px; padding: 0; font-size: 18px; font-weight: 800;" onclick="mingle.adjustFinishOrderCopies(1)">+</button>
+          </div>
+          <div style="display: flex; gap: 6px;">
+            <button type="button" class="btn btn-secondary mingle-finish-qty-chip" data-qty="1" onclick="mingle.setFinishOrderCopies(1)" style="padding: 6px 11px; font-size: 12px; font-weight: 800;">1×</button>
+            <button type="button" class="btn btn-secondary mingle-finish-qty-chip" data-qty="2" onclick="mingle.setFinishOrderCopies(2)" style="padding: 6px 11px; font-size: 12px; font-weight: 800;">2×</button>
+            <button type="button" class="btn btn-secondary mingle-finish-qty-chip" data-qty="3" onclick="mingle.setFinishOrderCopies(3)" style="padding: 6px 11px; font-size: 12px; font-weight: 800;">3×</button>
+            <button type="button" class="btn btn-secondary mingle-finish-qty-chip" data-qty="4" onclick="mingle.setFinishOrderCopies(4)" style="padding: 6px 11px; font-size: 12px; font-weight: 800;">4×</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pilihan Kertas 4R vs 5R -->
+      <div style="margin-bottom: 14px;">
+        <div style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">📐 Ukuran Kertas yang Diminta Tamu:</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <button type="button" id="mingleFinishPaperOpt4R" onclick="mingle.setFinishOrderPaper('4R')" style="text-align: left; padding: 12px; border-radius: 14px; border: 2px solid var(--coral, #E6786B); background: rgba(230,120,107,0.12); cursor: pointer;">
+            <div style="font-size: 15px; font-weight: 800; color: #381E11;">📄 4R (10×15 cm)</div>
+            <div style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-top: 2px;">Ukuran standar / strip</div>
+          </button>
+          <button type="button" id="mingleFinishPaperOpt5R" onclick="mingle.setFinishOrderPaper('5R')" style="text-align: left; padding: 12px; border-radius: 14px; border: 2px solid var(--border-soft, #EAD8C7); background: #fff; cursor: pointer;">
+            <div style="font-size: 15px; font-weight: 800; color: #381E11;">📄 5R (13×18 cm)</div>
+            <div style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-top: 2px;">Ukuran lebih besar</div>
+          </button>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <button id="mingleFinishSaveOrderBtn" type="button" class="btn btn-coral" style="width: 100%; padding: 13px; font-size: 14px; font-weight: 800;" onclick="mingle.confirmFinishWithPrintOrder()">
+          📝 Simpan Catatan (4R · 1×) &amp; Tamu Berikutnya →
+        </button>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" class="btn btn-secondary" style="flex: 1; padding: 10px 12px; font-size: 12.5px; font-weight: 700;" onclick="mingle.confirmFinishDigitalOnly()">
+            📱 Tanpa Cetak (QR / Digital Saja)
+          </button>
+          <button type="button" class="btn btn-secondary" style="padding: 10px 14px; font-size: 12.5px; font-weight: 700;" onclick="mingle.closeFinishPrintOrderModal()">Kembali</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.5"></script>
   <script src="/js/print-client.js?v=1.7"></script>

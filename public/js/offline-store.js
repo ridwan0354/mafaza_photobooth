@@ -141,6 +141,8 @@
         printCopies: parseInt(sessionData.printCopies, 10) || 1,
         printPaperSize: sessionData.printPaperSize || null,
         paperConfirmed: Boolean(sessionData.paperConfirmed),
+        requestedPrintPaper: sessionData.requestedPrintPaper || null,
+        requestedPrintCopies: Math.max(0, Math.min(20, parseInt(sessionData.requestedPrintCopies, 10) || 0)),
         synced: false,
         syncAttempts: 0,
         createdAt: Date.now()
@@ -175,6 +177,12 @@
               record.printCopies = existing.printCopies || record.printCopies;
               record.printPaperSize = existing.printPaperSize || record.printPaperSize;
               record.paperConfirmed = Boolean(existing.paperConfirmed);
+            }
+            const shouldPreserveOrder = !sessionData.updatePrintOrder
+              && (sessionData.preservePrintFlags || ((existing.requestedPrintCopies || 0) > 0 && !(record.requestedPrintCopies > 0)));
+            if (shouldPreserveOrder && (existing.requestedPrintCopies || 0) > 0) {
+              record.requestedPrintPaper = existing.requestedPrintPaper || record.requestedPrintPaper;
+              record.requestedPrintCopies = existing.requestedPrintCopies;
             }
           }
           const putReq = store.put(record);
@@ -316,6 +324,10 @@
         fd.append('printCopies', String(session.printCopies || 1));
         if (session.printPaperSize) fd.append('printPaperSize', session.printPaperSize);
         if (session.paperConfirmed) fd.append('paperConfirmed', 'true');
+        if ((parseInt(session.requestedPrintCopies, 10) || 0) > 0 || session.requestedPrintPaper) {
+          fd.append('requestedPrintCopies', String(parseInt(session.requestedPrintCopies, 10) || 0));
+          if (session.requestedPrintPaper) fd.append('requestedPrintPaper', session.requestedPrintPaper);
+        }
         if (session.guestPassId) fd.append('guestPassId', session.guestPassId);
         if (session.templateId) fd.append('templateId', session.templateId);
       };
@@ -505,6 +517,8 @@
           printRequested: Boolean(session.printRequested),
           printCopies: parseInt(session.printCopies, 10) || 1,
           printPaperSize: session.printPaperSize || '4x6',
+          requestedPrintCopies: parseInt(session.requestedPrintCopies, 10) || 0,
+          requestedPrintPaper: session.requestedPrintPaper || null,
           galleryUrl: (uploadRes && uploadRes.guestPass && uploadRes.guestPass.galleryUrl) || session.guestPassGalleryUrl || null
         };
         const deduped = [entry].concat((Array.isArray(list) ? list : []).filter(x => x && x.id !== entry.id)).slice(0, 12);
@@ -534,6 +548,29 @@
           rec.printCopies = Math.max(1, Math.min(10, parseInt(printCopies, 10) || 1));
           rec.printPaperSize = printPaperSize || rec.printPaperSize || '4x6';
           rec.paperConfirmed = Boolean(paperConfirmed);
+          store.put(rec);
+          tx.oncomplete = () => {
+            this.notifyChange();
+            resolve(rec);
+          };
+        };
+        req.onerror = () => reject(req.error);
+      });
+    },
+
+    async updateOfflineSessionPrintOrder(sessionId, { requestedPrintPaper = null, requestedPrintCopies = 0 } = {}) {
+      if (!sessionId) return null;
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_SESSIONS, 'readwrite');
+        const store = tx.objectStore(STORE_SESSIONS);
+        const req = store.get(sessionId);
+        req.onsuccess = () => {
+          const rec = req.result;
+          if (!rec) { resolve(null); return; }
+          const copiesNum = Math.max(0, Math.min(20, parseInt(requestedPrintCopies, 10) || 0));
+          rec.requestedPrintCopies = copiesNum;
+          rec.requestedPrintPaper = copiesNum > 0 ? (requestedPrintPaper || rec.requestedPrintPaper || '4x6') : null;
           store.put(rec);
           tx.oncomplete = () => {
             this.notifyChange();
@@ -614,6 +651,8 @@
       const timeStr = new Date(s.createdAt || Date.now()).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
       const caps = Array.isArray(s.captures) ? s.captures : [];
       const paperLbl = s.printPaperSize === '5x7' ? '5R' : (s.printPaperSize === '2x6' ? 'Strip' : '4R');
+      const reqCopies = parseInt(s.requestedPrintCopies, 10) || 0;
+      const reqPaperLbl = s.requestedPrintPaper === '5x7' ? '5R' : (s.requestedPrintPaper === '2x6' ? 'Strip' : '4R');
 
       card.innerHTML = `
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;">
@@ -654,6 +693,11 @@
             ⏳ <strong>QR Menunggu WiFi:</strong> Stok QR offline habis; foto aman di tablet &amp; akan otomatis dibuatkan QR saat tersinkron di tenda.
           </div>
         `}
+        ${(!s.printRequested && reqCopies > 0) ? `
+          <div style="background:#FFF4D6;border:1.5px solid #E5B95C;border-radius:12px;padding:9px 12px;font-size:12px;color:#7A4B0E;margin-bottom:12px;font-weight:700;">
+            📝 Pesanan Cetak Tersimpan: <strong>${reqPaperLbl} · ${reqCopies} Lembar</strong> (akan muncul di halaman Admin saat WiFi tersambung).
+          </div>
+        ` : ''}
         <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;">
           <button type="button" id="pbOfflineDetailQueue4R" class="btn btn-secondary" style="padding:8px 12px;font-size:12px;font-weight:800;border-radius:999px;cursor:pointer;">
             ${s.printRequested ? `✅ Antre Cetak ${paperLbl} (${s.printCopies || 1}×)` : '🖨️ Tandai Antre Cetak Server (4R)'}
@@ -727,9 +771,13 @@
           const timeStr = new Date(s.createdAt || Date.now()).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
           const poseCount = Array.isArray(s.captures) ? s.captures.length : 0;
           const paperLbl = s.printPaperSize === '5x7' ? '5R' : (s.printPaperSize === '2x6' ? 'Strip' : '4R');
+          const reqCopies = parseInt(s.requestedPrintCopies, 10) || 0;
+          const reqPaperLbl = s.requestedPrintPaper === '5x7' ? '5R' : (s.requestedPrintPaper === '2x6' ? 'Strip' : '4R');
           const printTag = s.printRequested
             ? `<span style="background:#FFF8E6;color:#7a581a;border:1px solid #D4A754;padding:2px 7px;border-radius:999px;font-size:10.5px;font-weight:800;">🖨️ Antre ${paperLbl} (${s.printCopies || 1}×)</span>`
-            : `<span style="background:#F3EFEA;color:#6E584B;padding:2px 7px;border-radius:999px;font-size:10.5px;font-weight:700;">⚪ Belum Cetak</span>`;
+            : (reqCopies > 0
+              ? `<span style="background:#FFF4D6;color:#7A4B0E;border:1px solid #E5B95C;padding:2px 7px;border-radius:999px;font-size:10.5px;font-weight:800;">📝 Mau Cetak: ${reqPaperLbl} (${reqCopies}×)</span>`
+              : `<span style="background:#F3EFEA;color:#6E584B;padding:2px 7px;border-radius:999px;font-size:10.5px;font-weight:700;">⚪ Belum Cetak</span>`);
           const qrTag = s.guestPassQrDataUrl
             ? `<span style="background:rgba(95,143,138,0.14);color:#1F5B56;padding:2px 7px;border-radius:999px;font-size:10.5px;font-weight:800;">📱 QR Siap</span>`
             : `<span style="background:#FFF0EC;color:#B93829;padding:2px 7px;border-radius:999px;font-size:10.5px;font-weight:700;">⏳ QR saat WiFi</span>`;

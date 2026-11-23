@@ -1148,6 +1148,22 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
     // Update session status
     db.prepare("UPDATE photo_sessions SET status = 'completed', ended_at = datetime('now') WHERE id = ?").run(sessionId);
 
+    // Simpan catatan pesanan cetak tamu (mis. dari Mingle saat offline / keliling sebelum kembali ke tenda)
+    if (req.body && (req.body.requestedPrintPaper !== undefined || req.body.requestedPrintCopies !== undefined)) {
+      const reqCopiesParsed = parseInt(req.body.requestedPrintCopies, 10);
+      const safeReqCopies = Number.isFinite(reqCopiesParsed) ? Math.max(0, Math.min(20, reqCopiesParsed)) : 0;
+      const rawReqPaper = String(req.body.requestedPrintPaper || '').trim();
+      let normalizedReqPaper = null;
+      if (safeReqCopies > 0 && rawReqPaper) {
+        const up = rawReqPaper.toUpperCase();
+        normalizedReqPaper = up === '5R' ? '5x7' : (up === '4R' ? '4x6' : rawReqPaper);
+      }
+      db.prepare('UPDATE photo_sessions SET requested_print_paper = ?, requested_print_copies = ? WHERE id = ?')
+        .run(normalizedReqPaper, safeReqCopies, sessionId);
+      session.requested_print_paper = normalizedReqPaper;
+      session.requested_print_copies = safeReqCopies;
+    }
+
     if (!finalAssetId) {
       const existingFinal = db.prepare("SELECT id FROM media_assets WHERE photo_session_id = ? AND type = 'final_photo'").get(sessionId);
       if (existingFinal) finalAssetId = existingFinal.id;
@@ -1217,6 +1233,8 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
         token: issuedAutoPass.token_plain,
         galleryUrl: `/gallery/g/${issuedAutoPass.token_plain}`
       } : null,
+      requestedPrintPaper: session.requested_print_paper || null,
+      requestedPrintCopies: Number(session.requested_print_copies) || 0,
       printJob
     });
   } catch (err) {
@@ -1575,7 +1593,9 @@ apiRouter.get('/photos/recent', authMiddleware(), (req, res) => {
     let query = `
       SELECT ma.id as asset_id, ma.file_path, ma.variant, ma.created_at,
              ps.id as session_id, ps.mode as session_mode, ps.status as session_status,
-             ps.guest_pass_id,
+             ps.guest_pass_id, ps.requested_print_paper, ps.requested_print_copies,
+             (SELECT t.name FROM templates t WHERE t.id = ps.template_id LIMIT 1) as template_name,
+             (SELECT t.paper_size FROM templates t WHERE t.id = ps.template_id LIMIT 1) as template_paper_size,
              gp.token_plain as guest_token,
              gp.issued_via as qr_flow_type,
              (SELECT COUNT(*) FROM photo_sessions ps2 WHERE ps2.guest_pass_id = gp.id) as gp_session_count,

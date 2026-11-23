@@ -42,6 +42,10 @@ class MingleBoothEngine {
 
     this.guestPass = null;
     this.sessionId = null;
+    this._sessionPrintDispatched = false;
+    this._finishPrintOrderResolved = false;
+    this._sessionRequestedPrintOrder = null;
+    this._currentSyncSnap = null;
 
     // USB PTP bridge state (127.0.0.1:19898)
     this.usbStatus = null;
@@ -943,6 +947,10 @@ class MingleBoothEngine {
     if (window.MafazaPhotoFilters) window.MafazaPhotoFilters.clearCache();
     this.guestPass = null;
     this.sessionId = null;
+    this._sessionPrintDispatched = false;
+    this._finishPrintOrderResolved = false;
+    this._sessionRequestedPrintOrder = null;
+    this._currentSyncSnap = null;
     const qrHint = document.getElementById('mingleQrTapHint');
     if (qrHint) qrHint.style.display = 'none';
     const readyRow = document.getElementById('mingleReadyStripRow');
@@ -2407,6 +2415,9 @@ class MingleBoothEngine {
     printCopies = 1,
     printPaperSize = null,
     paperConfirmed = false,
+    requestedPrintPaper = undefined,
+    requestedPrintCopies = undefined,
+    updatePrintOrder = false,
     preservePrintFlags = true
   } = {}) {
     if (!window.pbOfflineStore) return false;
@@ -2442,13 +2453,24 @@ class MingleBoothEngine {
       printCopies: parseInt(printCopies, 10) || 1,
       printPaperSize: printPaperSize || null,
       paperConfirmed: Boolean(paperConfirmed),
+      ...(requestedPrintPaper !== undefined ? { requestedPrintPaper } : {}),
+      ...(requestedPrintCopies !== undefined ? { requestedPrintCopies } : {}),
+      updatePrintOrder: Boolean(updatePrintOrder),
       preservePrintFlags: Boolean(preservePrintFlags) && !printRequested
     });
     this.updateOfflineGalleryBadge();
     return true;
   }
 
-  async issuePassCreateAndSync() {
+  issuePassCreateAndSync() {
+    const p = this._runIssuePassCreateAndSync().finally(() => {
+      if (this._activeSyncPromise === p) this._activeSyncPromise = null;
+    });
+    this._activeSyncPromise = p;
+    return p;
+  }
+
+  async _runIssuePassCreateAndSync() {
     const qrImg = document.getElementById('mingleQrImg');
     const qrPh = document.getElementById('mingleQrPlaceholder');
     const qrHint = document.getElementById('mingleQrTapHint');
@@ -2472,6 +2494,7 @@ class MingleBoothEngine {
       filter: this.activeFilter || 'normal',
       filterIntensity: this.activeFilterIntensity || 1.0
     };
+    this._currentSyncSnap = snap;
 
     if (!snap.guestPass) {
       if (qrImg) qrImg.style.display = 'none';
@@ -2597,6 +2620,12 @@ class MingleBoothEngine {
     const printCopies = String(printOpts.copies || 1);
     const printPaperSize = printOpts.paperSize || '';
     const paperConfirmed = !!printOpts.paperConfirmed;
+    const reqOrderPaper = printOpts.requestedPrintPaper !== undefined
+      ? printOpts.requestedPrintPaper
+      : (this._sessionRequestedPrintOrder ? this._sessionRequestedPrintOrder.paperSize : undefined);
+    const reqOrderCopies = printOpts.requestedPrintCopies !== undefined
+      ? printOpts.requestedPrintCopies
+      : (this._sessionRequestedPrintOrder ? this._sessionRequestedPrintOrder.copies : undefined);
 
     const snapPassObj = overrideSnap ? (overrideSnap.guestPass || null) : (this.guestPass || null);
     const snapTemplateName = overrideSnap
@@ -2620,6 +2649,8 @@ class MingleBoothEngine {
         printCopies,
         printPaperSize: printPaperSize || null,
         paperConfirmed,
+        ...(reqOrderPaper !== undefined ? { requestedPrintPaper: reqOrderPaper } : {}),
+        ...(reqOrderCopies !== undefined ? { requestedPrintCopies: reqOrderCopies } : {}),
         preservePrintFlags: !printRequested
       }).catch(() => {});
       if (this.sessionId === snapSessionId) {
@@ -2650,6 +2681,10 @@ class MingleBoothEngine {
           formData.append('printCopies', printCopies);
           if (printPaperSize) formData.append('printPaperSize', printPaperSize);
           if (paperConfirmed) formData.append('paperConfirmed', 'true');
+        }
+        if (reqOrderPaper !== undefined || reqOrderCopies !== undefined) {
+          formData.append('requestedPrintCopies', String(reqOrderCopies || 0));
+          if (reqOrderPaper) formData.append('requestedPrintPaper', reqOrderPaper);
         }
         formData.append('mode', modeVal);
         formData.append('tenantId', snapTenantId);
@@ -2690,6 +2725,10 @@ class MingleBoothEngine {
           formData.append('printCopies', printCopies);
           if (printPaperSize) formData.append('printPaperSize', printPaperSize);
           if (paperConfirmed) formData.append('paperConfirmed', 'true');
+        }
+        if (isLastBatch && (reqOrderPaper !== undefined || reqOrderCopies !== undefined)) {
+          formData.append('requestedPrintCopies', String(reqOrderCopies || 0));
+          if (reqOrderPaper) formData.append('requestedPrintPaper', reqOrderPaper);
         }
         formData.append('mode', modeVal);
         formData.append('tenantId', snapTenantId);
@@ -2738,6 +2777,8 @@ class MingleBoothEngine {
         printCopies,
         printPaperSize: printPaperSize || null,
         paperConfirmed,
+        ...(reqOrderPaper !== undefined ? { requestedPrintPaper: reqOrderPaper } : {}),
+        ...(reqOrderCopies !== undefined ? { requestedPrintCopies: reqOrderCopies } : {}),
         preservePrintFlags: !printRequested
       }).catch(() => {});
       if (this.sessionId === snapSessionId) {
@@ -2748,6 +2789,14 @@ class MingleBoothEngine {
       }
       return { offlineSaved: true };
     }
+  }
+
+  isDefaultTemplate5R() {
+    const tpl = this.selectedTemplate;
+    return Boolean(tpl && (
+      String(tpl.paper_format || tpl.paper_size || '').toUpperCase() === '5R' ||
+      /5r|5x7|1500x2100|2100x1500/i.test(`${tpl.name || ''} ${tpl.orientation || ''} ${tpl.width || ''}x${tpl.height || ''}`)
+    ));
   }
 
   openPrintOptionsModal() {
@@ -2761,12 +2810,7 @@ class MingleBoothEngine {
       return;
     }
     this.setModalPrintCopies(this.modalPrintCopies || 1);
-    const tpl = this.selectedTemplate;
-    const is5rTpl = Boolean(tpl && (
-      String(tpl.paper_format || '').toUpperCase() === '5R' ||
-      /5r|5x7|1500x2100|2100x1500/i.test(`${tpl.name || ''} ${tpl.orientation || ''} ${tpl.width || ''}x${tpl.height || ''}`)
-    ));
-    this.setModalPrintPaper(is5rTpl ? '5R' : '4R');
+    this.setModalPrintPaper(this.isDefaultTemplate5R() ? '5R' : '4R');
     const readyCheck = document.getElementById('minglePaperAlreadyReadyCheck');
     if (readyCheck) readyCheck.checked = false;
     const confirmBtn = document.getElementById('minglePrintModalConfirmBtn');
@@ -2966,18 +3010,23 @@ class MingleBoothEngine {
     if (this.isLocalDirectMode()) {
       await this.printFromModalViaDevice();
       await this.syncFinalImageOnly(false, false, printOpts);
+      this._sessionPrintDispatched = true;
       this.showToast(`⚡ ${printOpts.copies || 1}× ${printOpts.paperLabel || '4R'} dicetak langsung & disimpan lokal!`, '🖨️', 2800);
       return;
     }
     const resData = await this.syncFinalImageOnly(false, true, printOpts);
     const job = resData && resData.printJob ? resData.printJob : null;
     if (job && job.requiresPaperConfirm) {
+      this._sessionPrintDispatched = true;
       this.showToast(`📄 Antrean 5R (${printOpts.copies}×) dikirim! Menunggu konfirmasi kertas di Laptop Printer.`, '⏳', 3500);
     } else if (job && (job.dispatchedToOs || job.awaitingAgent)) {
+      this._sessionPrintDispatched = true;
       this.showToast(`🖨️ ${printOpts.copies}× ${printOpts.paperLabel || '4R'} langsung dicetak di ${job.printerName || 'printer'}!`, '🖨️', 2800);
     } else if (job) {
+      this._sessionPrintDispatched = true;
       this.showToast(`✅ Antrean ${printOpts.paperLabel || '4R'} (${printOpts.copies}×) dikirim ke Server Admin!`, '🖨️', 3000);
     } else if (resData && resData.offlineSaved) {
+      this._sessionPrintDispatched = true;
       this.showToast(`⚡ WiFi terputus: Foto & antrean cetak (${printOpts.copies}×) disimpan lokal & dikirim otomatis saat ada WiFi!`, '⚡', 3500);
     } else {
       this.showToast('⚠️ Gagal mengirim ke server.', '⚠️', 2600);
@@ -3006,12 +3055,210 @@ class MingleBoothEngine {
   }
 
   nextGuest() {
+    if (!this.filesOnlyMode && (this.capturedPhotos || []).length > 0 && !this._sessionPrintDispatched && !this._finishPrintOrderResolved) {
+      const modal = document.getElementById('mingleFinishPrintOrderModal');
+      if (modal) {
+        this.openFinishPrintOrderModal();
+        return;
+      }
+    }
+    this.proceedNextGuest();
+  }
+
+  proceedNextGuest() {
     this._physicalReadyArmed = false;
     this.setUsbMingleListen(false);
     this.stopLiveViewLoop();
     this.stopWebcam();
     this.resetSessionCaptureState();
     this.showScreen('screenMingleWelcome');
+  }
+
+  resolveFinishOrderPaperCode() {
+    if (this.finishOrderPaper === '5R') return '5x7';
+    if (this.selectedTemplate && this.selectedTemplate.orientation === 'strip') return '2x6';
+    return '4x6';
+  }
+
+  openFinishPrintOrderModal() {
+    const modal = document.getElementById('mingleFinishPrintOrderModal');
+    if (!modal) {
+      this.proceedNextGuest();
+      return;
+    }
+    const defaultCopies = (this.selectedTemplate && this.selectedTemplate.orientation === 'strip') ? 2 : 1;
+    this.setFinishOrderCopies(this.finishOrderCopies || defaultCopies);
+    this.setFinishOrderPaper(this.isDefaultTemplate5R() ? '5R' : '4R');
+    modal.style.display = 'flex';
+  }
+
+  closeFinishPrintOrderModal(event) {
+    if (event && event.target && event.target.closest('div[onclick*="stopPropagation"]')) return;
+    const modal = document.getElementById('mingleFinishPrintOrderModal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  setFinishOrderCopies(qty) {
+    const num = Math.max(1, Math.min(10, parseInt(qty, 10) || 1));
+    this.finishOrderCopies = num;
+    const qtyEl = document.getElementById('mingleFinishOrderQty');
+    if (qtyEl) qtyEl.innerText = String(num);
+    document.querySelectorAll('.mingle-finish-qty-chip').forEach(btn => {
+      const active = parseInt(btn.dataset.qty, 10) === num;
+      btn.style.background = active ? 'var(--coral, #E6786B)' : '';
+      btn.style.color = active ? '#fff' : '';
+      btn.style.borderColor = active ? 'var(--coral, #E6786B)' : '';
+    });
+    this.updateFinishOrderSaveBtnLabel();
+  }
+
+  adjustFinishOrderCopies(delta) {
+    this.setFinishOrderCopies((this.finishOrderCopies || 1) + delta);
+  }
+
+  setFinishOrderPaper(size) {
+    this.finishOrderPaper = size === '5R' ? '5R' : '4R';
+    const opt4 = document.getElementById('mingleFinishPaperOpt4R');
+    const opt5 = document.getElementById('mingleFinishPaperOpt5R');
+    if (opt4) {
+      const a = this.finishOrderPaper === '4R';
+      opt4.style.borderColor = a ? 'var(--coral, #E6786B)' : 'var(--border-soft, #EAD8C7)';
+      opt4.style.background = a ? 'rgba(230,120,107,0.12)' : '#fff';
+    }
+    if (opt5) {
+      const a = this.finishOrderPaper === '5R';
+      opt5.style.borderColor = a ? '#D4A754' : 'var(--border-soft, #EAD8C7)';
+      opt5.style.background = a ? '#FFF8E6' : '#fff';
+    }
+    this.updateFinishOrderSaveBtnLabel();
+  }
+
+  updateFinishOrderSaveBtnLabel() {
+    const btn = document.getElementById('mingleFinishSaveOrderBtn');
+    if (!btn) return;
+    const paperLbl = this.finishOrderPaper || '4R';
+    const qty = this.finishOrderCopies || 1;
+    btn.innerText = `📝 Simpan Catatan (${paperLbl} · ${qty}×) & Tamu Berikutnya →`;
+  }
+
+  async _captureCurrentFinalBlob() {
+    const canvas = document.getElementById('mingleFinalCanvas');
+    if (!canvas || !canvas.width || this.filesOnlyMode) return null;
+    try {
+      return await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  _buildFinishSnapshot() {
+    if (this._currentSyncSnap) return this._currentSyncSnap;
+    return {
+      sessionId: this.sessionId || null,
+      tenantId: this.tenantId,
+      eventId: this.eventId,
+      guestPass: this.guestPass || null,
+      templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+      templateName: this.selectedTemplate ? this.selectedTemplate.name : null,
+      photos: [...(this.capturedPhotos || [])],
+      filesOnlyMode: Boolean(this.filesOnlyMode),
+      syncedCaptureCount: this.syncedCaptureCount || 0,
+      filter: this.activeFilter || 'normal',
+      filterIntensity: this.activeFilterIntensity || 1.0
+    };
+  }
+
+  async confirmFinishWithPrintOrder() {
+    const copies = this.finishOrderCopies || 1;
+    const paperLabel = this.finishOrderPaper || '4R';
+    const paperSize = this.resolveFinishOrderPaperCode();
+    const snap = this._buildFinishSnapshot();
+    const waitSync = this._activeSyncPromise || null;
+    const finalBlob = await this._captureCurrentFinalBlob();
+
+    this._sessionRequestedPrintOrder = { paperSize, paperLabel, copies };
+    this._finishPrintOrderResolved = true;
+    this.closeFinishPrintOrderModal();
+    this.proceedNextGuest();
+    this.showToast(`📝 Catatan cetak (${paperLabel} · ${copies}×) tersimpan untuk tenda/Admin!`, '📝', 2600);
+
+    this.persistFinishPrintOrder(snap, waitSync, {
+      requestedPrintPaper: paperSize,
+      requestedPrintCopies: copies,
+      finalBlob
+    }).catch(() => {});
+  }
+
+  async confirmFinishDigitalOnly() {
+    this._sessionRequestedPrintOrder = { paperSize: null, paperLabel: null, copies: 0 };
+    this._finishPrintOrderResolved = true;
+    const snap = this._buildFinishSnapshot();
+    const waitSync = this._activeSyncPromise || null;
+    this.closeFinishPrintOrderModal();
+    this.proceedNextGuest();
+    Promise.resolve(waitSync).catch(() => {}).then(() => {
+      if (snap && snap.sessionId && window.pbOfflineStore) {
+        window.pbOfflineStore.updateOfflineSessionPrintOrder(snap.sessionId, {
+          requestedPrintPaper: null,
+          requestedPrintCopies: 0
+        }).catch(() => {});
+      }
+    });
+  }
+
+  async persistFinishPrintOrder(snap, waitSync, { requestedPrintPaper = null, requestedPrintCopies = 0, finalBlob = null } = {}) {
+    if (waitSync) {
+      try { await waitSync; } catch (e) {}
+    }
+    const targetSessionId = snap && snap.sessionId;
+    if (!targetSessionId) return null;
+
+    let updatedOffline = null;
+    if (window.pbOfflineStore && typeof window.pbOfflineStore.updateOfflineSessionPrintOrder === 'function') {
+      updatedOffline = await window.pbOfflineStore.updateOfflineSessionPrintOrder(targetSessionId, {
+        requestedPrintPaper,
+        requestedPrintCopies
+      }).catch(() => null);
+    }
+
+    const isLocalMode = this.isLocalDirectMode();
+    if (!isLocalMode && navigator.onLine !== false) {
+      try {
+        const fd = new FormData();
+        fd.append('printRequested', 'false');
+        fd.append('requestedPrintCopies', String(requestedPrintCopies || 0));
+        if (requestedPrintPaper) fd.append('requestedPrintPaper', requestedPrintPaper);
+        fd.append('mode', snap.filesOnlyMode ? 'files_only' : (snap.photos && snap.photos.length > 1 ? 'multi' : 'single'));
+        if (snap.tenantId) fd.append('tenantId', snap.tenantId);
+        if (snap.eventId) fd.append('eventId', snap.eventId);
+        if (snap.guestPass && snap.guestPass.id) fd.append('guestPassId', snap.guestPass.id);
+        if (snap.templateId) fd.append('templateId', snap.templateId);
+        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${targetSessionId}/complete`, { method: 'POST', body: fd }, 12000);
+        if (res.ok) return await res.json().catch(() => ({ success: true }));
+      } catch (e) {}
+    }
+
+    if (!updatedOffline && window.pbOfflineStore) {
+      await this.saveMingleOfflineSession(finalBlob, {
+        sessionId: targetSessionId,
+        tenantId: snap.tenantId,
+        eventId: snap.eventId,
+        guestPassId: snap.guestPass ? snap.guestPass.id : null,
+        guestPass: snap.guestPass || null,
+        templateId: snap.templateId,
+        templateName: snap.templateName,
+        photos: snap.photos || [],
+        modeVal: snap.filesOnlyMode ? 'files_only' : (snap.photos && snap.photos.length > 1 ? 'multi' : 'single'),
+        filterKey: snap.filter || 'normal',
+        filterIntensity: typeof snap.filterIntensity === 'number' ? snap.filterIntensity : 1.0,
+        printRequested: false,
+        requestedPrintPaper,
+        requestedPrintCopies,
+        updatePrintOrder: true,
+        preservePrintFlags: true
+      }).catch(() => {});
+    }
+    return null;
   }
 
   async toggleFullScreen() {

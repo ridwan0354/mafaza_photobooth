@@ -154,7 +154,9 @@ CREATE TABLE IF NOT EXISTS photo_sessions (
   status TEXT NOT NULL DEFAULT 'completed', -- 'capturing', 'processing', 'completed', 'abandoned'
   started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   ended_at DATETIME,
-  local_session_id TEXT
+  local_session_id TEXT,
+  requested_print_paper TEXT,
+  requested_print_copies INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS captures (

@@ -226,6 +226,9 @@ function runMigrations() {
   ensureColumn('templates', 'qr_coords_json', "TEXT DEFAULT '[]'");
   // Apakah frame menghapus warna hijau otomatis (chroma key) saat render hasil — default 0 (manual/transparan)
   ensureColumn('templates', 'chroma_key', 'INTEGER DEFAULT 0');
+  // Catatan pesanan cetak dari mode keliling / offline (ukuran kertas & jumlah lembar sebelum cetak di tenda)
+  ensureColumn('photo_sessions', 'requested_print_paper', 'TEXT');
+  ensureColumn('photo_sessions', 'requested_print_copies', 'INTEGER DEFAULT 0');
 
   ensureStarterLandscapeTemplates();
 }

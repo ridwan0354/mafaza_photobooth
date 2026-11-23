@@ -1563,3 +1563,143 @@ test('Package 1 & 2 fixes: expired cleanup, pass expiry, Gallery ZIP, 4x4 paper 
   });
   assert.deepEqual(calls[0], { paper: '5x7', land: true }, 'Android APK receives 5R landscape paper options');
 });
+
+test('Mingle finish print-order flow persists paper & copies offline -> server /complete -> Admin /photos/recent & quick-print prefill', async () => {
+  const vm = await import('node:vm');
+  const express = (await import('express')).default;
+  const { apiRouter } = await import('../src/routes/api.js');
+  const { createToken } = await import('../src/services/auth.js');
+
+  // 1. Offline store supports requestedPrintPaper & requestedPrintCopies + updateOfflineSessionPrintOrder
+  const offlineStoreSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/offline-store.js'), 'utf8');
+  assert.match(offlineStoreSrc, /updateOfflineSessionPrintOrder\s*\(/);
+  assert.match(offlineStoreSrc, /fd\.append\('requestedPrintCopies'/);
+  assert.match(offlineStoreSrc, /fd\.append\('requestedPrintPaper'/);
+
+  // 2. Backend /complete saves requested_print_paper & requested_print_copies WITHOUT premature print job, and /photos/recent exposes them
+  const app = express();
+  app.use('/api', apiRouter);
+  const srv = app.listen(0);
+  const port = srv.address().port;
+  const sessId = `sess_mgl_order_${Date.now()}`;
+  let createdPassId = null;
+
+  try {
+    const fd = new FormData();
+    fd.append('tenantId', 'tenant_studiokeren_01');
+    fd.append('eventId', 'event_wedding_dimas_sarah');
+    fd.append('mode', 'single');
+    fd.append('printRequested', 'false');
+    fd.append('requestedPrintPaper', '5R');
+    fd.append('requestedPrintCopies', '3');
+    fd.append('finalImage', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' }), 'final.jpg');
+
+    const compRes = await fetch(`http://127.0.0.1:${port}/api/kiosk/sessions/${sessId}/complete`, { method: 'POST', body: fd });
+    assert.equal(compRes.status, 200);
+    const compJson = await compRes.json();
+    assert.equal(compJson.printJob, null, 'Recording print order note must NOT auto-dispatch premature print job');
+    assert.equal(compJson.requestedPrintPaper, '5x7');
+    assert.equal(compJson.requestedPrintCopies, 3);
+    createdPassId = compJson.guestPassId;
+
+    const row = db.prepare('SELECT requested_print_paper, requested_print_copies FROM photo_sessions WHERE id = ?').get(sessId);
+    assert.equal(row.requested_print_paper, '5x7');
+    assert.equal(row.requested_print_copies, 3);
+
+    const token = createToken({ id: 'user_admin_test', tenantId: 'tenant_studiokeren_01', role: 'admin', name: 'Tester' });
+    const recentRes = await fetch(`http://127.0.0.1:${port}/api/photos/recent`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(recentRes.status, 200);
+    const recentList = await recentRes.json();
+    const matched = recentList.find(p => p.session_id === sessId);
+    assert.ok(matched, 'Synced session appears in GET /api/photos/recent');
+    assert.equal(matched.print_job_id, null);
+    assert.equal(matched.requested_print_paper, '5x7');
+    assert.equal(matched.requested_print_copies, 3);
+  } finally {
+    srv.closeAllConnections?.();
+    srv.close();
+    const assets = db.prepare('SELECT file_path FROM media_assets WHERE photo_session_id = ?').all(sessId);
+    for (const a of assets) {
+      if (a && a.file_path) {
+        try { fs.unlinkSync(path.join(process.cwd(), 'public', a.file_path)); } catch (e) {}
+      }
+    }
+    db.prepare('DELETE FROM media_assets WHERE photo_session_id = ?').run(sessId);
+    db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(sessId);
+    if (createdPassId) db.prepare('DELETE FROM guest_passes WHERE id = ?').run(createdPassId);
+  }
+
+  // 3. Mingle UI: nextGuest opens #mingleFinishPrintOrderModal when no print dispatched yet, and Admin card displays requested print order
+  const mingleHtml = fs.readFileSync(path.join(process.cwd(), 'public/mingle.html'), 'utf8');
+  const mingleJs = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const adminJs = fs.readFileSync(path.join(process.cwd(), 'public/js/admin.js'), 'utf8');
+
+  assert.match(mingleHtml, /id="mingleFinishPrintOrderModal"/);
+  assert.match(mingleHtml, /onclick="mingle\.confirmFinishWithPrintOrder\(\)"/);
+  assert.match(mingleHtml, /onclick="mingle\.confirmFinishDigitalOnly\(\)"/);
+  assert.match(adminJs, /function getPhotoRequestedPrintOrder\(/);
+  assert.match(adminJs, /📝 Pesanan Cetak/);
+  assert.match(adminJs, /const defaultCopies = reqOrder \? reqOrder\.copies/);
+
+  const orderModalEl = { style: { display: 'none' } };
+  const btnSaveOrderEl = { innerText: '' };
+  const finishQtyEl = { innerText: '1' };
+  const offlineOrderCalls = [];
+  const ctx = vm.createContext({
+    window: {
+      location: { origin: 'http://localhost', search: '' },
+      addEventListener() {},
+      pbOfflineStore: {
+        async updateOfflineSessionPrintOrder(id, data) { offlineOrderCalls.push({ id, data }); return { id, ...data }; }
+      }
+    },
+    document: {
+      getElementById: (id) => {
+        if (id === 'mingleFinishPrintOrderModal') return orderModalEl;
+        if (id === 'mingleFinishSaveOrderBtn') return btnSaveOrderEl;
+        if (id === 'mingleFinishOrderQty') return finishQtyEl;
+        return null;
+      },
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    },
+    localStorage: { getItem: () => null, setItem: () => {} },
+    navigator: { onLine: false },
+    URLSearchParams, FormData, Promise, Math, Date, JSON, Array, Number, String, Boolean, setTimeout, clearTimeout,
+    setInterval: () => 1, clearInterval: () => {}, console
+  });
+  vm.runInContext(mingleJs.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n'), ctx);
+  const engine = vm.runInContext('Object.create(MingleBoothEngine.prototype)', ctx);
+  Object.assign(engine, {
+    capturedPhotos: ['data:image/jpeg;base64,QQ=='],
+    filesOnlyMode: false,
+    selectedTemplate: { id: 'tpl_1', name: 'Frame 5R', paper_format: '5R', orientation: 'landscape' },
+    sessionId: 'sess_mgl_off_modal_1',
+    _currentSyncSnap: { sessionId: 'sess_mgl_off_modal_1', photos: ['data:image/jpeg;base64,QQ=='], filesOnlyMode: false },
+    _sessionPrintDispatched: false,
+    _finishPrintOrderResolved: false,
+    isLocalDirectMode: () => false,
+    resetSessionCaptureState: () => { engine.capturedPhotos = []; engine.sessionId = null; },
+    showToast: () => {},
+    showScreen: () => {},
+    stopLiveViewLoop: () => {},
+    stopWebcam: () => {},
+    setUsbMingleListen: () => {}
+  });
+
+  engine.nextGuest();
+  assert.equal(orderModalEl.style.display, 'flex', 'nextGuest prompts print order modal when unprinted');
+  assert.equal(engine.finishOrderPaper, '5R', 'Auto-detects 5R template in finish order modal');
+  engine.adjustFinishOrderCopies(1);
+  assert.match(btnSaveOrderEl.innerText, /5R · 2×/);
+
+  await engine.confirmFinishWithPrintOrder();
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(orderModalEl.style.display, 'none');
+  assert.equal(offlineOrderCalls.length, 1);
+  assert.equal(offlineOrderCalls[0].id, 'sess_mgl_off_modal_1');
+  assert.equal(offlineOrderCalls[0].data.requestedPrintPaper, '5x7');
+  assert.equal(offlineOrderCalls[0].data.requestedPrintCopies, 2);
+});
