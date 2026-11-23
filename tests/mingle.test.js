@@ -639,3 +639,191 @@ test('MingleBoothEngine arms baselinePhysicalSeq before accepting captures and b
   const photoFetch = fetchedUrls.find(u => u.includes('physical_capture.jpg?seq=48'));
   assert.ok(photoFetch && photoFetch.includes('&_cb='), 'Fetched bridge photo URL includes unique _cb cache-buster');
 });
+
+test('Offline QR pool holds 20 passes, is untouched while online, and auto-refills to 20 on WiFi reconnect', async () => {
+  const vm = await import('node:vm');
+  const mingleSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const trimmed = mingleSrc.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
+
+  let onlineFlag = true;
+  let seqId = 1;
+  const storageMap = new Map();
+  const winListeners = {};
+  const docEl = () => ({
+    style: {}, value: '', innerText: '', textContent: '', innerHTML: '', src: '', href: '', width: 100, height: 100,
+    classList: { toggle() {}, add() {}, remove() {} },
+    addEventListener() {},
+    toBlob: (cb) => cb({ size: 256, type: 'image/jpeg' }),
+    getContext: () => ({ drawImage() {}, fillRect() {} })
+  });
+  const elements = new Map();
+  const ctx = vm.createContext({
+    URL, URLSearchParams, AbortController, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    Blob: class {},
+    FormData: class { append() {} },
+    localStorage: {
+      getItem: (k) => (storageMap.has(k) ? storageMap.get(k) : null),
+      setItem: (k, v) => storageMap.set(k, String(v))
+    },
+    navigator: { get onLine() { return onlineFlag; }, mediaDevices: null },
+    document: {
+      body: docEl(),
+      getElementById(id) { if (!elements.has(id)) elements.set(id, docEl()); return elements.get(id); },
+      querySelectorAll: () => [],
+      createElement: () => docEl()
+    },
+    window: {
+      location: { origin: 'https://mafaza.galipatsistem.com', search: '' },
+      addEventListener(ev, fn) { winListeners[ev] = fn; }
+    },
+    pbOfflineStore: {
+      async saveSession() {},
+      async getPendingCount() { return 0; },
+      subscribe() {}
+    },
+    fetch: async (url) => {
+      if (String(url).includes('/api/guest-passes/issue')) {
+        const idNum = seqId++;
+        return {
+          ok: true,
+          json: async () => ({
+            id: `gp_${idNum}`,
+            token: `tok_${idNum}`,
+            token_plain: `tok_${idNum}`,
+            galleryUrl: `/gallery/g/tok_${idNum}`,
+            fullQrUrl: `https://mafaza.galipatsistem.com/gallery/g/tok_${idNum}`,
+            qrDataUrl: `data:image/png;base64,QR_${idNum}`
+          })
+        };
+      }
+      if (String(url).includes('/api/kiosk/sessions')) {
+        return { ok: true, json: async () => ({ sessionId: `sess_${seqId++}`, success: true }) };
+      }
+      return { ok: true, blob: async () => ({ size: 128 }), json: async () => ({ success: true }) };
+    },
+    setInterval: () => 1,
+    clearInterval: () => {},
+    setTimeout, clearTimeout, requestAnimationFrame: (fn) => fn(), console
+  });
+  vm.runInContext(trimmed, ctx);
+
+  const engine = vm.runInContext('Object.create(MingleBoothEngine.prototype)', ctx);
+  Object.assign(engine, {
+    tenantId: 't1', eventId: 'e_pool', deviceId: 'd1',
+    templates: [], allTemplates: [], capturedPhotos: ['data:image/jpeg;base64,QQ=='],
+    filesOnlyMode: true, currentScreen: 'screenMingleResult',
+    baselinePhysicalSeq: 0, _lastAcceptedPhysicalSeq: 0, _physicalReadyArmed: false,
+    _activeSessionToken: 1
+  });
+  engine.setupLifecycleListeners();
+
+  // 1. Pre-fill pool up to 20 passes at the tent
+  await engine.replenishGuestPassPool(20);
+  const poolKey = engine.getGuestPassPoolKey();
+  assert.equal(JSON.parse(storageMap.get(poolKey)).length, 20);
+
+  // 2. Customer served NEAR tent WITH WiFi -> fetches fresh pass from server, MUST NOT consume the 20 offline pool
+  engine.guestPass = null;
+  engine.sessionId = null;
+  await engine.issuePassCreateAndSync();
+  assert.equal(JSON.parse(storageMap.get(poolKey)).length, 20, 'Online session does not drain the 20-pass offline pool');
+
+  // 3. Roaming AWAY from WiFi (offline) -> 10 offline customers consume 10 pooled passes (leaving 10)
+  onlineFlag = false;
+  const offlineTokens = [];
+  for (let i = 0; i < 10; i++) {
+    engine.guestPass = null;
+    engine.sessionId = null;
+    await engine.issuePassCreateAndSync();
+    assert.ok(engine.guestPass && engine.guestPass.token, `Offline customer #${i + 1} receives QR immediately`);
+    offlineTokens.push(engine.guestPass.token);
+  }
+  assert.equal(new Set(offlineTokens).size, 10, 'Every offline customer receives a unique QR token');
+  assert.equal(JSON.parse(storageMap.get(poolKey)).length, 10);
+
+  // 4. Returning to tent (WiFi reconnects) -> window online event refills pool back to 20
+  onlineFlag = true;
+  winListeners.online();
+  await new Promise(r => setTimeout(r, 950));
+  assert.equal(JSON.parse(storageMap.get(poolKey)).length, 20, 'Pool refills automatically back to 20 when WiFi returns');
+});
+
+test('Offline gallery UI renders unsent sessions and /complete auto-issues QR + preserves 5R offline paper size', async () => {
+  const mingleHtml = fs.readFileSync(path.join(process.cwd(), 'public/mingle.html'), 'utf8');
+  const kioskHtml = fs.readFileSync(path.join(process.cwd(), 'public/kiosk.html'), 'utf8');
+  const offlineStoreSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/offline-store.js'), 'utf8');
+  const apiSrc = fs.readFileSync(path.join(process.cwd(), 'src/routes/api.js'), 'utf8');
+
+  assert.match(mingleHtml, /id="btnMingleOfflineGallery"[^>]*pbOfflineStore\.openLocalGallery/);
+  assert.match(mingleHtml, /id="btnMingleWelcomeOfflineGallery"[^>]*pbOfflineStore\.openLocalGallery/);
+  assert.match(kioskHtml, /id="btnKioskOfflineGallery"[^>]*pbOfflineStore\.openLocalGallery/);
+  assert.match(offlineStoreSrc, /printPaperSize/);
+  assert.match(offlineStoreSrc, /openLocalGallery\s*\(/);
+  assert.match(offlineStoreSrc, /_showSessionDetail\s*\(/);
+  assert.match(offlineStoreSrc, /pb_offline_synced_history_v1/);
+
+  // Exercise /api/kiosk/sessions/:id/complete directly for (a) printRequested=false offline upload auto-creating QR and (b) 5R printPaperSize preservation
+  const express = (await import('express')).default;
+  const http = await import('node:http');
+  const { apiRouter } = await import('../src/routes/api.js');
+  const app = express();
+  app.use('/api', apiRouter);
+  const srv = app.listen(0);
+  const port = srv.address().port;
+  const createdSessionIds = [];
+  const createdPassIds = [];
+  const createdJobIds = [];
+
+  try {
+    const fd1 = new FormData();
+    fd1.append('tenantId', 'tenant_studiokeren_01');
+    fd1.append('eventId', 'event_wedding_dimas_sarah');
+    fd1.append('mode', 'files_only');
+    fd1.append('printRequested', 'false');
+    fd1.append('captures', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' }), 'pose1.jpg');
+    const sess1 = `sess_off_test_no_print_${Date.now()}`;
+    createdSessionIds.push(sess1);
+    const r1 = await fetch(`http://127.0.0.1:${port}/api/kiosk/sessions/${sess1}/complete`, { method: 'POST', body: fd1 });
+    assert.equal(r1.status, 200);
+    const j1 = await r1.json();
+    assert.ok(j1.guestPassId, 'Auto-creates guestPassId even when printRequested is false');
+    assert.match(j1.guestPass.galleryUrl, /^\/gallery\/g\//);
+    createdPassIds.push(j1.guestPassId);
+
+    const fd2 = new FormData();
+    fd2.append('tenantId', 'tenant_studiokeren_01');
+    fd2.append('eventId', 'event_wedding_dimas_sarah');
+    fd2.append('mode', 'single');
+    fd2.append('printRequested', 'true');
+    fd2.append('printCopies', '2');
+    fd2.append('printPaperSize', '5x7');
+    fd2.append('finalImage', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' }), 'final.jpg');
+    const sess2 = `sess_off_test_5r_${Date.now()}`;
+    createdSessionIds.push(sess2);
+    const r2 = await fetch(`http://127.0.0.1:${port}/api/kiosk/sessions/${sess2}/complete`, { method: 'POST', body: fd2 });
+    assert.equal(r2.status, 200);
+    const j2 = await r2.json();
+    assert.equal(j2.printJob.paperSize, '5x7', 'Synced offline print preserves 5R (5x7) paperSize');
+    assert.equal(j2.printJob.copies, 2);
+    createdPassIds.push(j2.guestPassId);
+    createdJobIds.push(j2.printJob.printJobId);
+    assert.match(apiSrc, /if \(!session\.guest_pass_id && hasSessionMedia\)/);
+  } finally {
+    srv.close();
+    for (const jid of createdJobIds) db.prepare('DELETE FROM print_jobs WHERE id = ?').run(jid);
+    for (const sid of createdSessionIds) {
+      const assets = db.prepare('SELECT file_path FROM media_assets WHERE photo_session_id = ?').all(sid);
+      for (const a of assets) {
+        if (a && a.file_path) {
+          const p = path.join(process.cwd(), 'public', a.file_path);
+          try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
+        }
+      }
+      db.prepare('DELETE FROM media_assets WHERE photo_session_id = ?').run(sid);
+      db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(sid);
+    }
+    for (const pid of createdPassIds) {
+      if (pid) db.prepare('DELETE FROM guest_passes WHERE id = ?').run(pid);
+    }
+  }
+});

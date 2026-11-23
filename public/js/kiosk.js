@@ -90,7 +90,7 @@ class KioskEngine {
       this.fetchTemplates()
     ]);
     this.updateLocalModeUI();
-    this.replenishGuestPassPool().catch(() => {});
+    this.replenishGuestPassPool(20).catch(() => {});
     this.setupAudio();
     this.setupFullScreenSupport();
     this.setupKeyboardRemoteListeners();
@@ -208,12 +208,25 @@ class KioskEngine {
     const updateOfflineBadge = () => {
       const badge = document.getElementById('kioskOfflineBadge');
       const textEl = document.getElementById('kioskOfflineBadgeText');
-      if (!badge) return;
+      const galleryBtn = document.getElementById('btnKioskOfflineGallery');
 
       const isOnline = navigator.onLine;
       const isLocal = this.isLocalDirectMode();
+      const applyGalleryBtn = (count) => {
+        if (!galleryBtn) return;
+        const c = Number(count) || 0;
+        galleryBtn.textContent = c > 0
+          ? (isOnline ? `🔄 Mengirim (${c}) · 📂 Galeri` : `📦 Belum Terkirim (${c})`)
+          : (isOnline ? '📂 Galeri Lokal' : '⚡ Offline · 📂 Galeri');
+        galleryBtn.style.borderColor = c > 0 ? (isOnline ? 'var(--teal)' : 'var(--coral)') : 'var(--border-soft)';
+        galleryBtn.style.background = c > 0 ? (isOnline ? 'rgba(95, 143, 138, 0.16)' : '#FFF0EC') : 'var(--cream-card)';
+        galleryBtn.style.color = c > 0 ? (isOnline ? '#1F5B56' : '#B93829') : 'var(--caramel-brown)';
+      };
+
       if (window.pbOfflineStore) {
         window.pbOfflineStore.getPendingCount().then((count) => {
+          applyGalleryBtn(count);
+          if (!badge) return;
           if (isLocal) {
             badge.style.display = 'inline-flex';
             badge.style.borderColor = '#D4A754';
@@ -237,11 +250,14 @@ class KioskEngine {
             badge.style.display = 'none';
           }
         });
-      } else if (isLocal || !isOnline) {
-        badge.style.display = 'inline-flex';
-        if (textEl) textEl.innerText = isLocal ? '🔌 Mode Lokal • Cetak Langsung' : 'Mode Offline';
       } else {
-        badge.style.display = 'none';
+        applyGalleryBtn(0);
+        if (badge && (isLocal || !isOnline)) {
+          badge.style.display = 'inline-flex';
+          if (textEl) textEl.innerText = isLocal ? '🔌 Mode Lokal • Cetak Langsung' : 'Mode Offline';
+        } else if (badge) {
+          badge.style.display = 'none';
+        }
       }
     };
     this._updateOfflineBadge = updateOfflineBadge;
@@ -260,6 +276,7 @@ class KioskEngine {
 
     window.addEventListener('online', () => {
       updateOfflineBadge();
+      setTimeout(() => this.replenishGuestPassPool(20).catch(() => {}), 800);
       if (!this.isLocalDirectMode() && window.pbToast) {
         window.pbToast('🌐 Koneksi internet aktif kembali', 'info', 3000);
       }
@@ -269,8 +286,18 @@ class KioskEngine {
       if (window.pbToast) window.pbToast('⚡ Mode Offline: Foto & cetak tetap berfungsi normal!', 'warn', 4000);
     });
     if (window.pbOfflineStore) {
-      window.pbOfflineStore.subscribe(updateOfflineBadge);
+      window.pbOfflineStore.subscribe(() => {
+        updateOfflineBadge();
+        if (navigator.onLine !== false) {
+          this.replenishGuestPassPool(20).catch(() => {});
+        }
+      });
     }
+    setInterval(() => {
+      if (navigator.onLine !== false) {
+        this.replenishGuestPassPool(20).catch(() => {});
+      }
+    }, 30000);
     updateOfflineBadge();
   }
 
@@ -363,7 +390,7 @@ class KioskEngine {
         }
         this.eventConfig = this.eventData.config || {};
         this.updateLocalModeUI();
-    this.replenishGuestPassPool().catch(() => {});
+    this.replenishGuestPassPool(20).catch(() => {});
         if (this.eventConfig.shotsCount) {
           this.totalPosesRequired = parseInt(this.eventConfig.shotsCount) || 3;
         }
@@ -1145,7 +1172,7 @@ class KioskEngine {
     }
   }
 
-  async replenishGuestPassPool(targetCount = 4) {
+  async replenishGuestPassPool(targetCount = 20) {
     if (navigator.onLine === false || this._replenishingPassPool) return;
     this._replenishingPassPool = true;
     try {
@@ -5597,7 +5624,11 @@ class KioskEngine {
       eventId: this.eventId,
       deviceId: this.deviceId,
       guestPassId: this.guestPass ? this.guestPass.id : null,
+      guestPassToken: this.guestPass ? (this.guestPass.token || this.guestPass.token_plain || null) : null,
+      guestPassGalleryUrl: this.guestPass ? (this.guestPass.galleryUrl || null) : null,
+      guestPassQrDataUrl: this.guestPass ? (this.guestPass.qrDataUrl || null) : null,
       templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+      templateName: this.selectedTemplate ? this.selectedTemplate.name : null,
       mode: this.selectedMode,
       finalImageBlob,
       captures,
@@ -5605,7 +5636,9 @@ class KioskEngine {
       boomerangBlob: opts.boomerangBlob || null,
       boomerangExt: opts.boomerangExt || 'mp4',
       printRequested: Boolean(opts.printRequested),
-      printCopies: parseInt(opts.printCopies, 10) || 1
+      printCopies: parseInt(opts.printCopies, 10) || 1,
+      printPaperSize: opts.printPaperSize || null,
+      paperConfirmed: Boolean(opts.paperConfirmed)
     }).catch(err => console.warn('Offline session save error:', err));
   }
 
@@ -5933,7 +5966,9 @@ class KioskEngine {
       if (!navigator.onLine) {
         this.saveOfflineSessionBackup(blob, {
           printRequested: true,
-          printCopies: parseInt(copies, 10) || 1
+          printCopies: parseInt(copies, 10) || 1,
+          printPaperSize: chosenPaperSize,
+          paperConfirmed: Boolean(paperConfirmed)
         });
 
         if (btn) btn.innerHTML = `✅ ${copies} Lembar Disimpan Offline`;
@@ -6003,7 +6038,9 @@ class KioskEngine {
         console.warn('Print fetch failed, switching to offline fallback:', e);
         this.saveOfflineSessionBackup(blob, {
           printRequested: true,
-          printCopies: parseInt(copies, 10) || 1
+          printCopies: parseInt(copies, 10) || 1,
+          printPaperSize: chosenPaperSize,
+          paperConfirmed: Boolean(paperConfirmed)
         });
 
         if (btn) btn.innerHTML = `⚠️ Gagal Kirim, Disimpan Lokal`;

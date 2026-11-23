@@ -440,6 +440,9 @@
 
     <!-- Persistent Global Controls (Selalu Tampil di Pojok Kanan Atas Semua Layar Kiosk) -->
     <div id="kioskGlobalControls" style="position: absolute; top: 80px; right: 28px; z-index: 1000; display: flex; gap: 10px; align-items: center;">
+      <button id="btnKioskOfflineGallery" type="button" onclick="window.pbOfflineStore && window.pbOfflineStore.openLocalGallery()" style="background: var(--cream-card); padding: 8px 14px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 800; color: var(--caramel-brown); cursor: pointer; box-shadow: 0 4px 12px rgba(123,72,46,0.06);">
+        📂 Galeri Lokal
+      </button>
       <button id="btnKioskFullscreen" type="button" onclick="kiosk.toggleFullScreen()" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--coral); font-size: 13px; font-weight: 800; color: var(--coral); cursor: pointer; box-shadow: 0 4px 12px rgba(230,120,107,0.18); transition: transform 0.15s ease;">
         ⛶ Layar Penuh
       </button>
@@ -462,8 +465,8 @@
         </div>
       </div>
 
-      <!-- Offline Mode Status Badge (Kanan Atas) -->
-      <div id="kioskOfflineBadge" style="display: none; position: absolute; top: 80px; right: 28px; z-index: 50; align-items: center; gap: 8px; background: rgba(230, 120, 107, 0.16); border: 2px solid var(--coral); color: var(--coral); padding: 8px 18px; border-radius: var(--radius-pill); font-size: 13px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,0.08); cursor: pointer;" onclick="window.pbOfflineStore && window.pbOfflineStore.syncAllPending()" title="Klik untuk sinkronisasi foto offline ke server cloud">
+      <!-- Offline Mode Status Badge (Kanan Atas di bawah Global Controls) -->
+      <div id="kioskOfflineBadge" style="display: none; position: absolute; top: 128px; right: 28px; z-index: 50; align-items: center; gap: 8px; background: rgba(230, 120, 107, 0.16); border: 2px solid var(--coral); color: var(--coral); padding: 8px 18px; border-radius: var(--radius-pill); font-size: 13px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,0.08); cursor: pointer;" onclick="window.pbOfflineStore && window.pbOfflineStore.openLocalGallery()" title="Klik untuk melihat foto lokal & mengirim antrean offline">
         <span>⚡</span> <span id="kioskOfflineBadgeText">Mode Offline</span>
       </div>
 
@@ -1465,8 +1468,8 @@
   </div>
 
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
-  <script src="/js/offline-store.js?v=1.2"></script>
+  <script src="/js/offline-store.js?v=1.3"></script>
   <script src="/js/print-client.js?v=1.7"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v9.25"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v9.26"></script>
 </body>
 </html>

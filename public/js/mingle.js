@@ -79,7 +79,8 @@ class MingleBoothEngine {
     ]);
 
     this.renderFramesGrid();
-    this.replenishGuestPassPool().catch(() => {});
+    this.updateOfflineGalleryBadge();
+    this.replenishGuestPassPool(20).catch(() => {});
   }
 
   async hydrateCacheFirst() {
@@ -136,7 +137,7 @@ class MingleBoothEngine {
     }
   }
 
-  async replenishGuestPassPool(targetCount = 4) {
+  async replenishGuestPassPool(targetCount = 20) {
     if (navigator.onLine === false || this._replenishingPassPool) return;
     this._replenishingPassPool = true;
     try {
@@ -241,6 +242,50 @@ class MingleBoothEngine {
     };
     window.addEventListener('pagehide', releaseResources);
     window.addEventListener('beforeunload', releaseResources);
+
+    window.addEventListener('online', () => {
+      this.updateOfflineGalleryBadge();
+      setTimeout(() => this.replenishGuestPassPool(20).catch(() => {}), 800);
+    });
+    window.addEventListener('offline', () => {
+      this.updateOfflineGalleryBadge();
+    });
+    if (window.pbOfflineStore && typeof window.pbOfflineStore.subscribe === 'function') {
+      window.pbOfflineStore.subscribe(() => {
+        this.updateOfflineGalleryBadge();
+        if (navigator.onLine !== false) {
+          this.replenishGuestPassPool(20).catch(() => {});
+        }
+      });
+    }
+    this._poolRefillTimerId = setInterval(() => {
+      if (navigator.onLine !== false) {
+        this.replenishGuestPassPool(20).catch(() => {});
+      }
+      this.updateOfflineGalleryBadge();
+    }, 30000);
+  }
+
+  async updateOfflineGalleryBadge() {
+    let count = 0;
+    try {
+      if (window.pbOfflineStore && typeof window.pbOfflineStore.getPendingCount === 'function') {
+        count = await window.pbOfflineStore.getPendingCount();
+      }
+    } catch (e) {}
+    const isOnline = navigator.onLine !== false;
+    const label = count > 0
+      ? (isOnline ? `🔄 Mengirim (${count}) · 📂 Galeri` : `📦 Belum Terkirim (${count})`)
+      : (isOnline ? '📂 Galeri Lokal' : '⚡ Offline · 📂 Galeri');
+
+    for (const id of ['btnMingleOfflineGallery', 'btnMingleWelcomeOfflineGallery']) {
+      const btn = document.getElementById(id);
+      if (!btn) continue;
+      btn.textContent = label;
+      btn.style.borderColor = count > 0 ? (isOnline ? '#5F8F8A' : '#E6786B') : '';
+      btn.style.background = count > 0 ? (isOnline ? 'rgba(95, 143, 138, 0.16)' : '#FFF0EC') : '';
+      btn.style.color = count > 0 ? (isOnline ? '#1F5B56' : '#B93829') : '';
+    }
   }
 
   async refreshAll() {
@@ -284,6 +329,7 @@ class MingleBoothEngine {
           }
           if (titleEl) titleEl.innerText = `Event: ${ev.name || 'Aktif'}`;
           this.applyEventPresentation(ev.name);
+          this.replenishGuestPassPool(20).catch(() => {});
           return;
         }
       }
@@ -1978,7 +2024,21 @@ class MingleBoothEngine {
     await this.syncFinalImageOnly();
   }
 
-  async saveMingleOfflineSession(finalBlob, { sessionId = null, tenantId = null, eventId = null, guestPassId = undefined, templateId = undefined, photos = null, modeVal = 'single', printRequested = false, printCopies = 1 } = {}) {
+  async saveMingleOfflineSession(finalBlob, {
+    sessionId = null,
+    tenantId = null,
+    eventId = null,
+    guestPassId = undefined,
+    guestPass = null,
+    templateId = undefined,
+    templateName = undefined,
+    photos = null,
+    modeVal = 'single',
+    printRequested = false,
+    printCopies = 1,
+    printPaperSize = null,
+    paperConfirmed = false
+  } = {}) {
     if (!window.pbOfflineStore) return false;
     const srcPhotos = Array.isArray(photos) ? photos : (this.capturedPhotos || []);
     const offlineCaps = [];
@@ -1988,19 +2048,27 @@ class MingleBoothEngine {
         offlineCaps.push({ poseIndex: i + 1, blob: b });
       } catch (e) {}
     }
+    const resolvedPass = guestPass || this.guestPass || null;
     await window.pbOfflineStore.saveSession({
       id: sessionId || this.sessionId,
       tenantId: tenantId || this.tenantId,
       eventId: eventId || this.eventId,
       deviceId: this.deviceId,
-      guestPassId: guestPassId !== undefined ? guestPassId : (this.guestPass ? this.guestPass.id : null),
+      guestPassId: guestPassId !== undefined ? guestPassId : (resolvedPass ? resolvedPass.id : null),
+      guestPassToken: resolvedPass ? (resolvedPass.token || resolvedPass.token_plain || null) : null,
+      guestPassGalleryUrl: resolvedPass ? (resolvedPass.galleryUrl || null) : null,
+      guestPassQrDataUrl: resolvedPass ? (resolvedPass.qrDataUrl || null) : null,
       templateId: templateId !== undefined ? templateId : (this.selectedTemplate ? this.selectedTemplate.id : null),
+      templateName: templateName !== undefined ? templateName : (this.selectedTemplate ? this.selectedTemplate.name : null),
       mode: modeVal,
       finalImageBlob: finalBlob,
       captures: offlineCaps,
       printRequested: Boolean(printRequested),
-      printCopies: parseInt(printCopies, 10) || 1
+      printCopies: parseInt(printCopies, 10) || 1,
+      printPaperSize: printPaperSize || null,
+      paperConfirmed: Boolean(paperConfirmed)
     });
+    this.updateOfflineGalleryBadge();
     return true;
   }
 
@@ -2021,6 +2089,7 @@ class MingleBoothEngine {
       eventId: this.eventId,
       guestPass: this.guestPass || null,
       templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+      templateName: this.selectedTemplate ? this.selectedTemplate.name : null,
       photos: [...(this.capturedPhotos || [])],
       filesOnlyMode: Boolean(this.filesOnlyMode),
       syncedCaptureCount: this.syncedCaptureCount || 0
@@ -2147,17 +2216,26 @@ class MingleBoothEngine {
     const printPaperSize = printOpts.paperSize || '';
     const paperConfirmed = !!printOpts.paperConfirmed;
 
+    const snapPassObj = overrideSnap ? (overrideSnap.guestPass || null) : (this.guestPass || null);
+    const snapTemplateName = overrideSnap
+      ? (overrideSnap.templateName || (this.selectedTemplate && this.selectedTemplate.id === overrideSnap.templateId ? this.selectedTemplate.name : null))
+      : (this.selectedTemplate ? this.selectedTemplate.name : null);
+
     if (!navigator.onLine || this.isLocalDirectMode()) {
       await this.saveMingleOfflineSession(finalBlob, {
         sessionId: snapSessionId,
         tenantId: snapTenantId,
         eventId: snapEventId,
         guestPassId: snapPassId,
+        guestPass: snapPassObj,
         templateId: snapTemplateId,
+        templateName: snapTemplateName,
         photos: snapPhotos,
         modeVal,
         printRequested: !this.isLocalDirectMode() && Boolean(printRequested),
-        printCopies
+        printCopies,
+        printPaperSize: printPaperSize || null,
+        paperConfirmed
       }).catch(() => {});
       if (this.sessionId === snapSessionId) {
         if (statusEl) {
@@ -2262,11 +2340,15 @@ class MingleBoothEngine {
         tenantId: snapTenantId,
         eventId: snapEventId,
         guestPassId: snapPassId,
+        guestPass: snapPassObj,
         templateId: snapTemplateId,
+        templateName: snapTemplateName,
         photos: snapPhotos,
         modeVal,
         printRequested: Boolean(printRequested),
-        printCopies
+        printCopies,
+        printPaperSize: printPaperSize || null,
+        paperConfirmed
       }).catch(() => {});
       if (this.sessionId === snapSessionId) {
         if (statusEl) statusEl.innerText = `⚡ Sinyal lambat/terputus — ${totalPhotos} foto aman tersimpan di tablet & otomatis terkirim!`;

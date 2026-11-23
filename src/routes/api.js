@@ -1080,37 +1080,48 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
     // Update session status
     db.prepare("UPDATE photo_sessions SET status = 'completed', ended_at = datetime('now') WHERE id = ?").run(sessionId);
 
+    if (!finalAssetId) {
+      const existingFinal = db.prepare("SELECT id FROM media_assets WHERE photo_session_id = ? AND type = 'final_photo'").get(sessionId);
+      if (existingFinal) finalAssetId = existingFinal.id;
+    }
+
+    const hasSessionMedia = Boolean(
+      finalAssetId ||
+      (req.files && req.files['captures'] && req.files['captures'].length > 0) ||
+      db.prepare('SELECT id FROM media_assets WHERE photo_session_id = ? LIMIT 1').get(sessionId)
+    );
+
+    // Jika sesi belum memiliki guest_pass_id (mis. kehabisan pool QR saat offline >20 customer)
+    // tapi template mengaktifkan QR atau Mode Jual File, otomatis buat & tautkan pass khusus sesi ini.
+    let issuedAutoPass = null;
+    if (!session.guest_pass_id && hasSessionMedia) {
+      try {
+        const tplRow = session.template_id
+          ? db.prepare('SELECT qr_position, qr_coords_json FROM templates WHERE id = ?').get(session.template_id)
+          : null;
+        let hasQrCoords = false;
+        if (tplRow && tplRow.qr_coords_json) {
+          try {
+            const parsedCoords = JSON.parse(tplRow.qr_coords_json);
+            hasQrCoords = Array.isArray(parsedCoords) && parsedCoords.length > 0;
+          } catch (e) {}
+        }
+        const tplQrEnabled = !tplRow || hasQrCoords || (tplRow.qr_position !== 'none');
+        if (tplQrEnabled) {
+          const autoPass = qrService.createGuestPassRecordSync(session.tenant_id, session.event_id, 'booth_auto');
+          if (autoPass && autoPass.id) {
+            db.prepare('UPDATE photo_sessions SET guest_pass_id = ? WHERE id = ?').run(autoPass.id, sessionId);
+            session.guest_pass_id = autoPass.id;
+            issuedAutoPass = autoPass;
+          }
+        }
+      } catch (e) {}
+    }
+
     // If print requested
     let printJob = null;
     if (req.body.printRequested === 'true') {
-      if (!finalAssetId) {
-        const existingFinal = db.prepare("SELECT id FROM media_assets WHERE photo_session_id = ? AND type = 'final_photo'").get(sessionId);
-        if (existingFinal) finalAssetId = existingFinal.id;
-      }
       if (finalAssetId) {
-        // Jika sesi belum memiliki guest_pass_id (mis. timeout sinyal saat memotret) tapi template mengaktifkan QR, buat & tautkan pass baru khusus sesi ini
-        if (!session.guest_pass_id) {
-          try {
-            const tplRow = session.template_id
-              ? db.prepare('SELECT qr_position, qr_coords_json FROM templates WHERE id = ?').get(session.template_id)
-              : null;
-            let hasQrCoords = false;
-            if (tplRow && tplRow.qr_coords_json) {
-              try {
-                const parsedCoords = JSON.parse(tplRow.qr_coords_json);
-                hasQrCoords = Array.isArray(parsedCoords) && parsedCoords.length > 0;
-              } catch (e) {}
-            }
-            const tplQrEnabled = !tplRow || hasQrCoords || (tplRow.qr_position !== 'none');
-            if (tplQrEnabled) {
-              const autoPass = qrService.createGuestPassRecordSync(session.tenant_id, session.event_id, 'booth_auto');
-              if (autoPass && autoPass.id) {
-                db.prepare('UPDATE photo_sessions SET guest_pass_id = ? WHERE id = ?').run(autoPass.id, sessionId);
-                session.guest_pass_id = autoPass.id;
-              }
-            }
-          } catch (e) {}
-        }
         const copies = parseInt(req.body.printCopies) || 1;
         const paperSize = req.body.printPaperSize || req.body.paperSize || null;
         const paperConfirmed = req.body.paperConfirmed === 'true' || req.body.paperConfirmed === '1';
@@ -1132,6 +1143,12 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
       sessionId,
       mediaAssetId: finalAssetId,
       finalImageUrl: finalUrl,
+      guestPassId: session.guest_pass_id || null,
+      guestPass: issuedAutoPass ? {
+        id: issuedAutoPass.id,
+        token: issuedAutoPass.token_plain,
+        galleryUrl: `/gallery/g/${issuedAutoPass.token_plain}`
+      } : null,
       printJob
     });
   } catch (err) {
