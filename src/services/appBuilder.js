@@ -1026,37 +1026,40 @@ Set WshShell = Nothing
 
   const installAllBat = `@echo off
 chcp 65001 >nul
-title Mafaza Photobooth — Pemasang All-in-One Windows 10 / 11
+title Mafaza Photobooth - Pemasang All-in-One Windows 10 / 11
 color 0a
 
 set "INSTALL_DIR=C:\\MafazaPhotobooth"
 set "STARTUP_DIR=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
 
 echo ========================================================================
-echo    MAFAZA PHOTOBOOTH — PEMASANG ALL-IN-ONE WINDOWS (SEKALI INSTAL)
+echo    MAFAZA PHOTOBOOTH - PEMASANG ALL-IN-ONE WINDOWS (SEKALI INSTAL)
 echo ========================================================================
 echo.
+
+if not exist "%~dp0print-agent\\mafaza-print-agent.mjs" goto err_not_extracted
+
 echo Paket ini otomatis memasang ke %INSTALL_DIR%:
-echo  1. Aplikasi Layar Penuh (Kiosk, Mingle, Admin) + Shortcut Desktop
-echo  2. Mafaza Print Agent (Cetak Otomatis Epson/Canon tanpa popup)
-echo  3. Canon EOS USB Bridge (Live View & Flash kabel USB port 19898)
-echo  4. Auto-Start Windows (Otomatis jalan di background setelah Restart)
+echo  1. Aplikasi Layar Penuh - Kiosk, Mingle, Admin + Shortcut Desktop
+echo  2. Mafaza Print Agent - Cetak Otomatis Epson/Canon tanpa popup
+echo  3. Canon EOS USB Bridge - Live View ^& Flash kabel USB port 19898
+echo  4. Auto-Start Windows - Otomatis jalan di background setelah Restart
 echo.
 
-echo [1/6] Menghentikan layanan lama & menyalin ke %INSTALL_DIR%...
+echo [1/6] Menghentikan layanan lama ^& menyalin ke %INSTALL_DIR%...
 taskkill /f /im MafazaCanonBridge.exe >nul 2>&1
 powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*mafaza-print-agent.mjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 
-if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%" >nul 2>&1
-if /i not "%~dp0"=="%INSTALL_DIR%\\" (
-  xcopy /y /e /i /q "%~dp0." "%INSTALL_DIR%" >nul 2>&1
-)
+if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
+if /i not "%~dp0"=="%INSTALL_DIR%\\" xcopy /y /e /i /q "%~dp0." "%INSTALL_DIR%" >nul 2>&1
+if not exist "%INSTALL_DIR%\\print-agent\\mafaza-print-agent.mjs" goto err_copy_failed
+
 cd /d "%INSTALL_DIR%"
 powershell -NoProfile -Command "Get-ChildItem -Path '%INSTALL_DIR%' -Recurse | Unblock-File" >nul 2>&1
 echo [OK] File terpasang rapi di %INSTALL_DIR%.
 
 echo.
-echo [2/6] Mengatur izin Chrome & Edge (Akses USB Bridge & Printer Lokal)...
+echo [2/6] Mengatur izin Chrome ^& Edge untuk akses USB Bridge ^& Printer Lokal...
 reg add "HKCU\\Software\\Policies\\Google\\Chrome" /v InsecurePrivateNetworkRequestsAllowed /t REG_DWORD /d 1 /f >nul 2>&1
 reg add "HKCU\\Software\\Policies\\Google\\Chrome\\LocalNetworkAccessAllowedForUrls" /v 1 /t REG_SZ /d "${cleanServer}" /f >nul 2>&1
 reg add "HKCU\\Software\\Policies\\Google\\Chrome\\LocalNetworkAccessAllowedForUrls" /v 2 /t REG_SZ /d "http://localhost:3000" /f >nul 2>&1
@@ -1071,17 +1074,22 @@ set "NODE_BIN="
 where node >nul 2>nul && set "NODE_BIN=node"
 if not defined NODE_BIN if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles%\\nodejs\\node.exe"
 if not defined NODE_BIN if exist "%ProgramFiles(x86)%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles(x86)%\\nodejs\\node.exe"
-if not defined NODE_BIN (
-  echo Menginstall Node.js LTS secara otomatis...
-  winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
-  if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles%\\nodejs\\node.exe"
-)
-if defined NODE_BIN (
-  echo [OK] Node.js siap (%NODE_BIN%).
-) else (
-  echo [PERINGATAN] Node.js belum terdeteksi. Install dari https://nodejs.org lalu jalankan Jalankan-Ulang-Semua-Layanan.bat.
-)
+if not defined NODE_BIN if exist "%LocalAppData%\\Programs\\nodejs\\node.exe" set "NODE_BIN=%LocalAppData%\\Programs\\nodejs\\node.exe"
+if defined NODE_BIN goto node_ready
 
+echo Menginstall Node.js LTS secara otomatis...
+winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles%\\nodejs\\node.exe"
+if not defined NODE_BIN if exist "%ProgramFiles(x86)%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles(x86)%\\nodejs\\node.exe"
+if defined NODE_BIN goto node_ready
+
+echo [PERINGATAN] Node.js belum terdeteksi. Install dari https://nodejs.org lalu jalankan Jalankan-Ulang-Semua-Layanan.bat.
+goto step_canon_bridge
+
+:node_ready
+echo [OK] Node.js siap: "%NODE_BIN%"
+
+:step_canon_bridge
 echo.
 echo [4/6] Menyiapkan Canon USB Bridge (.NET Framework)...
 set "CSC="
@@ -1089,40 +1097,53 @@ if exist "%SystemRoot%\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe" set "CS
 if not defined CSC if exist "%SystemRoot%\\Microsoft\\NET\\Framework\\v4.0.30319\\csc.exe" set "CSC=%SystemRoot%\\Microsoft\\Framework\\v4.0.30319\\csc.exe"
 
 set "BRIDGE_READY=0"
-if defined CSC if exist "%INSTALL_DIR%\\canon-bridge\\MafazaCanonBridge.cs" (
-  pushd "%INSTALL_DIR%\\canon-bridge"
-  powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; try { (New-Object Net.WebClient).DownloadFile('https://raw.githubusercontent.com/ridwan0354/mafaza_photobooth/main/canon-bridge/windows/MafazaCanonBridge.cs', 'MafazaCanonBridge.cs'); } catch {}" >nul 2>&1
-  if exist "MafazaCanonBridge.exe" del /f /q "MafazaCanonBridge.exe" >nul 2>&1
-  %CSC% /nologo /target:exe /out:MafazaCanonBridge.exe /platform:anycpu MafazaCanonBridge.cs >nul 2>&1
-  if exist "MafazaCanonBridge.exe" (
-    powershell -NoProfile -Command "try { $p = Start-Process -FilePath '%INSTALL_DIR%\\canon-bridge\\MafazaCanonBridge.exe' -ArgumentList '-silent' -PassThru -WindowStyle Hidden; Start-Sleep -Milliseconds 700; if ($p.HasExited -and $p.ExitCode -ne 0) { exit 2 }; if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }; exit 0 } catch { exit 3 }" >nul 2>&1
-    if errorlevel 2 (
-      echo [PERHATIAN] Windows Smart App Control / Device Guard memblokir MafazaCanonBridge.exe.
-      echo             Solusi cepat jika pakai kabel USB Canon:
-      echo             Windows Security ^> App ^& browser control ^> Smart App Control ^> Off.
-      echo             (Print Agent ^& Kiosk Fullscreen tetap terpasang dan berjalan normal!)
-    ) else (
-      set "BRIDGE_READY=1"
-      echo [OK] Canon USB Bridge siap jalan!
-    )
-  )
-  popd
-) else (
-  echo [INFO] Kompilasi Bridge dilewati.
-)
+if not defined CSC goto bridge_skip
+if not exist "%INSTALL_DIR%\\canon-bridge\\MafazaCanonBridge.cs" goto bridge_skip
 
+pushd "%INSTALL_DIR%\\canon-bridge"
+powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; try { (New-Object Net.WebClient).DownloadFile('https://raw.githubusercontent.com/ridwan0354/mafaza_photobooth/main/canon-bridge/windows/MafazaCanonBridge.cs', 'MafazaCanonBridge.cs'); } catch {}" >nul 2>&1
+if exist "MafazaCanonBridge.exe" del /f /q "MafazaCanonBridge.exe" >nul 2>&1
+"%CSC%" /nologo /target:exe /out:MafazaCanonBridge.exe /platform:anycpu MafazaCanonBridge.cs >nul 2>&1
+if not exist "MafazaCanonBridge.exe" goto bridge_compile_fail
+
+powershell -NoProfile -Command "try { $p = Start-Process -FilePath '%INSTALL_DIR%\\canon-bridge\\MafazaCanonBridge.exe' -ArgumentList '-silent' -PassThru -WindowStyle Hidden; Start-Sleep -Milliseconds 700; if ($p.HasExited -and $p.ExitCode -ne 0) { exit 2 }; if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }; exit 0 } catch { exit 3 }" >nul 2>&1
+if errorlevel 2 goto bridge_blocked
+
+set "BRIDGE_READY=1"
+echo [OK] Canon USB Bridge siap jalan!
+popd
+goto step_shortcuts
+
+:bridge_blocked
+echo [PERHATIAN] Windows Smart App Control / Device Guard memblokir MafazaCanonBridge.exe.
+echo             Solusi jika pakai kabel USB Canon:
+echo             Windows Security ^> App ^& browser control ^> Smart App Control ^> Off
+echo             Lalu klik 2x %INSTALL_DIR%\\Jalankan-Ulang-Semua-Layanan.bat
+echo             Tenang: Print Agent ^& Kiosk Fullscreen tetap terpasang ^& berjalan normal!
+popd
+goto step_shortcuts
+
+:bridge_compile_fail
+echo [PERINGATAN] Kompilasi MafazaCanonBridge.exe gagal, Print Agent ^& Kiosk tetap dilanjutkan.
+popd
+goto step_shortcuts
+
+:bridge_skip
+echo [INFO] Kompilasi Bridge dilewati karena csc.exe atau source tidak ditemukan.
+
+:step_shortcuts
 echo.
-echo [5/6] Memasang Shortcut Desktop & Auto-Start Windows saat Restart...
+echo [5/6] Memasang Shortcut Desktop ^& Auto-Start Windows saat Restart...
 del /f /q "%STARTUP_DIR%\\Mafaza-Print-Agent.vbs" >nul 2>&1
 del /f /q "%STARTUP_DIR%\\MafazaCanonBridge.lnk" >nul 2>&1
 del /f /q "%STARTUP_DIR%\\MafazaCanonBridge.vbs" >nul 2>&1
 copy /y "%INSTALL_DIR%\\Mafaza-AutoStart-Services.vbs" "%STARTUP_DIR%\\Mafaza-AutoStart-Services.vbs" >nul 2>&1
 
 powershell -NoProfile -Command "$q = [char]34; $ws = New-Object -ComObject WScript.Shell; $desk = [Environment]::GetFolderPath('Desktop'); $s1 = $ws.CreateShortcut($desk + '\\Photobooth Kiosk (Full Screen).lnk'); $s1.TargetPath = 'wscript.exe'; $s1.Arguments = $q + '%INSTALL_DIR%\\kiosk\\Photobooth-Kiosk-Aplikasi.vbs' + $q; $s1.WorkingDirectory = '%INSTALL_DIR%\\kiosk'; $s1.IconLocation = 'shell32.dll,300'; $s1.Save(); $s2 = $ws.CreateShortcut($desk + '\\Photobooth Mingle (Keliling).lnk'); $s2.TargetPath = 'wscript.exe'; $s2.Arguments = $q + '%INSTALL_DIR%\\kiosk\\Photobooth-Mingle-Aplikasi.vbs' + $q; $s2.WorkingDirectory = '%INSTALL_DIR%\\kiosk'; $s2.IconLocation = 'shell32.dll,140'; $s2.Save(); $s3 = $ws.CreateShortcut($desk + '\\Photobooth Admin Studio.lnk'); $s3.TargetPath = '%INSTALL_DIR%\\kiosk\\Photobooth-Admin-Studio.bat'; $s3.WorkingDirectory = '%INSTALL_DIR%\\kiosk'; $s3.IconLocation = 'shell32.dll,21'; $s3.Save();"
-echo [OK] Shortcut Desktop & Auto-Start saat Restart terpasang.
+echo [OK] Shortcut Desktop ^& Auto-Start saat Restart terpasang.
 
 echo.
-echo [6/6] Menyalakan Layanan Background sekarang (Print Agent + Bridge)...
+echo [6/6] Menyalakan Layanan Background sekarang - Print Agent + Canon Bridge...
 wscript.exe "%INSTALL_DIR%\\Mafaza-AutoStart-Services.vbs"
 echo.
 echo ========================================================================
@@ -1131,9 +1152,23 @@ echo ========================================================================
 echo  - Layanan Print Agent (+ Canon Bridge bila aktif) SUDAH JALAN sekarang
 echo    dan OTOMATIS menyala sendiri setiap laptop di-restart!
 echo  - Klik ikon "Photobooth Kiosk (Full Screen)" atau "Admin Studio" di Desktop.
-echo  - (Opsional) Jika laptop khusus Kiosk ingin langsung buka layar penuh saat
-echo    boot, klik 2x "Pasang-AutoBuka-Layar-Kiosk-Saat-Boot.bat" di %INSTALL_DIR%.
+echo  - Opsional: jika laptop Kiosk ingin langsung buka layar penuh saat boot,
+echo    klik 2x "Pasang-AutoBuka-Layar-Kiosk-Saat-Boot.bat" di %INSTALL_DIR%.
 echo ========================================================================
+goto end_pause
+
+:err_not_extracted
+echo [GAGAL] Folder tidak lengkap! Anda harus EKSTRAK seluruh isi ZIP terlebih dahulu,
+echo         jangan langsung jalankan dari dalam preview file ZIP.
+goto end_pause
+
+:err_copy_failed
+echo [GAGAL] Tidak bisa menyalin file ke %INSTALL_DIR%.
+echo         Klik kanan file ini lalu pilih "Run as administrator".
+goto end_pause
+
+:end_pause
+echo.
 pause
 `.replace(/\n/g, '\r\n');
 

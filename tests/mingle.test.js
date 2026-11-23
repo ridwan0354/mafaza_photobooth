@@ -1941,8 +1941,12 @@ test('Windows All-in-One Suite bundles Kiosk, Print Agent, Canon Bridge, and Aut
     const cfg = JSON.parse(files.get('print-agent/config.json'));
     assert.equal(cfg.server, target);
     assert.ok(cfg.key && cfg.key.length > 8, 'Embedded agentKey populated for silent Print Agent');
-    assert.match(files.get('PASANG-SEMUANYA-SEKALI-KLIK.bat'), /C:\\MafazaPhotobooth/);
-    assert.match(files.get('PASANG-SEMUANYA-SEKALI-KLIK.bat'), /Mafaza-AutoStart-Services\.vbs/);
+    const installBat = files.get('PASANG-SEMUANYA-SEKALI-KLIK.bat');
+    assert.match(installBat, /C:\\MafazaPhotobooth/);
+    assert.match(installBat, /Mafaza-AutoStart-Services\.vbs/);
+    assert.match(installBat, /:err_not_extracted/);
+    assert.match(installBat, /:end_pause[\s\S]*\bpause\s*$/);
+    assert.doesNotMatch(installBat, /(?:^|\n)\s*(?:if|else)\b[^\n]*\(\s*(?:\r?\n|$)/i, 'PASANG-SEMUANYA-SEKALI-KLIK.bat uses flat goto labels without multi-line cmd.exe if(...) parse hazards');
     assert.match(files.get('kiosk/Photobooth-Kiosk-FullScreen.bat'), /https:\/\/mafaza\.galipatsistem\.com/);
     assert.equal(typeof appBuilder.buildWindowsAllInOneZip, 'function');
   } finally {
