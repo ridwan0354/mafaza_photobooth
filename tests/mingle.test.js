@@ -1867,3 +1867,86 @@ test('Split Local Print vs Local Storage per-device isolation, Admin 313354 / se
     if (passId) db.prepare('DELETE FROM guest_passes WHERE id = ?').run(passId);
   }
 });
+
+test('Windows All-in-One Suite bundles Kiosk, Print Agent, Canon Bridge, and AutoStart securely', async () => {
+  const zlib = await import('node:zlib');
+  const express = (await import('express')).default;
+  const { apiRouter } = await import('../src/routes/api.js');
+  const { createToken } = await import('../src/services/auth.js');
+  const appBuilder = await import('../src/services/appBuilder.js');
+
+  const root = process.cwd();
+  const adminHtml = fs.readFileSync(path.join(root, 'public/admin.html'), 'utf8');
+  const adminJs = fs.readFileSync(path.join(root, 'public/js/admin.js'), 'utf8');
+  assert.match(adminHtml, /id="btnDownloadWindowsAllInOne"[^>]*href="\/api\/apps\/download\/windows-suite"/);
+  assert.match(adminJs, /btnDownloadWindowsAllInOne[\s\S]*\/api\/apps\/download\/windows-suite/);
+
+  const app = express();
+  app.use((req, res, next) => { req.cookies = {}; next(); });
+  app.use(express.json());
+  app.use('/api', apiRouter);
+  const srv = app.listen(0);
+  const port = srv.address().port;
+
+  try {
+    const unauth = await fetch(`http://127.0.0.1:${port}/api/apps/download/windows-suite`);
+    assert.equal(unauth.status, 401, 'All-in-One Windows suite embeds secret agentKey so requires Admin auth');
+
+    const adminJwt = createToken({ userId: 'u_admin', tenantId: 'tenant_studiokeren_01', role: 'super_admin' });
+    const target = 'https://mafaza.galipatsistem.com';
+    const res = await fetch(`http://127.0.0.1:${port}/api/apps/download/windows-suite?serverUrl=${encodeURIComponent(target)}&token=${encodeURIComponent(adminJwt)}`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') || '', /application\/zip/);
+    assert.match(res.headers.get('content-disposition') || '', /Mafaza-Photobooth-AllInOne-Windows\.zip/);
+
+    const zipBuf = Buffer.from(await res.arrayBuffer());
+    assert.equal(zipBuf.readUInt32LE(0), 0x04034b50, 'Valid ZIP local file header signature');
+
+    // Parse entries directly from the ZIP stream
+    const files = new Map();
+    let off = 0;
+    while (off + 30 <= zipBuf.length && zipBuf.readUInt32LE(off) === 0x04034b50) {
+      const method = zipBuf.readUInt16LE(off + 8);
+      const compSize = zipBuf.readUInt32LE(off + 18);
+      const nameLen = zipBuf.readUInt16LE(off + 26);
+      const extraLen = zipBuf.readUInt16LE(off + 28);
+      const name = zipBuf.subarray(off + 30, off + 30 + nameLen).toString('utf8');
+      const dataStart = off + 30 + nameLen + extraLen;
+      const raw = zipBuf.subarray(dataStart, dataStart + compSize);
+      const content = method === 8 ? zlib.inflateRawSync(raw) : raw;
+      files.set(name, content.toString('utf8'));
+      off = dataStart + compSize;
+    }
+
+    for (const reqFile of [
+      'PASANG-SEMUANYA-SEKALI-KLIK.bat',
+      'Jalankan-Ulang-Semua-Layanan.bat',
+      'Pasang-AutoBuka-Layar-Kiosk-Saat-Boot.bat',
+      'Matikan-AutoStart.bat',
+      'Mafaza-AutoStart-Services.vbs',
+      'PANDUAN-INSTALASI-WINDOWS.txt',
+      'kiosk/Photobooth-Kiosk-Aplikasi.vbs',
+      'kiosk/Photobooth-Mingle-Aplikasi.vbs',
+      'kiosk/Photobooth-Admin-Studio.bat',
+      'kiosk/Photobooth-Kiosk-FullScreen.bat',
+      'print-agent/mafaza-print-agent.mjs',
+      'print-agent/Mafaza-Print-Agent.bat',
+      'print-agent/config.json',
+      'canon-bridge/MafazaCanonBridge.cs',
+      'canon-bridge/Run-Bridge-Silent.bat'
+    ]) {
+      assert.ok(files.has(reqFile), `ZIP includes ${reqFile}`);
+    }
+
+    const cfg = JSON.parse(files.get('print-agent/config.json'));
+    assert.equal(cfg.server, target);
+    assert.ok(cfg.key && cfg.key.length > 8, 'Embedded agentKey populated for silent Print Agent');
+    assert.match(files.get('PASANG-SEMUANYA-SEKALI-KLIK.bat'), /C:\\MafazaPhotobooth/);
+    assert.match(files.get('PASANG-SEMUANYA-SEKALI-KLIK.bat'), /Mafaza-AutoStart-Services\.vbs/);
+    assert.match(files.get('kiosk/Photobooth-Kiosk-FullScreen.bat'), /https:\/\/mafaza\.galipatsistem\.com/);
+    assert.equal(typeof appBuilder.buildWindowsAllInOneZip, 'function');
+  } finally {
+    srv.closeAllConnections?.();
+    srv.close();
+  }
+});

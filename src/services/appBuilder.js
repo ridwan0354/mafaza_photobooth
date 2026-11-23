@@ -424,7 +424,7 @@ CARA MENJALANKAN:
   return createZipArchive(entries);
 }
 
-export function buildWindowsAppZip(serverUrl = 'http://localhost:3000', lanUrl = 'http://localhost:3000') {
+export function getWindowsAppFiles(serverUrl = 'http://localhost:3000', lanUrl = 'http://localhost:3000') {
   const cleanServer = serverUrl.replace(/\/$/, '');
   const cleanLan = lanUrl.replace(/\/$/, '');
 
@@ -473,6 +473,10 @@ start msedge.exe --app="%FINAL_URL%" --start-fullscreen --kiosk-printing
 exit
 `.replace(/\n/g, '\r\n');
 
+  const winMingleBat = winKioskBat
+    .replace(/\/kiosk\?app=windows&fullscreen=1/g, '/mingle?app=windows&fullscreen=1')
+    .replace(/PhotoboothKioskApp/g, 'PhotoboothMingleApp');
+
   const winAdminBat = winKioskBat
     .replace(/\/kiosk\?app=windows&fullscreen=1/g, '/admin?app=windows')
     .replace(/PhotoboothKioskApp/g, 'PhotoboothAdminApp');
@@ -483,6 +487,8 @@ currentDir = fso.GetParentFolderName(WScript.ScriptFullName)
 WshShell.Run chr(34) & currentDir & "\\Photobooth-Kiosk-FullScreen.bat" & chr(34), 0
 Set WshShell = Nothing
 `.replace(/\n/g, '\r\n');
+
+  const winMingleVbs = winSilentVbs.replace('Photobooth-Kiosk-FullScreen.bat', 'Photobooth-Mingle-FullScreen.bat');
 
   const winInstallShortcutBat = `@echo off
 title Pembuat Shortcut Desktop Photobooth Kiosk (Windows)
@@ -534,9 +540,10 @@ APLIKASI PHOTOBOOTH KIOSK FULL-SCREEN — EDISI WINDOWS 10 / 11
 Isi Paket Aplikasi:
 1. Photobooth-Kiosk-Aplikasi.vbs      -> Klik 2x untuk buka Kiosk Full-Screen (Tanpa jendela hitam CMD)
 2. Photobooth-Kiosk-FullScreen.bat    -> Peluncur Kiosk Full-Screen + Silent Print (--kiosk-printing)
-3. Photobooth-Admin-Studio.bat        -> Peluncur Dashboard Admin Studio
-4. Pasang-Shortcut-di-Desktop.bat     -> Klik 2x untuk otomatis memasang ikon aplikasi di Desktop Windows
-5. Print-Bridge-Windows.ps1           -> Modul cetak foto resolusi tinggi via Windows Print Spooler
+3. Photobooth-Mingle-FullScreen.bat   -> Peluncur Mingle Full-Screen (Foto Keliling)
+4. Photobooth-Admin-Studio.bat        -> Peluncur Dashboard Admin Studio
+5. Pasang-Shortcut-di-Desktop.bat     -> Klik 2x untuk otomatis memasang ikon aplikasi di Desktop Windows
+6. Print-Bridge-Windows.ps1           -> Modul cetak foto resolusi tinggi via Windows Print Spooler
 
 CARA PAKAI DI WINDOWS:
 1. Ekstrak (Unzip) seluruh isi folder ini ke komputer/laptop Windows Anda.
@@ -548,14 +555,20 @@ CARA PAKAI DI WINDOWS:
 ======================================================================
 `.replace(/\n/g, '\r\n');
 
-  return createZipArchive([
+  return [
     { name: 'Photobooth-Kiosk-Aplikasi.vbs', content: winSilentVbs, executable: false },
+    { name: 'Photobooth-Mingle-Aplikasi.vbs', content: winMingleVbs, executable: false },
     { name: 'Photobooth-Kiosk-FullScreen.bat', content: winKioskBat, executable: true },
+    { name: 'Photobooth-Mingle-FullScreen.bat', content: winMingleBat, executable: true },
     { name: 'Photobooth-Admin-Studio.bat', content: winAdminBat, executable: true },
     { name: 'Pasang-Shortcut-di-Desktop.bat', content: winInstallShortcutBat, executable: true },
     { name: 'Print-Bridge-Windows.ps1', content: winPrintBridgePs1, executable: false },
     { name: 'PANDUAN-WINDOWS.txt', content: readmeWin, executable: false }
-  ]);
+  ];
+}
+
+export function buildWindowsAppZip(serverUrl = 'http://localhost:3000', lanUrl = 'http://localhost:3000') {
+  return createZipArchive(getWindowsAppFiles(serverUrl, lanUrl));
 }
 
 export function buildAndroidStandaloneHtml(serverUrl = 'http://localhost:3000', lanUrl = 'http://localhost:3000') {
@@ -708,36 +721,43 @@ CARA KERJA FITUR PRINT DI ANDROID:
  * Paket "Mafaza Print Agent" untuk komputer studio (Windows / macOS).
  * Sudah berisi alamat server & kunci rahasia, tinggal ekstrak lalu klik 2x.
  */
-export function buildPrintAgentZip(targetOs = 'macos', serverUrl = 'http://localhost:3000', agentKey = '') {
+export function getWindowsPrintAgentFiles(serverUrl = 'http://localhost:3000', agentKey = '') {
   const agentScript = fs.readFileSync(path.join(__dirname, '../../print-agent/mafaza-print-agent.mjs'), 'utf8');
   const configJson = JSON.stringify({ server: serverUrl, key: agentKey, intervalMs: 2000 }, null, 2);
 
-  if (targetOs === 'windows') {
-    const startBat = `@echo off
+  const startBat = `@echo off
 chcp 65001 >nul
 title Mafaza Print Agent
 cd /d "%~dp0"
 
-where node >nul 2>nul
-if errorlevel 1 (
+set "NODE_BIN="
+where node >nul 2>nul && set "NODE_BIN=node"
+if not defined NODE_BIN if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles%\\nodejs\\node.exe"
+if not defined NODE_BIN if exist "%ProgramFiles(x86)%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles(x86)%\\nodejs\\node.exe"
+if not defined NODE_BIN if exist "%LocalAppData%\\Programs\\nodejs\\node.exe" set "NODE_BIN=%LocalAppData%\\Programs\\nodejs\\node.exe"
+
+if not defined NODE_BIN (
   echo Node.js belum terpasang. Mencoba memasang otomatis lewat winget...
   winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
-  echo.
-  echo Setelah instalasi selesai, TUTUP jendela ini lalu klik 2x file ini lagi.
-  echo Jika gagal, pasang manual dari https://nodejs.org lalu ulangi.
-  pause
-  exit /b
+  if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles%\\nodejs\\node.exe"
+  if not defined NODE_BIN (
+    echo.
+    echo Setelah instalasi Node.js selesai, TUTUP jendela ini lalu klik 2x file ini lagi.
+    echo Jika gagal, pasang manual dari https://nodejs.org lalu ulangi.
+    pause
+    exit /b 1
+  )
 )
 
 :loop
-node mafaza-print-agent.mjs
+"%NODE_BIN%" mafaza-print-agent.mjs
 echo.
 echo Print Agent berhenti. Memulai ulang dalam 5 detik... (tutup jendela ini untuk keluar)
 timeout /t 5 >nul
 goto loop
 `.replace(/\n/g, '\r\n');
 
-    const autostartBat = `@echo off
+  const autostartBat = `@echo off
 chcp 65001 >nul
 set "STARTUP=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
 set "VBS=%STARTUP%\\Mafaza-Print-Agent.vbs"
@@ -749,7 +769,7 @@ echo Berhasil! Print Agent akan otomatis menyala setiap Windows dinyalakan.
 pause
 `.replace(/\n/g, '\r\n');
 
-    const readme = `MAFAZA PRINT AGENT - WINDOWS
+  const readme = `MAFAZA PRINT AGENT - WINDOWS
 ==============================
 Fungsi: mencetak OTOMATIS ke printer (Epson L8050, Canon, HP, dll) sesuai pengaturan
 di menu Printer dashboard admin - TANPA dialog/popup. Cetak bisa dikirim dari
@@ -767,7 +787,7 @@ CATATAN
   (Printer Preferences). Atur sekali ke "Photo Paper / Glossy" lalu simpan sebagai default.
 `.replace(/\n/g, '\r\n');
 
-    const configPrinterBat = `@echo off
+  const configPrinterBat = `@echo off
 chcp 65001 >nul
 title Pengaturan Kertas Foto Epson 4R
 echo Membuka jendela pengaturan printer Epson Anda...
@@ -788,15 +808,22 @@ echo ========================================================
 pause
 `.replace(/\n/g, '\r\n');
 
-    return createZipArchive([
-      { name: 'Mafaza-Print-Agent.bat', content: startBat, executable: true },
-      { name: 'Atur-Kertas-Printer-Epson.bat', content: configPrinterBat, executable: true },
-      { name: 'Pasang-Autostart-Windows.bat', content: autostartBat, executable: true },
-      { name: 'mafaza-print-agent.mjs', content: agentScript, executable: false },
-      { name: 'config.json', content: configJson, executable: false },
-      { name: 'BACA-SAYA.txt', content: readme, executable: false }
-    ]);
+  return [
+    { name: 'Mafaza-Print-Agent.bat', content: startBat, executable: true },
+    { name: 'Atur-Kertas-Printer-Epson.bat', content: configPrinterBat, executable: true },
+    { name: 'Pasang-Autostart-Windows.bat', content: autostartBat, executable: true },
+    { name: 'mafaza-print-agent.mjs', content: agentScript, executable: false },
+    { name: 'config.json', content: configJson, executable: false },
+    { name: 'BACA-SAYA.txt', content: readme, executable: false }
+  ];
+}
+
+export function buildPrintAgentZip(targetOs = 'macos', serverUrl = 'http://localhost:3000', agentKey = '') {
+  if (targetOs === 'windows') {
+    return createZipArchive(getWindowsPrintAgentFiles(serverUrl, agentKey));
   }
+  const agentScript = fs.readFileSync(path.join(__dirname, '../../print-agent/mafaza-print-agent.mjs'), 'utf8');
+  const configJson = JSON.stringify({ server: serverUrl, key: agentKey, intervalMs: 2000 }, null, 2);
 
   const startCommand = `#!/bin/bash
 cd "$(dirname "$0")"
@@ -916,7 +943,7 @@ export function buildCanonBridgeMacZip() {
   return createZipArchive(entries);
 }
 
-export function buildCanonBridgeWindowsZip() {
+export function getCanonBridgeWindowsFiles() {
   const rootDir = path.join(__dirname, '../../canon-bridge/windows');
   const entries = [];
 
@@ -945,5 +972,239 @@ export function buildCanonBridgeWindowsZip() {
     throw new Error('Direktori canon-bridge/windows tidak ditemukan atau kosong.');
   }
 
-  return createZipArchive(entries);
+  return entries;
+}
+
+export function buildCanonBridgeWindowsZip() {
+  return createZipArchive(getCanonBridgeWindowsFiles());
+}
+
+/**
+ * Paket All-in-One Windows: menyatukan Kiosk/Mingle/Admin Launcher, Mafaza Print Agent,
+ * Canon USB Bridge, Shortcut Desktop, dan Auto-Start Background permanen saat Windows restart.
+ */
+export function buildWindowsAllInOneZip(serverUrl = 'http://localhost:3000', lanUrl = 'http://localhost:3000', agentKey = '') {
+  const cleanServer = serverUrl.replace(/\/+$/, '');
+  const kioskFiles = getWindowsAppFiles(cleanServer, lanUrl).map((f) => ({
+    ...f,
+    name: `kiosk/${f.name}`
+  }));
+  const agentFiles = getWindowsPrintAgentFiles(cleanServer, agentKey).map((f) => ({
+    ...f,
+    name: `print-agent/${f.name}`
+  }));
+  const bridgeFiles = getCanonBridgeWindowsFiles().map((f) => ({
+    ...f,
+    name: `canon-bridge/${f.name}`
+  }));
+
+  const runBridgeSilentBat = `@echo off
+cd /d "%~dp0"
+if not exist "MafazaCanonBridge.exe" exit /b 1
+:loop
+MafazaCanonBridge.exe -silent
+if errorlevel 1 exit /b 1
+timeout /t 4 >nul
+goto loop
+`.replace(/\n/g, '\r\n');
+
+  const autoStartVbs = `Set WshShell = CreateObject("WScript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+baseDir = "C:\\MafazaPhotobooth"
+If fso.FileExists(baseDir & "\\print-agent\\Mafaza-Print-Agent.bat") Then
+  WshShell.CurrentDirectory = baseDir & "\\print-agent"
+  WshShell.Run chr(34) & baseDir & "\\print-agent\\Mafaza-Print-Agent.bat" & chr(34), 0, False
+End If
+If fso.FileExists(baseDir & "\\canon-bridge\\Run-Bridge-Silent.bat") Then
+  If fso.FileExists(baseDir & "\\canon-bridge\\MafazaCanonBridge.exe") Then
+    WshShell.CurrentDirectory = baseDir & "\\canon-bridge"
+    WshShell.Run chr(34) & baseDir & "\\canon-bridge\\Run-Bridge-Silent.bat" & chr(34), 0, False
+  End If
+End If
+Set WshShell = Nothing
+`.replace(/\n/g, '\r\n');
+
+  const installAllBat = `@echo off
+chcp 65001 >nul
+title Mafaza Photobooth — Pemasang All-in-One Windows 10 / 11
+color 0a
+
+set "INSTALL_DIR=C:\\MafazaPhotobooth"
+set "STARTUP_DIR=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+
+echo ========================================================================
+echo    MAFAZA PHOTOBOOTH — PEMASANG ALL-IN-ONE WINDOWS (SEKALI INSTAL)
+echo ========================================================================
+echo.
+echo Paket ini otomatis memasang ke %INSTALL_DIR%:
+echo  1. Aplikasi Layar Penuh (Kiosk, Mingle, Admin) + Shortcut Desktop
+echo  2. Mafaza Print Agent (Cetak Otomatis Epson/Canon tanpa popup)
+echo  3. Canon EOS USB Bridge (Live View & Flash kabel USB port 19898)
+echo  4. Auto-Start Windows (Otomatis jalan di background setelah Restart)
+echo.
+
+echo [1/6] Menghentikan layanan lama & menyalin ke %INSTALL_DIR%...
+taskkill /f /im MafazaCanonBridge.exe >nul 2>&1
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*mafaza-print-agent.mjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+
+if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%" >nul 2>&1
+if /i not "%~dp0"=="%INSTALL_DIR%\\" (
+  xcopy /y /e /i /q "%~dp0." "%INSTALL_DIR%" >nul 2>&1
+)
+cd /d "%INSTALL_DIR%"
+powershell -NoProfile -Command "Get-ChildItem -Path '%INSTALL_DIR%' -Recurse | Unblock-File" >nul 2>&1
+echo [OK] File terpasang rapi di %INSTALL_DIR%.
+
+echo.
+echo [2/6] Mengatur izin Chrome & Edge (Akses USB Bridge & Printer Lokal)...
+reg add "HKCU\\Software\\Policies\\Google\\Chrome" /v InsecurePrivateNetworkRequestsAllowed /t REG_DWORD /d 1 /f >nul 2>&1
+reg add "HKCU\\Software\\Policies\\Google\\Chrome\\LocalNetworkAccessAllowedForUrls" /v 1 /t REG_SZ /d "${cleanServer}" /f >nul 2>&1
+reg add "HKCU\\Software\\Policies\\Google\\Chrome\\LocalNetworkAccessAllowedForUrls" /v 2 /t REG_SZ /d "http://localhost:3000" /f >nul 2>&1
+reg add "HKCU\\Software\\Policies\\Google\\Chrome\\LocalNetworkAccessAllowedForUrls" /v 3 /t REG_SZ /d "http://127.0.0.1:3000" /f >nul 2>&1
+reg add "HKCU\\Software\\Policies\\Microsoft\\Edge\\LocalNetworkAccessAllowedForUrls" /v 1 /t REG_SZ /d "${cleanServer}" /f >nul 2>&1
+reg add "HKCU\\Software\\Policies\\Microsoft\\Edge\\LocalNetworkAccessAllowedForUrls" /v 2 /t REG_SZ /d "http://localhost:3000" /f >nul 2>&1
+echo [OK] Kebijakan browser aktif.
+
+echo.
+echo [3/6] Memeriksa Node.js untuk Print Agent...
+set "NODE_BIN="
+where node >nul 2>nul && set "NODE_BIN=node"
+if not defined NODE_BIN if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles%\\nodejs\\node.exe"
+if not defined NODE_BIN if exist "%ProgramFiles(x86)%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles(x86)%\\nodejs\\node.exe"
+if not defined NODE_BIN (
+  echo Menginstall Node.js LTS secara otomatis...
+  winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+  if exist "%ProgramFiles%\\nodejs\\node.exe" set "NODE_BIN=%ProgramFiles%\\nodejs\\node.exe"
+)
+if defined NODE_BIN (
+  echo [OK] Node.js siap (%NODE_BIN%).
+) else (
+  echo [PERINGATAN] Node.js belum terdeteksi. Install dari https://nodejs.org lalu jalankan Jalankan-Ulang-Semua-Layanan.bat.
+)
+
+echo.
+echo [4/6] Menyiapkan Canon USB Bridge (.NET Framework)...
+set "CSC="
+if exist "%SystemRoot%\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe" set "CSC=%SystemRoot%\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe"
+if not defined CSC if exist "%SystemRoot%\\Microsoft\\NET\\Framework\\v4.0.30319\\csc.exe" set "CSC=%SystemRoot%\\Microsoft\\Framework\\v4.0.30319\\csc.exe"
+
+set "BRIDGE_READY=0"
+if defined CSC if exist "%INSTALL_DIR%\\canon-bridge\\MafazaCanonBridge.cs" (
+  pushd "%INSTALL_DIR%\\canon-bridge"
+  powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; try { (New-Object Net.WebClient).DownloadFile('https://raw.githubusercontent.com/ridwan0354/mafaza_photobooth/main/canon-bridge/windows/MafazaCanonBridge.cs', 'MafazaCanonBridge.cs'); } catch {}" >nul 2>&1
+  if exist "MafazaCanonBridge.exe" del /f /q "MafazaCanonBridge.exe" >nul 2>&1
+  %CSC% /nologo /target:exe /out:MafazaCanonBridge.exe /platform:anycpu MafazaCanonBridge.cs >nul 2>&1
+  if exist "MafazaCanonBridge.exe" (
+    powershell -NoProfile -Command "try { $p = Start-Process -FilePath '%INSTALL_DIR%\\canon-bridge\\MafazaCanonBridge.exe' -ArgumentList '-silent' -PassThru -WindowStyle Hidden; Start-Sleep -Milliseconds 700; if ($p.HasExited -and $p.ExitCode -ne 0) { exit 2 }; if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }; exit 0 } catch { exit 3 }" >nul 2>&1
+    if errorlevel 2 (
+      echo [PERHATIAN] Windows Smart App Control / Device Guard memblokir MafazaCanonBridge.exe.
+      echo             Solusi cepat jika pakai kabel USB Canon:
+      echo             Windows Security ^> App ^& browser control ^> Smart App Control ^> Off.
+      echo             (Print Agent ^& Kiosk Fullscreen tetap terpasang dan berjalan normal!)
+    ) else (
+      set "BRIDGE_READY=1"
+      echo [OK] Canon USB Bridge siap jalan!
+    )
+  )
+  popd
+) else (
+  echo [INFO] Kompilasi Bridge dilewati.
+)
+
+echo.
+echo [5/6] Memasang Shortcut Desktop & Auto-Start Windows saat Restart...
+del /f /q "%STARTUP_DIR%\\Mafaza-Print-Agent.vbs" >nul 2>&1
+del /f /q "%STARTUP_DIR%\\MafazaCanonBridge.lnk" >nul 2>&1
+del /f /q "%STARTUP_DIR%\\MafazaCanonBridge.vbs" >nul 2>&1
+copy /y "%INSTALL_DIR%\\Mafaza-AutoStart-Services.vbs" "%STARTUP_DIR%\\Mafaza-AutoStart-Services.vbs" >nul 2>&1
+
+powershell -NoProfile -Command "$q = [char]34; $ws = New-Object -ComObject WScript.Shell; $desk = [Environment]::GetFolderPath('Desktop'); $s1 = $ws.CreateShortcut($desk + '\\Photobooth Kiosk (Full Screen).lnk'); $s1.TargetPath = 'wscript.exe'; $s1.Arguments = $q + '%INSTALL_DIR%\\kiosk\\Photobooth-Kiosk-Aplikasi.vbs' + $q; $s1.WorkingDirectory = '%INSTALL_DIR%\\kiosk'; $s1.IconLocation = 'shell32.dll,300'; $s1.Save(); $s2 = $ws.CreateShortcut($desk + '\\Photobooth Mingle (Keliling).lnk'); $s2.TargetPath = 'wscript.exe'; $s2.Arguments = $q + '%INSTALL_DIR%\\kiosk\\Photobooth-Mingle-Aplikasi.vbs' + $q; $s2.WorkingDirectory = '%INSTALL_DIR%\\kiosk'; $s2.IconLocation = 'shell32.dll,140'; $s2.Save(); $s3 = $ws.CreateShortcut($desk + '\\Photobooth Admin Studio.lnk'); $s3.TargetPath = '%INSTALL_DIR%\\kiosk\\Photobooth-Admin-Studio.bat'; $s3.WorkingDirectory = '%INSTALL_DIR%\\kiosk'; $s3.IconLocation = 'shell32.dll,21'; $s3.Save();"
+echo [OK] Shortcut Desktop & Auto-Start saat Restart terpasang.
+
+echo.
+echo [6/6] Menyalakan Layanan Background sekarang (Print Agent + Bridge)...
+wscript.exe "%INSTALL_DIR%\\Mafaza-AutoStart-Services.vbs"
+echo.
+echo ========================================================================
+echo  SELESAI! SEMUA SUDAH TERPASANG DI %INSTALL_DIR%
+echo ========================================================================
+echo  - Layanan Print Agent (+ Canon Bridge bila aktif) SUDAH JALAN sekarang
+echo    dan OTOMATIS menyala sendiri setiap laptop di-restart!
+echo  - Klik ikon "Photobooth Kiosk (Full Screen)" atau "Admin Studio" di Desktop.
+echo  - (Opsional) Jika laptop khusus Kiosk ingin langsung buka layar penuh saat
+echo    boot, klik 2x "Pasang-AutoBuka-Layar-Kiosk-Saat-Boot.bat" di %INSTALL_DIR%.
+echo ========================================================================
+pause
+`.replace(/\n/g, '\r\n');
+
+  const restartAllBat = `@echo off
+chcp 65001 >nul
+title Restart Layanan Mafaza Photobooth
+cd /d "%~dp0"
+taskkill /f /im MafazaCanonBridge.exe >nul 2>&1
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*mafaza-print-agent.mjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+timeout /t 1 /nobreak >nul
+wscript.exe "%~dp0Mafaza-AutoStart-Services.vbs"
+echo [OK] Mafaza Print Agent & Canon Bridge sudah dinyalakan ulang di background!
+pause
+`.replace(/\n/g, '\r\n');
+
+  const enableAutoKioskBat = `@echo off
+chcp 65001 >nul
+set "STARTUP_DIR=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+copy /y "%~dp0kiosk\\Photobooth-Kiosk-Aplikasi.vbs" "%STARTUP_DIR%\\Mafaza-AutoOpen-Kiosk.vbs" >nul
+echo [OK] Layar Kiosk Full-Screen akan otomatis terbuka setiap Windows menyala!
+pause
+`.replace(/\n/g, '\r\n');
+
+  const disableAutoStartBat = `@echo off
+chcp 65001 >nul
+set "STARTUP_DIR=%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+del /f /q "%STARTUP_DIR%\\Mafaza-AutoStart-Services.vbs" >nul 2>&1
+del /f /q "%STARTUP_DIR%\\Mafaza-AutoOpen-Kiosk.vbs" >nul 2>&1
+taskkill /f /im MafazaCanonBridge.exe >nul 2>&1
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*mafaza-print-agent.mjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+echo [OK] Auto-Start saat Windows menyala telah dimatikan & layanan dihentikan.
+pause
+`.replace(/\n/g, '\r\n');
+
+  const guideAllTxt = `======================================================================
+MAFAZA PHOTOBOOTH — PAKET ALL-IN-ONE WINDOWS 10 / 11
+======================================================================
+
+CUKUP SEKALI INSTAL, TIDAK PERLU BUKA-BUKA LAGI SETELAH RESTART!
+
+CARA PASANG (SEKALI SAJA):
+1. Ekstrak seluruh isi ZIP ini.
+2. Klik kanan "PASANG-SEMUANYA-SEKALI-KLIK.bat" -> Run as administrator.
+3. Selesai! Folder otomatis dipindahkan ke C:\\MafazaPhotobooth\\ agar aman.
+
+APA SAJA YANG OTOMATIS JALAN SETELAH RESTART?
+- Mafaza Print Agent (cetak otomatis ke Epson/Canon tanpa popup)
+- Canon USB Bridge (jika kamera Canon pakai kabel USB & Smart App Control Off)
+- Di Desktop langsung tersedia shortcut:
+  * Photobooth Kiosk (Full Screen)
+  * Photobooth Mingle (Keliling)
+  * Photobooth Admin Studio
+
+CATATAN CANON USB BRIDGE (JIKA PAKAI KABEL USB LANGSUNG):
+- Jika muncul error "Device Guard policy", matikan Smart App Control sekali di:
+  Windows Security -> App & browser control -> Smart App Control settings -> Off
+  lalu jalankan C:\\MafazaPhotobooth\\Jalankan-Ulang-Semua-Layanan.bat.
+- Alternatif bebas blokir: pakai Capture Card HDMI USB di port USB laptop.
+======================================================================
+`.replace(/\n/g, '\r\n');
+
+  return createZipArchive([
+    { name: 'PASANG-SEMUANYA-SEKALI-KLIK.bat', content: installAllBat, executable: true },
+    { name: 'Jalankan-Ulang-Semua-Layanan.bat', content: restartAllBat, executable: true },
+    { name: 'Pasang-AutoBuka-Layar-Kiosk-Saat-Boot.bat', content: enableAutoKioskBat, executable: true },
+    { name: 'Matikan-AutoStart.bat', content: disableAutoStartBat, executable: true },
+    { name: 'Mafaza-AutoStart-Services.vbs', content: autoStartVbs, executable: false },
+    { name: 'canon-bridge/Run-Bridge-Silent.bat', content: runBridgeSilentBat, executable: true },
+    { name: 'PANDUAN-INSTALASI-WINDOWS.txt', content: guideAllTxt, executable: false },
+    ...kioskFiles,
+    ...agentFiles,
+    ...bridgeFiles
+  ]);
 }

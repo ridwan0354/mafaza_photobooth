@@ -2074,6 +2074,21 @@ apiRouter.get('/apps/download/windows', async (req, res) => {
   }
 });
 
+// Paket All-in-One Windows (Kiosk + Mingle + Print Agent + Canon Bridge + Auto-Start Windows)
+apiRouter.get('/apps/download/windows-suite', authMiddleware(), async (req, res) => {
+  try {
+    const info = await appBuilder.getAppDownloadInfo(req.headers.host || 'localhost:3000', req.query.serverUrl);
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    const agentKey = printService.getOrCreateAgentKey(tenantId);
+    const zipBuf = appBuilder.buildWindowsAllInOneZip(info.targetServerUrl, info.primaryLanUrl, agentKey);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="Mafaza-Photobooth-AllInOne-Windows.zip"');
+    res.send(zipBuf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 apiRouter.get('/apps/download/android', async (req, res) => {
   try {
     const info = await appBuilder.getAppDownloadInfo(req.headers.host || 'localhost:3000', req.query.serverUrl);

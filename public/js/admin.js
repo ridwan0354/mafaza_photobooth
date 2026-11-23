@@ -3749,6 +3749,7 @@ async function loadPrintAgentStatus(isUserTriggered = false) {
   const pqDevice = document.getElementById('pqAgentDevice');
   const macLink = document.getElementById('agentDownloadMac');
   const winLink = document.getElementById('agentDownloadWin');
+  const winSuiteLink = document.getElementById('btnDownloadWindowsAllInOne');
   const origin = encodeURIComponent(window.location.origin);
   let tokenSuffix = '';
   try {
@@ -3757,6 +3758,11 @@ async function loadPrintAgentStatus(isUserTriggered = false) {
   } catch (e) {}
   if (macLink) macLink.href = `/api/print-agent/download/macos?serverUrl=${origin}${tokenSuffix}`;
   if (winLink) winLink.href = `/api/print-agent/download/windows?serverUrl=${origin}${tokenSuffix}`;
+  if (winSuiteLink) {
+    const appUrlInput = document.getElementById('appServerUrlInput');
+    const targetOrigin = (appUrlInput && appUrlInput.value.trim()) || window.location.origin;
+    winSuiteLink.href = `/api/apps/download/windows-suite?serverUrl=${encodeURIComponent(targetOrigin)}${tokenSuffix}`;
+  }
 
   try {
     let st = null;
@@ -5554,6 +5560,7 @@ async function loadAppDownloadInfo(customServerUrl = null) {
 
     if (data.downloads) {
       const btnWin = document.getElementById('btnDownloadWindowsApp');
+      const btnWinSuite = document.getElementById('btnDownloadWindowsAllInOne');
       const btnMac = document.getElementById('btnDownloadMacApp');
       const btnAndZip = document.getElementById('btnDownloadAndroidZip');
       const btnAndHtml = document.getElementById('btnDownloadAndroidHtml');
@@ -5561,6 +5568,16 @@ async function loadAppDownloadInfo(customServerUrl = null) {
       const qMac = document.getElementById('quickDownloadMacBtn');
 
       if (btnWin) btnWin.href = data.downloads.windows;
+      if (btnWinSuite) {
+        const appUrlInput = document.getElementById('appServerUrlInput');
+        const resolvedUrl = (data && data.targetServerUrl) || (appUrlInput && appUrlInput.value.trim()) || window.location.origin;
+        let tokenSuffix = '';
+        try {
+          const t = localStorage.getItem('pb_admin_token');
+          if (t) tokenSuffix = `&token=${encodeURIComponent(t)}`;
+        } catch (e) {}
+        btnWinSuite.href = `/api/apps/download/windows-suite?serverUrl=${encodeURIComponent(resolvedUrl)}${tokenSuffix}`;
+      }
       if (btnMac) btnMac.href = data.downloads.macos;
       if (btnAndZip) btnAndZip.href = data.downloads.androidZip;
       if (btnAndHtml) btnAndHtml.href = data.downloads.androidHtml;
