@@ -910,6 +910,11 @@ test('Mingle Ready screen places captured thumbnails in right column below Jumla
   const bannerIdx = mingleHtml.indexOf('class="mingle-shutter-banner"');
   assert.ok(controlsIdx !== -1 && shotsIdx > controlsIdx && stripIdx > shotsIdx && bannerIdx > stripIdx,
     'mingleReadyStripWrap is placed in right controls column directly below Jumlah Cekrek');
+  assert.match(mingleHtml, /id="mingleReadyStripWrap"/);
+  assert.match(mingleHtml, /id="btnMingleScreenCapture"[^>]*>\s*📸 Jepret dari Layar\s*<\/button>/);
+  const qrIdx = mingleHtml.indexOf('class="mingle-qr-box"');
+  const resSlotIdx = mingleHtml.indexOf('id="mingleResultSlotBar"');
+  assert.ok(qrIdx !== -1 && resSlotIdx > qrIdx, 'mingleResultSlotBar is placed below QR box in right column');
   assert.match(mingleHtml, /id="minglePhotoZoomModal"/);
 
   const elements = new Map();

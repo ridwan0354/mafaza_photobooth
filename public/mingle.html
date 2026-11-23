@@ -965,7 +965,7 @@
               ✅ Selesai Foto &amp; Buat QR Galeri ➔
             </button>
             <button type="button" id="btnMingleScreenCapture" class="btn btn-coral" style="width: 100%; padding: 14px; font-size: 15px; font-weight: 800;" onclick="mingle.triggerBackupCapture()">
-              📸 Jepret dari Layar (Cadangan / Kamera Tab)
+              📸 Jepret dari Layar
             </button>
             <button type="button" class="btn btn-secondary" style="width: 100%; padding: 10px; font-size: 13px;" onclick="mingle.openSelectScreen()">
               ← Kembali ke Daftar Mode &amp; Bingkai
@@ -1008,12 +1008,6 @@
             <div id="mingleFilesThumbsGrid" class="mingle-files-thumbs-grid"></div>
           </div>
 
-          <!-- Pemilih Slot & Pose jika mengambil banyak foto pada frame berbingkai -->
-          <div id="mingleResultSlotBar" style="display: none; flex-direction: column; gap: 6px; border-top: 1.5px dashed var(--border-soft); padding-top: 8px;">
-            <div id="mingleResultSlotTabs" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
-            <div id="mingleResultPhotoPicker" class="mingle-captured-strip"></div>
-          </div>
-
           <div class="mingle-filter-row" id="mingleFilterRow">
             <button type="button" class="mingle-filter-btn active" data-filter="normal" onclick="mingle.setFilter('normal')">🌿 Normal</button>
             <button type="button" class="mingle-filter-btn" data-filter="glowing" onclick="mingle.setFilter('glowing')">✨ Glowing</button>
@@ -1024,7 +1018,7 @@
           </div>
         </div>
 
-        <div class="mingle-card" style="justify-content: space-between;">
+        <div class="mingle-card" style="justify-content: flex-start; gap: 12px;">
           <div class="mingle-qr-box">
             <div id="mingleQrHeaderText" style="font-size: 13px; font-weight: 800; color: var(--caramel-brown);">📲 Scan QR di HP Tamu untuk Download</div>
             <img id="mingleQrImg" src="" alt="QR Download Foto" style="display: none;" onclick="mingle.openQrZoomModal()" title="Ketuk untuk perbesar QR Code">
@@ -1036,7 +1030,13 @@
             <div id="mingleSyncStatus" style="font-size: 11.5px; color: #219653; font-weight: 700;">⏳ Menyimpan hasil ke server...</div>
           </div>
 
-          <div style="display: flex; flex-direction: column; gap: 10px;">
+          <!-- Pemilih Slot & Hasil Foto di Bawah QR -->
+          <div id="mingleResultSlotBar" style="display: none; flex-direction: column; gap: 8px; background: #FFF; border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 10px;">
+            <div id="mingleResultSlotTabs" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
+            <div id="mingleResultPhotoPicker" class="mingle-captured-strip" style="min-height: 0; padding: 2px 0;"></div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: auto;">
             <button type="button" class="btn btn-coral" style="width: 100%; padding: 15px; font-size: 15.5px; font-weight: 800;" onclick="mingle.nextGuest()">
               ✨ Selesai · Tamu Berikutnya
             </button>
