@@ -49,6 +49,8 @@ class MingleBoothEngine {
     this.canonLiveViewInMingle = true;
     const savedRot = parseInt(localStorage.getItem('pb_camera_rotation') || '0', 10);
     this.cameraRotation = [0, 90, 180, 270].includes(savedRot) ? savedRot : 0;
+    const savedCamOrient = localStorage.getItem('pb_camera_capture_orientation') || 'auto';
+    this.cameraCaptureOrientation = ['auto', 'portrait', 'landscape'].includes(savedCamOrient) ? savedCamOrient : 'auto';
     this.liveViewTimerId = null;
     this.statusTimerId = null;
     this.webcamStream = null;
@@ -69,6 +71,7 @@ class MingleBoothEngine {
     await this.hydrateCacheFirst();
 
     this.updateCameraRotationUI();
+    this.updateCameraCaptureOrientationUI();
     this.applyTopLiveLayout();
     this.startStatusPolling();
     this.setUsbMingleListen(false);
@@ -558,24 +561,112 @@ class MingleBoothEngine {
     return this.isTemplateLandscape(tpl) ? `${prefix} Lanskap` : `${prefix} Potret`;
   }
 
-  applyOrientationLayout(tplW, tplH) {
-    const isLand = tplW > tplH;
-    const isSquare = Math.abs(tplW - tplH) <= 12;
-    const ratioCss = `${tplW} / ${tplH}`;
+  getEffectiveCaptureOrientation() {
+    const pref = this.cameraCaptureOrientation || 'auto';
+    if (pref === 'portrait' || pref === 'landscape') return pref;
+    if (this.filesOnlyMode || !this.selectedTemplate) return 'landscape';
+    const tpl = this.selectedTemplate;
+    if (this.isTemplateLandscape(tpl)) return 'landscape';
+    const slots = Array.isArray(tpl.slots) ? tpl.slots : [];
+    const primarySlot = slots[0];
+    if (tpl.orientation !== 'strip' && primarySlot && primarySlot.height > primarySlot.width * 1.08) {
+      return 'portrait';
+    }
+    return 'landscape';
+  }
 
+  setCameraCaptureOrientation(mode = 'auto') {
+    const clean = ['auto', 'portrait', 'landscape'].includes(mode) ? mode : 'auto';
+    this.cameraCaptureOrientation = clean;
+    try {
+      localStorage.setItem('pb_camera_capture_orientation', clean);
+    } catch (e) {}
+    this.applyViewfinderOrientation();
+    this.updateCameraCaptureOrientationUI();
+  }
+
+  updateCameraCaptureOrientationUI() {
+    const mode = this.cameraCaptureOrientation || 'auto';
+    document.querySelectorAll('#mingleCameraOrientRow .mingle-orient-tab').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-cam-orient') === mode);
+    });
+
+    const effective = this.getEffectiveCaptureOrientation();
+    const isPort = effective === 'portrait';
+    const btnP = document.getElementById('btnMingleCaptureOrientPortrait');
+    const btnL = document.getElementById('btnMingleCaptureOrientLandscape');
+    if (btnP) {
+      btnP.style.background = isPort ? 'var(--coral, #E6786B)' : 'transparent';
+      btnP.style.color = '#ffffff';
+    }
+    if (btnL) {
+      btnL.style.background = !isPort ? 'var(--coral, #E6786B)' : 'transparent';
+      btnL.style.color = '#ffffff';
+    }
+  }
+
+  applyViewfinderOrientation() {
+    const effective = this.getEffectiveCaptureOrientation();
+    const isLand = effective === 'landscape';
+    const ratioCss = isLand ? '3 / 2' : '2 / 3';
     const readyGrid = document.getElementById('mingleReadyGrid');
     const viewfinder = document.getElementById('mingleViewfinder');
+    if (readyGrid) readyGrid.classList.toggle('is-landscape', isLand);
+    if (viewfinder) {
+      viewfinder.classList.toggle('is-landscape', isLand);
+      viewfinder.classList.toggle('is-portrait', !isLand);
+      viewfinder.style.aspectRatio = ratioCss;
+    }
+    requestAnimationFrame(() => this.applyMingleVideoTransform());
+  }
+
+  async enforceCaptureOrientationDataUrl(dataUrl) {
+    if (!dataUrl) return dataUrl;
+    const effective = this.getEffectiveCaptureOrientation();
+    const img = new Image();
+    img.src = dataUrl;
+    await new Promise(res => { img.onload = res; img.onerror = res; });
+    const iw = img.naturalWidth || 0;
+    const ih = img.naturalHeight || 0;
+    if (!iw || !ih) return dataUrl;
+
+    const targetRatio = effective === 'portrait' ? (2 / 3) : (3 / 2);
+    const curRatio = iw / ih;
+    const needsPortraitCrop = effective === 'portrait' && curRatio > 0.75;
+    const needsLandscapeCrop = effective === 'landscape' && curRatio < 1.32;
+    if (!needsPortraitCrop && !needsLandscapeCrop) return dataUrl;
+
+    let cropW = iw;
+    let cropH = ih;
+    if (curRatio > targetRatio) {
+      cropW = Math.max(1, Math.round(ih * targetRatio));
+      cropH = ih;
+    } else {
+      cropW = iw;
+      cropH = Math.max(1, Math.round(iw / targetRatio));
+    }
+    const sx = Math.max(0, Math.round((iw - cropW) / 2));
+    const sy = Math.max(0, Math.round((ih - cropH) / 2));
+    const c = document.createElement('canvas');
+    c.width = cropW;
+    c.height = cropH;
+    const ctx = c.getContext('2d');
+    if (!ctx) return dataUrl;
+    ctx.drawImage(img, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
+    return c.toDataURL('image/jpeg', 0.92);
+  }
+
+  applyOrientationLayout(tplW, tplH) {
+    const isLand = tplW > tplH;
+    const ratioCss = `${tplW} / ${tplH}`;
+
     const thumb = document.getElementById('mingleSelectedThumb');
     const resultGrid = document.getElementById('mingleResultGrid');
     const canvasStage = document.getElementById('mingleCanvasStage');
     const finalCanvas = document.getElementById('mingleFinalCanvas');
 
-    if (readyGrid) readyGrid.classList.toggle('is-landscape', isLand);
-    if (viewfinder) {
-      viewfinder.classList.toggle('is-landscape', isLand);
-      viewfinder.classList.toggle('is-portrait', !isLand && !isSquare);
-      viewfinder.style.aspectRatio = ratioCss;
-    }
+    this.applyViewfinderOrientation();
+    this.updateCameraCaptureOrientationUI();
     if (thumb) {
       thumb.style.width = isLand ? '100px' : '72px';
       thumb.style.height = isLand ? '70px' : '96px';
@@ -1249,7 +1340,9 @@ class MingleBoothEngine {
       vCtx.rotate((rot * Math.PI) / 180);
       vCtx.drawImage(video, -video.videoWidth / 2, -video.videoHeight / 2, video.videoWidth, video.videoHeight);
     }
-    await this.finalizeCapturedDataUrl(c.toDataURL('image/jpeg', 0.92));
+    const rawUrl = c.toDataURL('image/jpeg', 0.92);
+    const orientedUrl = await this.enforceCaptureOrientationDataUrl(rawUrl);
+    await this.finalizeCapturedDataUrl(orientedUrl);
   }
 
   async handleIncomingPhysicalPhoto(url, opts = {}) {
@@ -1278,7 +1371,8 @@ class MingleBoothEngine {
         reader.readAsDataURL(blob);
       });
       const rotatedUrl = await this.rotateDataUrlIfNeeded(dataUrl, true);
-      await this.finalizeCapturedDataUrl(rotatedUrl);
+      const orientedUrl = await this.enforceCaptureOrientationDataUrl(rotatedUrl);
+      await this.finalizeCapturedDataUrl(orientedUrl);
     } catch (e) {
       console.error('Physical shutter load error:', e);
       this.setProcessingOverlay(false);

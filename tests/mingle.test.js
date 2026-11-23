@@ -561,7 +561,9 @@ test('MingleBoothEngine arms baselinePhysicalSeq before accepting captures and b
   const docEl = () => ({
     style: {}, value: '', innerText: '', innerHTML: '', src: '', width: 0, height: 0,
     classList: { toggle() {}, add() {}, remove() {} },
-    addEventListener() {}, getContext: () => ({ drawImage() {}, fillRect() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {}, translate() {}, rotate() {}, save() {}, restore() {}, beginPath() {}, rect() {}, clip() {} })
+    addEventListener() {},
+    toDataURL: () => 'data:image/jpeg;base64,bmV3',
+    getContext: () => ({ drawImage() {}, fillRect() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {}, translate() {}, rotate() {}, save() {}, restore() {}, beginPath() {}, rect() {}, clip() {} })
   });
   const elements = new Map();
   const intervals = [];
@@ -826,4 +828,72 @@ test('Offline gallery UI renders unsent sessions and /complete auto-issues QR + 
       if (pid) db.prepare('DELETE FROM guest_passes WHERE id = ?').run(pid);
     }
   }
+});
+
+test('Mingle supports Arah Foto Kamera (Ikut Frame / Potret / Lanskap) matching Kiosk behavior', async () => {
+  const vm = await import('node:vm');
+  const mingleHtml = fs.readFileSync(path.join(process.cwd(), 'public/mingle.html'), 'utf8');
+  const mingleSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const trimmed = mingleSrc.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
+
+  assert.match(mingleHtml, /id="mingleCameraOrientRow"/);
+  assert.match(mingleHtml, /data-cam-orient="auto"[^>]*setCameraCaptureOrientation\('auto'\)/);
+  assert.match(mingleHtml, /data-cam-orient="portrait"[^>]*setCameraCaptureOrientation\('portrait'\)/);
+  assert.match(mingleHtml, /data-cam-orient="landscape"[^>]*setCameraCaptureOrientation\('landscape'\)/);
+  assert.match(mingleHtml, /id="btnMingleCaptureOrientPortrait"/);
+  assert.match(mingleHtml, /id="btnMingleCaptureOrientLandscape"/);
+
+  const storageMap = new Map();
+  const canvases = [];
+  const docEl = () => ({
+    style: {}, width: 0, height: 0,
+    classList: { toggle() {}, add() {}, remove() {} },
+    getContext: () => ({ drawImage() {} }),
+    toDataURL: () => 'data:image/jpeg;base64,Q1JPUA=='
+  });
+  const elements = new Map();
+  const ctx = vm.createContext({
+    URL, URLSearchParams, AbortController, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    Image: class { set src(v) { this.naturalWidth = 1920; this.naturalHeight = 1080; queueMicrotask(() => this.onload?.()); } },
+    localStorage: {
+      getItem: (k) => (storageMap.has(k) ? storageMap.get(k) : null),
+      setItem: (k, v) => storageMap.set(k, String(v))
+    },
+    navigator: { onLine: true, mediaDevices: null },
+    document: {
+      body: docEl(),
+      getElementById(id) { if (!elements.has(id)) elements.set(id, docEl()); return elements.get(id); },
+      querySelectorAll: () => [],
+      createElement: (tag) => { const el = docEl(); if (tag === 'canvas') canvases.push(el); return el; }
+    },
+    window: { location: { search: '' }, addEventListener() {} },
+    setInterval: () => 1, clearInterval: () => {}, setTimeout, clearTimeout,
+    requestAnimationFrame: (fn) => fn(), console
+  });
+  vm.runInContext(trimmed, ctx);
+
+  const engine = vm.runInContext('Object.create(MingleBoothEngine.prototype)', ctx);
+  Object.assign(engine, {
+    cameraCaptureOrientation: 'auto',
+    filesOnlyMode: false,
+    selectedTemplate: { orientation: 'portrait', width: 1200, height: 1800, slots: [{ width: 900, height: 1400 }] }
+  });
+
+  // 1. Auto follows portrait slot template -> portrait (crops 1920x1080 to 720x1080)
+  assert.equal(engine.getEffectiveCaptureOrientation(), 'portrait');
+  await engine.enforceCaptureOrientationDataUrl('data:image/jpeg;base64,RAW');
+  assert.equal(canvases[0].width, 720);
+  assert.equal(canvases[0].height, 1080);
+
+  // 2. Explicit landscape overrides portrait template -> landscape
+  engine.setCameraCaptureOrientation('landscape');
+  assert.equal(storageMap.get('pb_camera_capture_orientation'), 'landscape');
+  assert.equal(engine.getEffectiveCaptureOrientation(), 'landscape');
+  assert.equal(elements.get('mingleViewfinder').style.aspectRatio, '3 / 2');
+
+  // 3. Explicit portrait overrides landscape template -> portrait
+  engine.selectedTemplate = { orientation: 'landscape', width: 1800, height: 1200, slots: [{ width: 1600, height: 1000 }] };
+  engine.setCameraCaptureOrientation('portrait');
+  assert.equal(engine.getEffectiveCaptureOrientation(), 'portrait');
+  assert.equal(elements.get('mingleViewfinder').style.aspectRatio, '2 / 3');
 });
