@@ -109,7 +109,8 @@ class KioskEngine {
     // Deteksi iPad / Mobile: Jangan panggil getUserMedia saat #screenCapture masih display:none,
     // karena WebKit iPadOS akan membekukan/menggelapkan buffer UVC (seperti DJI Osmo Action 4) jika elemen <video> tersembunyi.
     const isIpadOs = (navigator.userAgent.includes('Macintosh') && (navigator.maxTouchPoints > 1)) || /iPad/i.test(navigator.userAgent || '');
-    const isMobileDevice = /Android|iPhone|iPod/i.test(navigator.userAgent || '') || isIpadOs;
+    const isAndroidBridge = Boolean(typeof window !== 'undefined' && window.MafazaAndroidBridge);
+    const isMobileDevice = /Android|iPhone|iPod/i.test(navigator.userAgent || '') || isIpadOs || isAndroidBridge;
     if (!isMobileDevice) {
       this.startCamera().catch(err => console.warn('Initial camera warmup:', err));
     }
@@ -278,6 +279,7 @@ class KioskEngine {
     try {
       if (typeof BroadcastChannel === 'function') {
         const ch = new BroadcastChannel('pb_kiosk_mode');
+        this._modeBroadcastChannel = ch;
         ch.onmessage = (msg) => {
           if (msg && msg.data && msg.data.localPrintMode === false) {
             if (this.eventConfig) this.eventConfig.localPrintMode = false;
@@ -313,11 +315,17 @@ class KioskEngine {
         }
       });
     }
-    setInterval(() => {
-      if (navigator.onLine !== false) {
+    this._poolRefillTimerId = setInterval(() => {
+      if (!document.hidden && navigator.onLine !== false) {
         this.replenishGuestPassPool(20).catch(() => {});
       }
     }, 30000);
+    window.addEventListener('pagehide', () => {
+      if (this._poolRefillTimerId) { clearInterval(this._poolRefillTimerId); this._poolRefillTimerId = null; }
+      if (this.canonAutoDetectInterval) { clearInterval(this.canonAutoDetectInterval); this.canonAutoDetectInterval = null; }
+      if (this._modeBroadcastChannel) { try { this._modeBroadcastChannel.close(); } catch (e) {} this._modeBroadcastChannel = null; }
+      this.clearAllTimers();
+    });
     updateOfflineBadge();
   }
 
@@ -1095,6 +1103,9 @@ class KioskEngine {
   // State 1 -> State 2: Welcome to QR Scan or Directly to Frame Selection
   async startSession() {
     this.posesCaptured = [null, null, null];
+    this.liveClips = [];
+    this.cachedPhotoImages = {};
+    this.rawPosesSyncedForSession = null;
     this.activePoseIndex = 0;
     this.guestPass = null;
     this.sessionId = null;
@@ -1483,6 +1494,8 @@ class KioskEngine {
     if (fbDot) fbDot.style.background = 'var(--coral)';
 
     if (!('BarcodeDetector' in window)) {
+      if (fbText) fbText.innerText = 'Browser ini belum mendukung auto-scan QR kamera — ketik/tempel kode di bawah.';
+      if (fbDot) fbDot.style.background = '#e5a823';
       return;
     }
 
@@ -1492,7 +1505,7 @@ class KioskEngine {
       let isDetecting = false;
 
       this.qrScannerInterval = setInterval(async () => {
-        if (isDetecting || !video || video.readyState < 2) return;
+        if (document.hidden || isDetecting || !video || video.readyState < 2) return;
         isDetecting = true;
         try {
           const codes = await detector.detect(video);
@@ -1542,6 +1555,9 @@ class KioskEngine {
   // Feature Pill 1: Foto Langsung -> Fast Direct Camera Capture
   startDirectCapture() {
     this.posesCaptured = [null, null, null];
+    this.liveClips = [];
+    this.cachedPhotoImages = {};
+    this.rawPosesSyncedForSession = null;
     this.activePoseIndex = 0;
     this.guestPass = null;
     this.sessionId = null;
@@ -2059,6 +2075,7 @@ class KioskEngine {
   startCanonUsbAutoDetector() {
     if (this.canonAutoDetectInterval) clearInterval(this.canonAutoDetectInterval);
     this.canonAutoDetectInterval = setInterval(async () => {
+      if (document.hidden) return;
       const info = await this.checkCanonUsbBridgeStatus();
       if (info && info.active && !this.canonUsbStreamActive && !this.__mafazaPreferWebCamera) {
         // Otomatis aktifkan kamera USB (Canon / Sony / Nikon / PTP) begitu terdeteksi aktif
@@ -3339,8 +3356,11 @@ class KioskEngine {
       ctx.fillText('📷 LIVE CAMERA (Warm Playful Retro Mode)', 640, 640);
       ctx.textAlign = 'start';
 
-      requestAnimationFrame(drawSimulatedFrame);
+      if (!this._simLoopStopped) {
+        this._simRafId = requestAnimationFrame(drawSimulatedFrame);
+      }
     };
+    this._simLoopStopped = false;
     drawSimulatedFrame();
 
     const stream = canvas.captureStream(30);
@@ -3448,8 +3468,9 @@ class KioskEngine {
     const countdownLabel = document.getElementById('countdownLabel');
     const svgProgress = document.getElementById('countdownSvgProgress');
 
-    let count = 3;
-    const maxCount = 3;
+    const cfgCountdown = parseInt(this.eventConfig && this.eventConfig.countdownSeconds, 10);
+    const maxCount = (Number.isFinite(cfgCountdown) && cfgCountdown >= 1 && cfgCountdown <= 10) ? cfgCountdown : 3;
+    let count = maxCount;
     const fullCircumference = 427.25;
 
     const updateDisplay = (val) => {
@@ -3460,9 +3481,9 @@ class KioskEngine {
         countdownNum.classList.add('pop');
       }
       if (countdownLabel) {
-        if (val === 3) countdownLabel.innerText = 'SIAP';
-        else if (val === 2) countdownLabel.innerText = 'SENYUM';
+        if (val === maxCount && maxCount >= 3) countdownLabel.innerText = 'SIAP';
         else if (val === 1) countdownLabel.innerText = 'TAHAN';
+        else if (val > 1) countdownLabel.innerText = 'SENYUM';
         else countdownLabel.innerText = 'CHEESE!';
       }
       if (svgProgress) {
@@ -4077,7 +4098,7 @@ class KioskEngine {
     let recStream = this.mediaStream;
     let isCanvasClone = false;
     if (!recStream && this.canonUsbStreamActive) {
-      const usbCanvas = document.getElementById('canonUsbLiveCanvas');
+      const usbCanvas = document.getElementById('canonUsbDirectCanvas') || document.getElementById('canonUsbLiveCanvas');
       if (usbCanvas && typeof usbCanvas.captureStream === 'function' && usbCanvas.width > 0) {
         try {
           recStream = usbCanvas.captureStream(15);
@@ -5706,14 +5727,17 @@ class KioskEngine {
     const needSyncRaw = (this.rawPosesSyncedForSession !== this.sessionId);
     const needSyncBoomerang = needSyncRaw || !!options.forceRegenerateBoomerang;
 
-    // Convert raw pose photos to blobs only on first sync for this session
+    // Convert raw pose photos to blobs only on first sync for this session (cap <= 2160px HD so VPS RAM stays light)
     const rawBlobs = [];
     let bmResult = null;
     if (needSyncRaw && this.posesCaptured && this.posesCaptured.length > 0) {
       for (let i = 0; i < this.posesCaptured.length; i++) {
-        const poseData = this.posesCaptured[i];
+        let poseData = this.posesCaptured[i];
         if (poseData && poseData.startsWith('data:')) {
           try {
+            if (typeof this.downscaleDataUrlIfLarge === 'function') {
+              poseData = await this.downscaleDataUrlIfLarge(poseData, 2160);
+            }
             const b = await this.dataUrlToBlob(poseData);
             rawBlobs.push({ blob: b, poseIndex: i + 1 });
           } catch (e) {}
@@ -6339,6 +6363,31 @@ class KioskEngine {
     }
   }
 
+  async downscaleDataUrlIfLarge(dataUrl, maxDim = 2160) {
+    if (!dataUrl || typeof Image === 'undefined' || typeof document === 'undefined') return dataUrl;
+    try {
+      const img = new Image();
+      img.src = dataUrl;
+      await new Promise((res) => { img.onload = res; img.onerror = res; });
+      const iw = img.naturalWidth || 0;
+      const ih = img.naturalHeight || 0;
+      const maxSide = Math.max(iw, ih);
+      if (!maxSide || maxSide <= maxDim) return dataUrl;
+      const scale = maxDim / maxSide;
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(iw * scale));
+      c.height = Math.max(1, Math.round(ih * scale));
+      const ctx = c.getContext('2d');
+      if (!ctx) return dataUrl;
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      const out = c.toDataURL('image/jpeg', 0.88);
+      c.width = 0; c.height = 0;
+      return out || dataUrl;
+    } catch (e) {
+      return dataUrl;
+    }
+  }
+
   finishSession() {
     this.clearAllTimers();
     this.isCountingDown = false;
@@ -6346,7 +6395,14 @@ class KioskEngine {
     if (this.autoReturnTimerId) clearInterval(this.autoReturnTimerId);
 
     // Clear temporary data to protect guest privacy
+    this._simLoopStopped = true;
+    if (this._simRafId) { cancelAnimationFrame(this._simRafId); this._simRafId = null; }
+    if (this.activeLiveRecorder && this.activeLiveRecorder.state !== 'inactive') {
+      try { this.activeLiveRecorder.stop(); } catch (e) {}
+    }
     this.posesCaptured = [];
+    this.liveClips = [];
+    this.rawPosesSyncedForSession = null;
     this.slotAssignments = [];
     this.slotTransforms = [];
     this.selectedPreviewSlotIndex = 0;

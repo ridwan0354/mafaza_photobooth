@@ -5,6 +5,7 @@
 #import <Syphon/Syphon.h>
 #import <objc/runtime.h>
 #import <sys/socket.h>
+#import <sys/time.h>
 #import <netinet/in.h>
 #import <arpa/inet.h>
 #import <unistd.h>
@@ -285,9 +286,14 @@ static void disableICCameraDeviceHijack(void) {
 
     [self closeEdsSession];
 
+    static long long s_lastPtpKillMs = 0;
+    long long nowKillMs = nowMs();
     if (!_edsInitialized) {
-        system("killall -9 ptpcamerad 2>/dev/null");
-        usleep(100000);
+        if (nowKillMs - s_lastPtpKillMs > 30000) {
+            s_lastPtpKillMs = nowKillMs;
+            system("killall -9 ptpcamerad 2>/dev/null");
+            usleep(100000);
+        }
         EdsError initErr = EdsInitializeSDK();
         if (initErr != 0) {
             pthread_mutex_lock(&g_lock);
@@ -297,8 +303,11 @@ static void disableICCameraDeviceHijack(void) {
         }
         _edsInitialized = YES;
     }
-    system("killall -9 ptpcamerad 2>/dev/null");
-    usleep(80000);
+    if (nowMs() - s_lastPtpKillMs > 30000) {
+        s_lastPtpKillMs = nowMs();
+        system("killall -9 ptpcamerad 2>/dev/null");
+        usleep(80000);
+    }
 
     EdsCameraListRef camList = NULL;
     EdsError err = EdsGetCameraList(&camList);
@@ -642,108 +651,123 @@ static void disableICCameraDeviceHijack(void) {
 }
 
 - (void)ensureSyphonClient {
-    if (_syphonClient && [_syphonClient isValid]) return;
-    _syphonClient = nil;
-    NSArray *servers = [[SyphonServerDirectory sharedDirectory] servers];
-    if (servers.count == 0) return;
+    @try {
+        if (_syphonClient && [_syphonClient isValid]) return;
+        _syphonClient = nil;
+        NSArray *servers = [[SyphonServerDirectory sharedDirectory] servers];
+        if (servers.count == 0) return;
 
-    NSDictionary *chosen = servers.firstObject;
-    for (NSDictionary *desc in servers) {
-        NSString *appName = [desc objectForKey:SyphonServerDescriptionAppNameKey] ?: @"";
-        if ([appName rangeOfString:@"Camera Live" options:NSCaseInsensitiveSearch].location != NSNotFound) {
-            chosen = desc;
-            break;
+        NSDictionary *chosen = servers.firstObject;
+        for (NSDictionary *desc in servers) {
+            NSString *appName = [desc objectForKey:SyphonServerDescriptionAppNameKey] ?: @"";
+            if ([appName rangeOfString:@"Camera Live" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                chosen = desc;
+                break;
+            }
         }
-    }
-    NSString *camName = [chosen objectForKey:SyphonServerDescriptionNameKey] ?: @"Canon EOS 1300D";
-    pthread_mutex_lock(&g_lock);
-    strncpy(g_cameraName, [camName UTF8String], sizeof(g_cameraName) - 1);
-    pthread_mutex_unlock(&g_lock);
+        NSString *camName = [chosen objectForKey:SyphonServerDescriptionNameKey] ?: @"Canon EOS 1300D";
+        pthread_mutex_lock(&g_lock);
+        strncpy(g_cameraName, [camName UTF8String], sizeof(g_cameraName) - 1);
+        pthread_mutex_unlock(&g_lock);
 
-    [_glCtx makeCurrentContext];
-    _syphonClient = [[SyphonClient alloc] initWithServerDescription:chosen context:[_glCtx CGLContextObj] options:nil newFrameHandler:nil];
+        [_glCtx makeCurrentContext];
+        _syphonClient = [[SyphonClient alloc] initWithServerDescription:chosen context:[_glCtx CGLContextObj] options:nil newFrameHandler:nil];
+    } @catch (NSException *ex) {
+        NSLog(@"[CanonBridge] Syphon client exception (%@): %@", ex.name, ex.reason);
+        _syphonClient = nil;
+    }
 }
 
 - (BOOL)pollSyphonFrame {
-    [self ensureSyphonClient];
-    if (!_syphonClient || ![_syphonClient isValid]) return NO;
+    @try {
+        [self ensureSyphonClient];
+        if (!_syphonClient || ![_syphonClient isValid]) return NO;
 
-    [_glCtx makeCurrentContext];
-    SyphonImage *img = [_syphonClient newFrameImage];
-    if (!img) return NO;
+        [_glCtx makeCurrentContext];
+        SyphonImage *img = [_syphonClient newFrameImage];
+        if (!img) return NO;
 
-    NSSize sz = [img textureSize];
-    int w = (int)sz.width;
-    int h = (int)sz.height;
-    GLuint tex = [img textureName];
-    if (w > 0 && h > 0 && tex != 0) {
-        glBindTexture(GL_TEXTURE_RECTANGLE_ARB, tex);
-        size_t rowBytes = (size_t)w * 4;
-        unsigned char *raw = (unsigned char *)malloc(rowBytes * (size_t)h);
-        unsigned char *flipped = (unsigned char *)malloc(rowBytes * (size_t)h);
-        if (raw && flipped) {
-            glPixelStorei(GL_PACK_ALIGNMENT, 1);
-            glGetTexImage(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA, GL_UNSIGNED_BYTE, raw);
-            for (int y = 0; y < h; y++) {
-                memcpy(flipped + (size_t)y * rowBytes, raw + (size_t)(h - 1 - y) * rowBytes, rowBytes);
-            }
-            unsigned char *planes[1] = { flipped };
-            NSBitmapImageRep *rep = [[NSBitmapImageRep alloc]
-                initWithBitmapDataPlanes:planes
-                              pixelsWide:w
-                              pixelsHigh:h
-                           bitsPerSample:8
-                         samplesPerPixel:4
-                                hasAlpha:YES
-                                isPlanar:NO
-                          colorSpaceName:NSDeviceRGBColorSpace
-                             bytesPerRow:rowBytes
-                            bitsPerPixel:32];
-            NSData *jpg = [rep representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor: @(0.90)}];
-            if (jpg && jpg.length > 1000) {
-                pthread_mutex_lock(&g_lock);
-                if (g_jpegBuf) free(g_jpegBuf);
-                g_jpegBuf = (unsigned char *)malloc(jpg.length);
-                if (g_jpegBuf) {
-                    memcpy(g_jpegBuf, jpg.bytes, jpg.length);
-                    g_jpegLen = jpg.length;
-                    g_width = w;
-                    g_height = h;
-                    g_lastFrameTimeMs = nowMs();
-                    strcpy(g_sourceMode, "syphon");
+        NSSize sz = [img textureSize];
+        int w = (int)sz.width;
+        int h = (int)sz.height;
+        GLuint tex = [img textureName];
+        if (w > 0 && h > 0 && tex != 0) {
+            glBindTexture(GL_TEXTURE_RECTANGLE_ARB, tex);
+            size_t rowBytes = (size_t)w * 4;
+            unsigned char *raw = (unsigned char *)malloc(rowBytes * (size_t)h);
+            unsigned char *flipped = (unsigned char *)malloc(rowBytes * (size_t)h);
+            if (raw && flipped) {
+                glPixelStorei(GL_PACK_ALIGNMENT, 1);
+                glGetTexImage(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA, GL_UNSIGNED_BYTE, raw);
+                for (int y = 0; y < h; y++) {
+                    memcpy(flipped + (size_t)y * rowBytes, raw + (size_t)(h - 1 - y) * rowBytes, rowBytes);
                 }
-                pthread_mutex_unlock(&g_lock);
+                unsigned char *planes[1] = { flipped };
+                NSBitmapImageRep *rep = [[NSBitmapImageRep alloc]
+                    initWithBitmapDataPlanes:planes
+                                  pixelsWide:w
+                                  pixelsHigh:h
+                               bitsPerSample:8
+                             samplesPerPixel:4
+                                    hasAlpha:YES
+                                    isPlanar:NO
+                              colorSpaceName:NSDeviceRGBColorSpace
+                                 bytesPerRow:rowBytes
+                                bitsPerPixel:32];
+                NSData *jpg = [rep representationUsingType:NSBitmapImageFileTypeJPEG properties:@{NSImageCompressionFactor: @(0.90)}];
+                if (jpg && jpg.length > 1000) {
+                    pthread_mutex_lock(&g_lock);
+                    if (g_jpegBuf) free(g_jpegBuf);
+                    g_jpegBuf = (unsigned char *)malloc(jpg.length);
+                    if (g_jpegBuf) {
+                        memcpy(g_jpegBuf, jpg.bytes, jpg.length);
+                        g_jpegLen = jpg.length;
+                        g_width = w;
+                        g_height = h;
+                        g_lastFrameTimeMs = nowMs();
+                        strcpy(g_sourceMode, "syphon");
+                    }
+                    pthread_mutex_unlock(&g_lock);
+                }
             }
+            if (raw) free(raw);
+            if (flipped) free(flipped);
+            glBindTexture(GL_TEXTURE_RECTANGLE_ARB, 0);
         }
-        if (raw) free(raw);
-        if (flipped) free(flipped);
-        glBindTexture(GL_TEXTURE_RECTANGLE_ARB, 0);
+        return YES;
+    } @catch (NSException *ex) {
+        NSLog(@"[CanonBridge] Syphon poll exception (%@): %@", ex.name, ex.reason);
+        _syphonClient = nil;
+        return NO;
     }
-    return YES;
 }
 
 - (void)tick {
     @autoreleasepool {
-        _tickCount++;
-        if (_edsSessionOpen && _edsCamera) {
-            EdsGetEvent();
-        }
-        [self processPendingCommands];
+        @try {
+            _tickCount++;
+            if (_edsSessionOpen && _edsCamera) {
+                EdsGetEvent();
+            }
+            [self processPendingCommands];
 
-        // Try direct EDSDK session first if open
-        if (_edsSessionOpen) {
-            if ([self pollDirectEdsFrame]) return;
-        }
+            // Try direct EDSDK session first if open
+            if (_edsSessionOpen) {
+                if ([self pollDirectEdsFrame]) return;
+            }
 
-        // If Syphon from Camera Live is available and we haven't switched to direct EDSDK:
-        NSArray *servers = [[SyphonServerDirectory sharedDirectory] servers];
-        if (servers.count > 0) {
-            if ([self pollSyphonFrame]) return;
-        }
+            // If Syphon from Camera Live is available and we haven't switched to direct EDSDK:
+            NSArray *servers = [[SyphonServerDirectory sharedDirectory] servers];
+            if (servers.count > 0) {
+                if ([self pollSyphonFrame]) return;
+            }
 
-        // Otherwise try opening direct EDSDK session after 10 ticks (~0.3s) every ~1.5s
-        if (_tickCount > 10 && (_tickCount % 45 == 1)) {
-            [self tryOpenDirectEdsSession];
+            // Otherwise try opening direct EDSDK session after 10 ticks (~0.3s) every ~1.5s
+            if (_tickCount > 10 && (_tickCount % 45 == 1)) {
+                [self tryOpenDirectEdsSession];
+            }
+        } @catch (NSException *ex) {
+            NSLog(@"[CanonBridge] Tick NSException (%@): %@", ex.name, ex.reason);
         }
     }
 }
@@ -773,6 +797,16 @@ static int parseQueryInt(const char *query, const char *key, int defaultVal) {
     return atoi(p);
 }
 
+static void sendAllBytes(int fd, const void *buf, size_t len) {
+    const unsigned char *p = (const unsigned char *)buf;
+    size_t sent = 0;
+    while (sent < len) {
+        ssize_t n = send(fd, p + sent, len - sent, 0);
+        if (n <= 0) break;
+        sent += (size_t)n;
+    }
+}
+
 static void handleClient(int fd) {
     char req[2048];
     ssize_t n = recv(fd, req, sizeof(req) - 1, 0);
@@ -787,28 +821,21 @@ static void handleClient(int fd) {
             "Access-Control-Allow-Headers: *\r\n"
             "Access-Control-Allow-Private-Network: true\r\n"
             "Connection: close\r\n\r\n";
-        send(fd, hdr, strlen(hdr), 0);
+        sendAllBytes(fd, hdr, strlen(hdr));
         close(fd);
         return;
     }
 
-    // Handle /captured_pose.jpg (MUST be checked before /capture!)
+    // Handle /captured_pose.jpg (MUST be checked before /capture!) - NEVER fall back to low-res preview
     if (strncmp(req, "GET /captured_pose.jpg", 22) == 0) {
         pthread_mutex_lock(&g_lock);
         unsigned char *copyBuf = NULL;
         size_t copyLen = 0;
-        // Prefer newly captured high-res photo if less than 60s old
         if (g_capturedPhotoBuf && g_capturedPhotoLen > 1000 && (nowMs() - g_capturedPhotoTimeMs) < 60000) {
             copyBuf = (unsigned char *)malloc(g_capturedPhotoLen);
             if (copyBuf) {
                 memcpy(copyBuf, g_capturedPhotoBuf, g_capturedPhotoLen);
                 copyLen = g_capturedPhotoLen;
-            }
-        } else if (g_jpegBuf && g_jpegLen > 0) {
-            copyBuf = (unsigned char *)malloc(g_jpegLen);
-            if (copyBuf) {
-                memcpy(copyBuf, g_jpegBuf, g_jpegLen);
-                copyLen = g_jpegLen;
             }
         }
         pthread_mutex_unlock(&g_lock);
@@ -819,7 +846,7 @@ static void handleClient(int fd) {
                 "Access-Control-Allow-Origin: *\r\n"
                 "Access-Control-Allow-Private-Network: true\r\n"
                 "Connection: close\r\n\r\n";
-            send(fd, hdr, strlen(hdr), 0);
+            sendAllBytes(fd, hdr, strlen(hdr));
             if (copyBuf) free(copyBuf);
             close(fd);
             return;
@@ -834,8 +861,8 @@ static void handleClient(int fd) {
             "Cache-Control: no-store, no-cache, must-revalidate\r\n"
             "Content-Length: %zu\r\n"
             "Connection: close\r\n\r\n", copyLen);
-        send(fd, hdr, strlen(hdr), 0);
-        send(fd, copyBuf, copyLen, 0);
+        sendAllBytes(fd, hdr, strlen(hdr));
+        sendAllBytes(fd, copyBuf, copyLen);
         free(copyBuf);
         close(fd);
         return;
@@ -849,13 +876,14 @@ static void handleClient(int fd) {
     if (strncmp(req, "GET /api/camera/trigger-capture", 31) == 0) isCaptureReq = YES;
 
     if (isCaptureReq) {
+        long long reqStartMs = nowMs();
         pthread_mutex_lock(&g_cmdLock);
         g_cmdCapture = YES;
         g_hasPendingCmd = YES;
         pthread_mutex_unlock(&g_cmdLock);
 
-        // Wait up to 3.5s for physical shutter release & flash photo download to complete
-        for (int i = 0; i < 70; i++) {
+        // Wait up to 4.5s for physical shutter release & flash photo download to complete
+        for (int i = 0; i < 90; i++) {
             usleep(50000);
             pthread_mutex_lock(&g_cmdLock);
             BOOL pending = g_cmdCapture;
@@ -863,11 +891,21 @@ static void handleClient(int fd) {
             if (!pending) break;
         }
 
+        pthread_mutex_lock(&g_lock);
+        BOOL freshCaptureOk = (g_capturedPhotoBuf != NULL && g_capturedPhotoLen > 1000 && g_capturedPhotoTimeMs >= reqStartMs);
+        pthread_mutex_unlock(&g_lock);
+
         long long ts = nowMs();
         char body[512];
-        snprintf(body, sizeof(body),
-            "{\"ok\":true,\"source\":\"canon-usb-edsdk\",\"captured\":true,"
-            "\"imageUrl\":\"http://127.0.0.1:19898/captured_pose.jpg?t=%lld\"}", ts);
+        if (freshCaptureOk) {
+            snprintf(body, sizeof(body),
+                "{\"ok\":true,\"source\":\"canon-usb-edsdk\",\"captured\":true,"
+                "\"imageUrl\":\"http://127.0.0.1:19898/captured_pose.jpg?t=%lld\"}", ts);
+        } else {
+            snprintf(body, sizeof(body),
+                "{\"ok\":false,\"retryable\":true,\"captured\":false,"
+                "\"error\":\"Foto asli Canon belum diterima. Periksa fokus/flash kamera.\"}");
+        }
 
         char hdr[512];
         snprintf(hdr, sizeof(hdr),
@@ -880,8 +918,8 @@ static void handleClient(int fd) {
             "Cache-Control: no-store, no-cache, must-revalidate\r\n"
             "Content-Length: %zu\r\n"
             "Connection: close\r\n\r\n", strlen(body));
-        send(fd, hdr, strlen(hdr), 0);
-        send(fd, body, strlen(body), 0);
+        sendAllBytes(fd, hdr, strlen(hdr));
+        sendAllBytes(fd, body, strlen(body));
         close(fd);
         return;
     }
@@ -993,8 +1031,8 @@ static void handleClient(int fd) {
         "Cache-Control: no-store, no-cache, must-revalidate\r\n"
         "Content-Length: %zu\r\n"
         "Connection: close\r\n\r\n", copyLen);
-    send(fd, hdr, strlen(hdr), 0);
-    send(fd, copyBuf, copyLen, 0);
+    sendAllBytes(fd, hdr, strlen(hdr));
+    sendAllBytes(fd, copyBuf, copyLen);
     free(copyBuf);
     close(fd);
 }
@@ -1015,7 +1053,12 @@ static void *httpServerThread(void *arg) {
     while (1) {
         int client = accept(srv, NULL, NULL);
         if (client >= 0) {
-            handleClient(client);
+            struct timeval tv = { 5, 0 };
+            setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+            setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                handleClient(client);
+            });
         }
     }
     return NULL;
@@ -1035,10 +1078,21 @@ int main(int argc, const char * argv[]) {
         pthread_create(&tid, NULL, httpServerThread, NULL);
         pthread_detach(tid);
 
+        // Satu timer tunggal 30ms di mainRunLoop dengan @try/@catch agar kebal exception D.O./MachPort
+        NSTimer *timer = [NSTimer timerWithTimeInterval:0.030
+                                                 target:engine
+                                               selector:@selector(tick)
+                                               userInfo:nil
+                                                repeats:YES];
+        [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
+
         while (1) {
             @autoreleasepool {
-                [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.033]];
-                [engine tick];
+                @try {
+                    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+                } @catch (NSException *ex) {
+                    NSLog(@"[CanonBridge] Ignored NSRunLoop/MachPort exception (%@): %@", ex.name, ex.reason);
+                }
             }
         }
     }

@@ -466,7 +466,7 @@
       <button id="btnKioskFullscreen" type="button" onclick="kiosk.toggleFullScreen()" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--coral); font-size: 13px; font-weight: 800; color: var(--coral); cursor: pointer; box-shadow: 0 4px 12px rgba(230,120,107,0.18); transition: transform 0.15s ease;">
         ⛶ Layar Penuh
       </button>
-      <a href="/admin?tab=photos" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 700; color: var(--caramel-brown); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(123,72,46,0.06); transition: transform 0.15s ease;">
+      <a href="/admin?tab=photos" onclick="if (typeof promptOperatorUnlock === 'function') { event.preventDefault(); promptOperatorUnlock(); }" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 700; color: var(--caramel-brown); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(123,72,46,0.06); transition: transform 0.15s ease;">
         📷 Dasbor Admin
       </a>
     </div>

@@ -130,9 +130,11 @@ export function updateEventConfig(eventId, tenantId, newConfig) {
     db.prepare("UPDATE guest_passes SET expires_at = NULL WHERE event_id = ?").run(eventId);
   } else if (newConfig.galleryExpiryDate) {
     db.prepare("UPDATE guest_passes SET expires_at = ? WHERE event_id = ?").run(`${newConfig.galleryExpiryDate} 23:59:59`, eventId);
-  } else if (newConfig.galleryExpiryDays) {
-    const days = parseInt(newConfig.galleryExpiryDays);
-    db.prepare(`UPDATE guest_passes SET expires_at = datetime('now', '+${days} days') WHERE event_id = ?`).run(eventId);
+  } else if (newConfig.galleryExpiryDays !== undefined && newConfig.galleryExpiryDays !== null && newConfig.galleryExpiryDays !== '') {
+    const days = parseInt(newConfig.galleryExpiryDays, 10);
+    if (Number.isFinite(days) && days > 0) {
+      db.prepare(`UPDATE guest_passes SET expires_at = datetime('now', '+${days} days') WHERE event_id = ?`).run(eventId);
+    }
   }
 
   return getEventById(eventId, tenantId);
@@ -178,13 +180,13 @@ export function cleanupExpiredEventPhotos() {
       autoDeleteAt = endsDate.toISOString();
     }
 
-    if (autoDeleteAt && new Date(autoDeleteAt).getTime() <= now.getTime()) {
+    if (autoDeleteAt && !Number.isNaN(new Date(autoDeleteAt).getTime()) && new Date(autoDeleteAt).getTime() <= now.getTime()) {
       // Event sudah melewati 1 tahun -> Hapus foto fisik dari disk & database
-      const mediaList = db.prepare('SELECT storage_key FROM media_assets WHERE event_id = ?').all(ev.id);
+      const mediaList = db.prepare('SELECT id, file_path FROM media_assets WHERE event_id = ?').all(ev.id);
       for (const m of mediaList) {
-        if (m.storage_key) {
+        if (m.file_path) {
           try {
-            const cleanPath = m.storage_key.replace(/^\//, '');
+            const cleanPath = String(m.file_path).replace(/^\/+/, '');
             const filePath = path.join(process.cwd(), 'public', cleanPath);
             if (fs.existsSync(filePath)) {
               fs.unlinkSync(filePath);
@@ -193,10 +195,11 @@ export function cleanupExpiredEventPhotos() {
         }
       }
 
-      // Hapus data sesi & media dari SQLite
+      // Hapus data sesi & media dari SQLite menggunakan kolom skema yang benar
       const sessions = db.prepare('SELECT id FROM photo_sessions WHERE event_id = ?').all(ev.id);
+      const delCapturesStmt = db.prepare('DELETE FROM captures WHERE photo_session_id = ?');
       for (const s of sessions) {
-        db.prepare('DELETE FROM captures WHERE session_id = ?').run(s.id);
+        delCapturesStmt.run(s.id);
       }
       db.prepare('DELETE FROM media_assets WHERE event_id = ?').run(ev.id);
       const res = db.prepare('DELETE FROM photo_sessions WHERE event_id = ?').run(ev.id);
@@ -204,19 +207,16 @@ export function cleanupExpiredEventPhotos() {
       deletedMediaCount += (mediaList.length + res.changes);
       affectedEventsCount++;
 
-      // Log ke Audit Trail
+      // Log ke Audit Trail sesuai kolom audit_logs (id, tenant_id, user_id, actor_name, action, details_json)
       db.prepare(`
-        INSERT INTO audit_logs (id, tenant_id, actor_id, actor_role, action, target_type, target_id, details_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO audit_logs (id, tenant_id, user_id, actor_name, action, details_json)
+        VALUES (?, ?, NULL, ?, ?, ?)
       `).run(
         'audit_' + crypto.randomBytes(6).toString('hex'),
         ev.tenant_id,
-        'system_cleanup_job',
-        'system',
+        'System Auto Cleanup',
         'auto_delete_photos_expired_1_year',
-        'event',
-        ev.id,
-        JSON.stringify({ eventName: ev.name, autoDeleteAt, cleanedAt: now.toISOString(), deletedMediaCount: mediaList.length })
+        JSON.stringify({ eventId: ev.id, eventName: ev.name, autoDeleteAt, cleanedAt: now.toISOString(), deletedMediaCount: mediaList.length })
       );
     }
   }

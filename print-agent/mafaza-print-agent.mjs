@@ -340,7 +340,7 @@ async function printUnix(file, job, printer) {
       args.push('-o', 'EPIJ_Qual=303');
       notes.push('kualitas=Standar (303)');
     }
-    if (lpOpts.Resolution) {
+    if (lpOpts.Resolution && lpOpts.Resolution.choices.some((c) => /360/i.test(c.key))) {
       args.push('-o', 'Resolution=360x360dpi');
     }
     if (lpOpts.EPIJ_OPT_Bi_D) {
@@ -450,9 +450,18 @@ try {
     # Jangan geser negatif agar teks kiri ('FAS 2025') dan kartun bawah tidak terpotong!
     $pw = [single]$e.PageBounds.Width
     $ph = [single]$e.PageBounds.Height
-
+    $imgAspect = [single]$img.Width / [single][Math]::Max(1, $img.Height)
+    $pageAspect = $pw / [single][Math]::Max(1, $ph)
+    $destX = [single]0; $destY = [single]0; $destW = $pw; $destH = $ph
+    if ([Math]::Abs($imgAspect - $pageAspect) -gt 0.015) {
+      $ratio = [Math]::Min($pw / $img.Width, $ph / $img.Height)
+      $destW = [single]($img.Width * $ratio)
+      $destH = [single]($img.Height * $ratio)
+      $destX = [single](($pw - $destW) / 2)
+      $destY = [single](($ph - $destH) / 2)
+    }
     $srcRect = New-Object System.Drawing.Rectangle(0, 0, $img.Width, $img.Height)
-    $destRect = New-Object System.Drawing.RectangleF(0, 0, $pw, $ph)
+    $destRect = New-Object System.Drawing.RectangleF($destX, $destY, $destW, $destH)
     $g.DrawImage($img, $destRect, $srcRect, [System.Drawing.GraphicsUnit]::Pixel)
     $e.HasMorePages = $false
   })
@@ -465,26 +474,34 @@ try {
 
 async function printWindows(file, job, printer) {
   const o = job.options;
-  const scriptPath = path.join(os.tmpdir(), 'mafaza_print_win.ps1');
+  const safeId = String(job.id || Date.now()).replace(/[^A-Za-z0-9_-]/g, '');
+  const scriptPath = path.join(os.tmpdir(), `mafaza_print_${safeId}.ps1`);
   fs.writeFileSync(scriptPath, '\ufeff' + WIN_SCRIPT, 'utf8');
   log(`   PowerShell print -> ${printer.name} | ${o.paperWidthIn}x${o.paperHeightIn}in | borderless=${o.borderless} | copies=${job.copies}`);
-  if (DRY_RUN) return { spoolerId: 'DRY-RUN', notes: [] };
+  if (DRY_RUN) {
+    fs.unlink(scriptPath, () => {});
+    return { spoolerId: 'DRY-RUN', notes: [] };
+  }
 
-  const { stdout } = await run('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
-    timeout: 90000,
-    env: {
-      ...process.env,
-      PB_FILE: file,
-      PB_PRINTER: printer.name,
-      PB_COPIES: String(job.copies || 1),
-      PB_W_IN: String(o.paperWidthIn),
-      PB_H_IN: String(o.paperHeightIn),
-      PB_BORDERLESS: o.borderless ? '1' : '0',
-      PB_HIGH: o.highDpi ? '1' : '0'
-    }
-  });
-  if (!/WIN_SPOOL_OK/.test(stdout)) throw new Error('Windows spooler tidak mengonfirmasi cetak');
-  return { spoolerId: null, notes: [] };
+  try {
+    const { stdout } = await run('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+      timeout: 90000,
+      env: {
+        ...process.env,
+        PB_FILE: file,
+        PB_PRINTER: printer.name,
+        PB_COPIES: String(job.copies || 1),
+        PB_W_IN: String(o.paperWidthIn),
+        PB_H_IN: String(o.paperHeightIn),
+        PB_BORDERLESS: o.borderless ? '1' : '0',
+        PB_HIGH: o.highDpi ? '1' : '0'
+      }
+    });
+    if (!/WIN_SPOOL_OK/.test(stdout)) throw new Error('Windows spooler tidak mengonfirmasi cetak');
+    return { spoolerId: null, notes: [] };
+  } finally {
+    fs.unlink(scriptPath, () => {});
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -494,7 +511,8 @@ async function api(pathname, { method = 'GET', body } = {}) {
   const res = await fetch(`${CONFIG.server}${pathname}`, {
     method,
     headers: { 'Content-Type': 'application/json', 'x-agent-key': CONFIG.key },
-    body: body ? JSON.stringify(body) : undefined
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(8000)
   });
   if (res.status === 401) throw new Error('Kunci Print Agent ditolak server. Unduh ulang aplikasi dari menu Printer.');
   if (!res.ok) throw new Error(`Server membalas ${res.status}`);
@@ -503,8 +521,12 @@ async function api(pathname, { method = 'GET', body } = {}) {
 
 async function downloadSheet(job) {
   const res = await api(`/api/print-jobs/${job.id}/sheet`);
+  const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+  if (contentType.includes('svg')) {
+    throw new Error('Format SVG tidak didukung untuk print langsung; gunakan PNG/JPEG');
+  }
   const buf = Buffer.from(await res.arrayBuffer());
-  const ext = (res.headers.get('content-type') || '').includes('svg') ? 'svg' : 'png';
+  const ext = contentType.includes('jpeg') || contentType.includes('jpg') ? 'jpg' : 'png';
   const file = path.join(os.tmpdir(), `mafaza_agent_${job.id}.${ext}`);
   fs.writeFileSync(file, buf);
   return file;
@@ -512,6 +534,7 @@ async function downloadSheet(job) {
 
 let printersCache = [];
 let lastPrinterScan = 0;
+let lastPrintersHash = '';
 let printersNeedSend = true;
 let busy = false;
 let lastError = '';
@@ -547,10 +570,14 @@ async function tick() {
   if (busy) return;
   busy = true;
   try {
-    if (Date.now() - lastPrinterScan > 30000) {
+    if (Date.now() - lastPrinterScan > 120000) {
       printersCache = await listPrinters();
       lastPrinterScan = Date.now();
-      printersNeedSend = true;
+      const nextHash = JSON.stringify(printersCache.map(p => [p.id, p.status, p.isDefault]));
+      if (nextHash !== lastPrintersHash) {
+        lastPrintersHash = nextHash;
+        printersNeedSend = true;
+      }
     }
     const printersPayload = printersNeedSend ? printersCache : undefined;
     const res = await api('/api/print-agent/poll', {
@@ -604,7 +631,7 @@ async function executeLocalPrintJob(payload) {
   const m = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/i);
   if (!m) throw new Error('Format gambar print lokal tidak valid');
   const ext = m[1].toLowerCase() === 'png' ? 'png' : 'jpg';
-  const file = path.join(os.tmpdir(), `mafaza_local_${Date.now()}.${ext}`);
+  const file = path.join(os.tmpdir(), `mafaza_local_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.${ext}`);
   fs.writeFileSync(file, Buffer.from(m[2], 'base64'));
   log(`🔌 [LOCAL PRINT] ${job.copies}× ${rawPaper} -> "${printer.name}"`);
   try {
@@ -646,11 +673,27 @@ function startLocalPrintBridge() {
     if (req.method === 'POST' && req.url.startsWith('/print')) {
       const chunks = [];
       let totalBytes = 0;
+      let tooLarge = false;
+      req.on('error', () => {
+        if (!res.writableEnded) { res.writeHead(400); res.end(); }
+      });
       req.on('data', (c) => {
+        if (tooLarge) return;
         totalBytes += c.length;
-        if (totalBytes <= 45 * 1024 * 1024) chunks.push(c);
+        if (totalBytes > 45 * 1024 * 1024) {
+          tooLarge = true;
+          chunks.length = 0;
+          if (!res.headersSent) {
+            res.writeHead(413, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Payload print terlalu besar (maks 45 MB)' }));
+          }
+          req.destroy();
+          return;
+        }
+        chunks.push(c);
       });
       req.on('end', async () => {
+        if (tooLarge) return;
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
           const result = await executeLocalPrintJob(body);

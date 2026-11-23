@@ -1439,3 +1439,127 @@ test('VPS optimization: issue-batch QR endpoint, single-request client pool refi
     try { fs.unlinkSync(testDbPath); } catch (e) {}
   }
 });
+
+test('Package 1 & 2 fixes: expired cleanup, pass expiry, Gallery ZIP, 4x4 paper preset, and client print/state safety', async () => {
+  const vm = await import('node:vm');
+  const express = (await import('express')).default;
+  const eventService = await import('../src/services/event.js');
+  const qrService = await import('../src/services/qr.js');
+  const { resolvePaper } = await import('../src/services/sheet.js');
+  const { apiRouter } = await import('../src/routes/api.js');
+
+  // 1. Test cleanupExpiredEventPhotos handles real DB schema (file_path, photo_session_id, audit_logs) cleanly
+  const tenantId = 'tenant_studiokeren_01';
+  const expiredEv = eventService.createEvent(tenantId, {
+    name: 'Expired Audit Event',
+    eventDate: '2020-01-01',
+    autoDeleteAt: '2021-01-01T00:00:00.000Z'
+  });
+  const uploadsDir = path.join(process.cwd(), 'public/uploads');
+  const dummyPhotoName = `test_expired_${Date.now()}.jpg`;
+  const dummyPhotoPath = path.join(uploadsDir, dummyPhotoName);
+  fs.writeFileSync(dummyPhotoPath, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]));
+  const expPass = await qrService.createGuestPass(tenantId, expiredEv.id, 'booth');
+  const expSessId = `sess_exp_${Date.now()}`;
+  const expAssetId = `asset_exp_${Date.now()}`;
+  const expCapId = `cap_exp_${Date.now()}`;
+  db.prepare(`INSERT INTO photo_sessions (id, tenant_id, event_id, guest_pass_id, mode, status) VALUES (?, ?, ?, ?, 'single', 'completed')`)
+    .run(expSessId, tenantId, expiredEv.id, expPass.id);
+  db.prepare(`INSERT INTO captures (id, photo_session_id, pose_index, image_url) VALUES (?, ?, 1, ?)`)
+    .run(expCapId, expSessId, `/uploads/${dummyPhotoName}`);
+  db.prepare(`INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, size_bytes) VALUES (?, ?, ?, ?, 'final_photo', 'print_hires', ?, 128)`)
+    .run(expAssetId, tenantId, expiredEv.id, expSessId, `/uploads/${dummyPhotoName}`);
+
+  const cleanStats = eventService.cleanupExpiredEventPhotos();
+  assert.ok(cleanStats.affectedEventsCount >= 1);
+  assert.equal(fs.existsSync(dummyPhotoPath), false, 'Expired event photo unlinked from disk');
+  assert.equal(db.prepare('SELECT id FROM photo_sessions WHERE id = ?').get(expSessId), undefined);
+  assert.equal(db.prepare('SELECT id FROM captures WHERE id = ?').get(expCapId), undefined);
+
+  // Clean up test event & pass
+  db.prepare('DELETE FROM guest_passes WHERE id = ?').run(expPass.id);
+  db.prepare('DELETE FROM events WHERE id = ?').run(expiredEv.id);
+
+  // 2. Test resolveGuestPass enforces expires_at
+  const expiredPass = await qrService.createGuestPass(tenantId, 'event_wedding_dimas_sarah', 'booth');
+  db.prepare("UPDATE guest_passes SET expires_at = datetime('now', '-1 day') WHERE id = ?").run(expiredPass.id);
+  assert.equal(qrService.resolveGuestPass(expiredPass.token_plain), null, 'Expired guest pass is rejected');
+  db.prepare('DELETE FROM guest_passes WHERE id = ?').run(expiredPass.id);
+
+  // 3. Test Gallery ZIP endpoints (/api/gallery/g/:token/zip and /api/gallery/s/:sessionId/zip)
+  const zipPass = await qrService.createGuestPass(tenantId, 'event_wedding_dimas_sarah', 'booth');
+  const zipSessId = `sess_zip_${Date.now()}`;
+  const zipAssetId = `asset_zip_${Date.now()}`;
+  const zipImgName = `test_zip_${Date.now()}.jpg`;
+  const zipImgPath = path.join(uploadsDir, zipImgName);
+  fs.writeFileSync(zipImgPath, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]));
+  db.prepare(`INSERT INTO photo_sessions (id, tenant_id, event_id, guest_pass_id, mode, status) VALUES (?, ?, 'event_wedding_dimas_sarah', ?, 'single', 'completed')`)
+    .run(zipSessId, tenantId, zipPass.id);
+  db.prepare(`INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, size_bytes) VALUES (?, ?, 'event_wedding_dimas_sarah', ?, 'final_photo', 'print_hires', ?, 16)`)
+    .run(zipAssetId, tenantId, zipSessId, `/uploads/${zipImgName}`);
+
+  const app = express();
+  app.use('/api', apiRouter);
+  const srv = app.listen(0);
+  const port = srv.address().port;
+  try {
+    const rPassZip = await fetch(`http://127.0.0.1:${port}/api/gallery/g/${zipPass.token_plain}/zip`);
+    assert.equal(rPassZip.status, 200);
+    assert.match(rPassZip.headers.get('content-type') || '', /application\/zip/);
+    const buf1 = Buffer.from(await rPassZip.arrayBuffer());
+    assert.equal(buf1.subarray(0, 4).toString('hex'), '504b0304', 'Pass ZIP starts with PK header');
+
+    const rSessZip = await fetch(`http://127.0.0.1:${port}/api/gallery/s/${zipSessId}/zip`);
+    assert.equal(rSessZip.status, 200);
+    const buf2 = Buffer.from(await rSessZip.arrayBuffer());
+    assert.equal(buf2.subarray(0, 4).toString('hex'), '504b0304', 'Session ZIP starts with PK header');
+  } finally {
+    srv.closeAllConnections?.();
+    srv.close();
+    try { fs.unlinkSync(zipImgPath); } catch (e) {}
+    db.prepare('DELETE FROM media_assets WHERE id = ?').run(zipAssetId);
+    db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(zipSessId);
+    db.prepare('DELETE FROM guest_passes WHERE id = ?').run(zipPass.id);
+  }
+
+  // 4. Test 4x4 paper preset exists in sheet.js & Android 5R print routing in print-client.js
+  assert.deepEqual(resolvePaper('4x4').widthIn, 4);
+  assert.deepEqual(resolvePaper('4x4').heightIn, 4);
+
+  const printClientSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/print-client.js'), 'utf8');
+  const calls = [];
+  const pCtx = vm.createContext({
+    window: {
+      focus() {}, print() { calls.push('window.print'); },
+      addEventListener() {}, removeEventListener() {},
+      MafazaAndroidBridge: {
+        printPageWithOptions(paper, land) { calls.push({ paper, land }); }
+      }
+    },
+    document: {
+      head: { appendChild() {} },
+      body: { classList: { add() {}, remove() {} }, appendChild() {} },
+      getElementById: () => null,
+      createElement: () => ({ style: {}, innerHTML: '', textContent: '', classList: { add() {}, remove() {} } })
+    },
+    Image: class {
+      set src(v) {
+        this.naturalWidth = 2100;
+        this.naturalHeight = 1500;
+        setTimeout(() => this.onload?.(), 0);
+      }
+    },
+    localStorage: { getItem: () => null, setItem() {} },
+    navigator: { onLine: false },
+    fetch: async () => ({ ok: true }),
+    requestAnimationFrame: (fn) => fn(),
+    AbortController, Promise, Math, Date, JSON, Array, Number, String, Boolean, setTimeout, clearTimeout
+  });
+  vm.runInContext(printClientSrc, pCtx);
+  await pCtx.window.pbPrintViaBrowser({
+    imageUrl: 'data:image/jpeg;base64,QQ==',
+    copies: 1,
+    job: { paperWidthIn: 5, paperHeightIn: 7 }
+  });
+  assert.deepEqual(calls[0], { paper: '5x7', land: true }, 'Android APK receives 5R landscape paper options');
+});

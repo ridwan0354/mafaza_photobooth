@@ -26,6 +26,7 @@ test('Android download serves the exact released APK with a versioned filename a
     req.httpVersionMinor = 1;
     const res = new http.ServerResponse(req);
     res.assignSocket(socket);
+    socket.on('drain', () => res.emit('drain'));
     await new Promise((resolve, reject) => {
       res.once('finish', resolve);
       res.once('error', reject);

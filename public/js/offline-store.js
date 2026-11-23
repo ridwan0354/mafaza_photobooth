@@ -431,6 +431,30 @@
       }
     },
 
+    // 7b. Sinkronkan satu sesi offline secara aman menggunakan lock isSyncing yang sama
+    async syncSingleSessionById(sessionId) {
+      if (this.isSyncing) {
+        if (window.pbToast) window.pbToast('⏳ Sinkronisasi antrean lain sedang berjalan...', 'info', 2500);
+        return { busy: true };
+      }
+      if (!navigator.onLine) {
+        throw new Error('Perangkat masih offline');
+      }
+      this.isSyncing = true;
+      try {
+        const pending = await this.getPendingSessions();
+        const cur = pending.find(x => x.id === sessionId);
+        if (!cur) return { missing: true };
+        const uploadRes = await this.uploadSession(cur);
+        this.recordSyncedSummary(cur, uploadRes);
+        await this.deleteSession(cur.id);
+        return { success: true, uploadRes };
+      } finally {
+        this.isSyncing = false;
+        this.notifyChange();
+      }
+    },
+
     // 8. Cache & Ambil Pengaturan / Template Lokal
     async cacheConfig(key, value) {
       try {
@@ -763,12 +787,10 @@
             });
             await this.renderLocalGalleryModal();
           } else if (action === 'upload') {
-            const cur = pending.find(x => x.id === id);
-            if (!cur || !navigator.onLine) return;
+            if (!navigator.onLine) return;
             try {
-              const res = await this.uploadSession(cur);
-              this.recordSyncedSummary(cur, res);
-              await this.deleteSession(id);
+              const syncRes = await this.syncSingleSessionById(id);
+              if (syncRes && syncRes.busy) return;
               await this.renderLocalGalleryModal();
             } catch (err) {
               if (window.pbToast) window.pbToast(`Gagal kirim: ${err.message}`, 'error', 3500);

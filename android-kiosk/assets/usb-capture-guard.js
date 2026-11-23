@@ -136,6 +136,9 @@
       const y = Math.max(0, Math.min(h - cropH, (h - cropH) / 2 * (1 + panY)));
       ctx.drawImage(srcDrawable, x, y, cropW, cropH, 0, 0, w, h);
     }
+    if (srcDrawable !== img && srcDrawable) {
+      try { srcDrawable.width = 0; srcDrawable.height = 0; } catch (e) {}
+    }
     return canvas.toDataURL('image/jpeg', 0.9);
   }
 
@@ -260,7 +263,8 @@
       try {
         if (!status || !status.active || !status.hasFrame) {
           liveMessage(kiosk.__mafazaCaptureBusy ? 'Mengambil foto…' : 'Gambar kamera belum diterima. Periksa PC Remote dan kabel USB-C.');
-          updateUsbFallbackActions(kiosk, Boolean(status && !status.active));
+          const stalledNoFrame = Boolean(status && (!status.active || (Date.now() - lastDisplayTime > 5000 && !kiosk.__mafazaCaptureBusy)));
+          updateUsbFallbackActions(kiosk, stalledNoFrame);
         } else if (status.frames !== lastFrame) {
           const dataUrl = window.MafazaAndroidBridge.getLiveViewFrame();
           if (!dataUrl) throw new Error('Gambar kamera belum siap.');

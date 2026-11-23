@@ -18,7 +18,9 @@ export function verifyToken(token) {
   if (parts.length !== 3) return null;
   const [header, data, signature] = parts;
   const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${data}`).digest('base64url');
-  if (expectedSig !== signature) return null;
+  const bufExp = Buffer.from(expectedSig, 'utf8');
+  const bufSig = Buffer.from(String(signature), 'utf8');
+  if (bufExp.length !== bufSig.length || !crypto.timingSafeEqual(bufExp, bufSig)) return null;
   try {
     const payload = JSON.parse(Buffer.from(data, 'base64url').toString('utf8'));
     if (payload.exp && Date.now() > payload.exp) return null;

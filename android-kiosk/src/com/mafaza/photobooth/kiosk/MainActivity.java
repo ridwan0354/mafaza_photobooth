@@ -80,11 +80,6 @@ public class MainActivity extends Activity {
                     updateUsbBadge(true, modelName);
                     Toast.makeText(MainActivity.this,
                             "Kamera USB Terhubung: " + modelName, Toast.LENGTH_SHORT).show();
-                    if (webView != null) {
-                        webView.evaluateJavascript(
-                                "if (typeof pollCanonUsbBridge === 'function') { pollCanonUsbBridge(); }",
-                                null);
-                    }
                 });
             }
 
@@ -283,7 +278,7 @@ public class MainActivity extends Activity {
         String js = "(function() {\n"
                 + "  if (window.__mafazaApkBridgeInjected) return;\n"
                 + "  window.__mafazaApkBridgeInjected = true;\n"
-                + "  console.log('[MafazaKioskAPK v2.1] Native USB PTP & Direct Canvas LiveView Bridge Active');\n"
+                + "  console.log('[MafazaKioskAPK v2.5.9] Native USB PTP & Direct Canvas LiveView Bridge Active');\n"
                 + "  const TRANSPARENT_GIF = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';\n"
                 + "  const origFetch = window.fetch.bind(window);\n"
                 + "  window.fetch = async function(input, init) {\n"
@@ -297,8 +292,27 @@ public class MainActivity extends Activity {
                 + "    return origFetch(input, init);\n"
                 + "  };\n"
                 + "  window.print = function() {\n"
-                + "    if (window.MafazaAndroidBridge && typeof window.MafazaAndroidBridge.printPage === 'function') {\n"
-                + "      window.MafazaAndroidBridge.printPage();\n"
+                + "    if (window.MafazaAndroidBridge) {\n"
+                + "      if (typeof window.MafazaAndroidBridge.printPageWithOptions === 'function') {\n"
+                + "        let paper = '4x6'; let isLand = false;\n"
+                + "        try {\n"
+                + "          const st = document.getElementById('pbPageStyle');\n"
+                + "          const txt = st ? (st.textContent || '') : '';\n"
+                + "          const m = txt.match(/size:\\s*([0-9.]+)in\\s+([0-9.]+)in/i);\n"
+                + "          if (m) {\n"
+                + "            const w = parseFloat(m[1]) || 4; const h = parseFloat(m[2]) || 6;\n"
+                + "            isLand = w > h;\n"
+                + "            const mn = Math.min(w, h); const mx = Math.max(w, h);\n"
+                + "            if (mn >= 4.9 && mx >= 6.9 && mx <= 7.2) paper = '5x7';\n"
+                + "            else if (mx >= 10) paper = 'A4';\n"
+                + "          }\n"
+                + "        } catch (e) {}\n"
+                + "        window.MafazaAndroidBridge.printPageWithOptions(paper, isLand);\n"
+                + "        return;\n"
+                + "      }\n"
+                + "      if (typeof window.MafazaAndroidBridge.printPage === 'function') {\n"
+                + "        window.MafazaAndroidBridge.printPage();\n"
+                + "      }\n"
                 + "    }\n"
                 + "  };\n"
                 + "  // Direct Canvas LiveView Overlay & Poster Suppressor for Android WebView\n"
@@ -456,7 +470,7 @@ public class MainActivity extends Activity {
         input.setText(getSavedKioskUrl());
 
         new AlertDialog.Builder(this)
-                .setTitle("MAFAZA 2.5.8 · Pengaturan Kamera & USB")
+                .setTitle("MAFAZA 2.5.9 · Pengaturan Kamera & USB")
                 .setMessage(canonEngine.getUsbDiagnosticsReport() + "\n\nURL Server Kiosk Photobooth:")
                 .setView(input)
                 .setPositiveButton("Simpan & Muat Ulang", (dialog, which) -> {
@@ -557,10 +571,23 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (webView != null) webView.onResume();
         enableImmersiveFullscreen();
         if (canonEngine != null && !canonEngine.isActive()) {
             canonEngine.scanAndConnectIfAvailable();
         }
+    }
+
+    @Override
+    protected void onPause() {
+        if (webView != null) webView.onPause();
+        super.onPause();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) enableImmersiveFullscreen();
     }
 
     private void enableImmersiveFullscreen() {

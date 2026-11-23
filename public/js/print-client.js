@@ -70,7 +70,9 @@
       }
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 900);
-      const res = await fetch('/api/printers/profile', { signal: ctrl.signal });
+      const token = localStorage.getItem('pb_admin_token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      const res = await fetch('/api/printers/profile', { signal: ctrl.signal, headers });
       clearTimeout(timer);
       if (res.ok) {
         cachedProfile = await res.json();
@@ -188,14 +190,29 @@
 
       return new Promise((resolve) => {
         setTimeout(async () => {
+          let cleaned = false;
+          const finishPrint = () => {
+            if (cleaned) return;
+            cleaned = true;
+            window.removeEventListener('afterprint', finishPrint);
+            cleanup();
+          };
+          window.addEventListener('afterprint', finishPrint, { once: true });
           try {
             window.focus();
-            window.print();
+            if (window.MafazaAndroidBridge && typeof window.MafazaAndroidBridge.printPageWithOptions === 'function') {
+              const androidPaper = (Math.min(page.w, page.h) >= 4.9 && Math.max(page.w, page.h) >= 6.9)
+                ? '5x7'
+                : (Math.max(page.w, page.h) >= 10 ? 'A4' : '4x6');
+              window.MafazaAndroidBridge.printPageWithOptions(androidPaper, Boolean(page.orientation === 'landscape'));
+            } else {
+              window.print();
+            }
             if (job && job.printJobId && navigator.onLine !== false) {
               fetch(`/api/print-jobs/${job.printJobId}/browser-printed`, { method: 'POST' }).catch(() => {});
             }
           } finally {
-            setTimeout(cleanup, 1200);
+            setTimeout(finishPrint, 8000);
             resolve();
           }
         }, 200);

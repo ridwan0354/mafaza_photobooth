@@ -12,6 +12,7 @@ import { appDownloadRouter } from './routes/app-downloads.js';
 import { cleanupExpiredEventPhotos } from './services/event.js';
 import { cleanupOldPrintSheets } from './services/sheet.js';
 import { verifyToken, createToken } from './services/auth.js';
+import { getGuestGalleryData, getEventGalleryData } from './services/qr.js';
 
 dotenv.config();
 
@@ -39,6 +40,7 @@ const sheetCleanupTimer = setInterval(() => cleanupOldPrintSheets(3600 * 1000, t
 if (sheetCleanupTimer.unref) sheetCleanupTimer.unref();
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
@@ -75,9 +77,11 @@ app.get(['/admin', '/admin.html'], (req, res) => {
   }
 
   // Refresh cookies on response so future requests without query param are seamlessly authenticated
+  const isHttps = req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https');
+  const secureAttr = isHttps ? '; Secure' : '';
   res.setHeader('Set-Cookie', [
-    `pb_admin_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
-    `pb_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=2592000`
+    `pb_admin_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secureAttr}`,
+    `pb_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=2592000${secureAttr}`
   ]);
 
   res.sendFile(path.join(publicDir, 'admin.html'));
@@ -102,6 +106,10 @@ app.get(['/sw.js', '/sw-kiosk.js'], (req, res) => {
 });
 
 // Static files (admin.html sudah dilindungi di atas)
+app.use('/uploads', express.static(path.join(publicDir, 'uploads'), {
+  maxAge: '365d',
+  immutable: true
+}));
 app.use(appDownloadRouter);
 app.use(express.static(publicDir));
 
@@ -155,12 +163,52 @@ app.get('/mingle', (req, res) => {
   res.sendFile(path.join(publicDir, 'mingle.html'));
 });
 
+let cachedGalleryHtml = null;
+let cachedGalleryMtime = 0;
+
+function escapeMetaAttr(str) {
+  return String(str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function sendGalleryHtmlWithMeta(req, res, galleryData) {
+  const galleryFile = path.join(publicDir, 'gallery.html');
+  try {
+    const st = fs.statSync(galleryFile);
+    if (!cachedGalleryHtml || st.mtimeMs !== cachedGalleryMtime) {
+      cachedGalleryHtml = fs.readFileSync(galleryFile, 'utf8');
+      cachedGalleryMtime = st.mtimeMs;
+    }
+    const proto = req.headers['x-forwarded-proto'] ? String(req.headers['x-forwarded-proto']).split(',')[0].trim() : req.protocol;
+    const origin = `${proto}://${req.get('host')}`;
+    const eventName = (galleryData && galleryData.guestPass && galleryData.guestPass.eventName) || 'Mafaza Photobooth';
+    const tenantName = (galleryData && galleryData.guestPass && galleryData.guestPass.tenantName) || 'Mafaza Moments';
+    let firstImageRel = '/assets/logo-mafaza.jpg';
+    if (galleryData && Array.isArray(galleryData.sessions) && galleryData.sessions.length > 0) {
+      const mList = galleryData.sessions[0].media || [];
+      const imgMedia = mList.find(m => m && /\.(jpe?g|png|webp)$/i.test(m.filePath || ''));
+      if (imgMedia && imgMedia.filePath) firstImageRel = imgMedia.filePath;
+    }
+    const ogTitle = escapeMetaAttr(`${eventName} — Galeri Foto Tamu`);
+    const ogDesc = escapeMetaAttr(`Unduh foto HD, Live Photo, dan Boomerang Anda dari ${tenantName}!`);
+    const ogImage = escapeMetaAttr(`${origin}${firstImageRel.startsWith('/') ? '' : '/'}${firstImageRel}`);
+    const ogUrl = escapeMetaAttr(`${origin}${req.originalUrl}`);
+    const ogTags = `<meta property="og:type" content="website">\n  <meta property="og:title" content="${ogTitle}">\n  <meta property="og:description" content="${ogDesc}">\n  <meta property="og:image" content="${ogImage}">\n  <meta property="og:url" content="${ogUrl}">\n</head>`;
+    const html = cachedGalleryHtml.replace('</head>', ogTags);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (e) {
+    res.sendFile(galleryFile);
+  }
+}
+
 app.get('/gallery/g/:token', (req, res) => {
-  res.sendFile(path.join(publicDir, 'gallery.html'));
+  const data = getGuestGalleryData(req.params.token);
+  sendGalleryHtmlWithMeta(req, res, data);
 });
 
 app.get(['/gallery/e/:eventId', '/gallery/event/:eventId'], (req, res) => {
-  res.sendFile(path.join(publicDir, 'gallery.html'));
+  const data = getEventGalleryData(req.params.eventId, { page: 1, limit: 1 });
+  sendGalleryHtmlWithMeta(req, res, data);
 });
 
 app.get('/gallery', (req, res) => {
@@ -169,6 +217,19 @@ app.get('/gallery', (req, res) => {
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
+});
+
+// Global Express Error Handler (Menangani error multer, ukuran upload berlebih, atau exception route secara aman)
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : (err.status || 400);
+  const msg = err.code === 'LIMIT_FILE_SIZE'
+    ? 'Ukuran file terlalu besar (maksimum 35 MB).'
+    : (err.message || 'Terjadi kesalahan pada server.');
+  if (req.originalUrl.startsWith('/api')) {
+    return res.status(status).json({ error: msg });
+  }
+  return res.status(status).send(msg);
 });
 
 const PORT = process.env.PORT || 3000;

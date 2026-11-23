@@ -19,6 +19,7 @@ export const PAPER_PRESETS = {
   '4r': { widthIn: 4, heightIn: 6, layout: 'single', label: 'Photo 4R (102×152 mm / 4×6 inch Postcard)' },
   '5x7': { widthIn: 5, heightIn: 7, layout: 'single', label: 'Photo 5R (127×178 mm / 5×7 inch)' },
   '5r': { widthIn: 5, heightIn: 7, layout: 'single', label: 'Photo 5R (127×178 mm / 5×7 inch)' },
+  '4x4': { widthIn: 4, heightIn: 4, layout: 'single', label: 'Square 4×4 inch (102×102 mm)' },
   '6x8': { widthIn: 6, heightIn: 8, layout: 'single', label: 'Kertas 6×8' },
   'A4': { widthIn: 8.27, heightIn: 11.69, layout: 'single', label: 'Kertas A4' }
 };
@@ -237,8 +238,24 @@ export function composeTwoUp(pngBuffer) {
 export function applySafeMargin(img, targetW = 1200, targetH = 1800, scale = 0.90) {
   const { width: srcW, height: srcH, channels, data: srcData } = img;
   const clampedScale = Math.max(0.75, Math.min(1.0, scale));
-  const innerW = Math.round(targetW * clampedScale);
-  const innerH = Math.round(targetH * clampedScale);
+  const maxInnerW = Math.round(targetW * clampedScale);
+  const maxInnerH = Math.round(targetH * clampedScale);
+
+  // Pertahankan rasio aspek asli foto agar tidak terdistorsi saat rasio kertas berbeda (mis. 4R dicetak di 5R)
+  const srcAspect = srcW / Math.max(1, srcH);
+  const boxAspect = maxInnerW / Math.max(1, maxInnerH);
+  let innerW = maxInnerW;
+  let innerH = maxInnerH;
+  if (Math.abs(srcAspect - boxAspect) > 0.015) {
+    if (srcAspect > boxAspect) {
+      innerW = maxInnerW;
+      innerH = Math.max(1, Math.round(maxInnerW / srcAspect));
+    } else {
+      innerH = maxInnerH;
+      innerW = Math.max(1, Math.round(maxInnerH * srcAspect));
+    }
+  }
+
   const offX = Math.floor((targetW - innerW) / 2);
   const totalYPad = targetH - innerH;
   const offY = Math.floor(totalYPad * 0.40);

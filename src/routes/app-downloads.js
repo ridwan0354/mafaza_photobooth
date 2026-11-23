@@ -13,7 +13,7 @@ appDownloadRouter.get('/Mafaza-Photobooth-Kiosk.apk', (req, res, next) => {
         'Content-Type': 'application/vnd.android.package-archive',
         'Cache-Control': 'no-store, no-cache, must-revalidate',
       },
-    }, error => { if (error) next(error); });
+    }, error => { if (error && !res.headersSent) next(error); });
   } catch (error) {
     next(error);
   }

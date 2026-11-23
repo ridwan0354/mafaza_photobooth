@@ -32,7 +32,8 @@ function crc32(buf) {
  * Creates a standard ZIP archive Buffer in memory with Unix permissions support
  * so macOS .app bundles and .command scripts retain +x executable bit after unzipping.
  */
-function createZipArchive(entries) {
+export function createZipArchive(entries, options = {}) {
+  const allowDeflate = options.storeOnly !== true;
   const localHeaders = [];
   const centralHeaders = [];
   let offset = 0;
@@ -44,10 +45,15 @@ function createZipArchive(entries) {
       : Buffer.from(String(entry.content || ''), 'utf8');
 
     const crc = crc32(rawData);
-    const compressed = zlib.deflateRawSync(rawData);
-    const useDeflate = compressed.length < rawData.length;
-    const dataBuf = useDeflate ? compressed : rawData;
-    const method = useDeflate ? 8 : 0;
+    let dataBuf = rawData;
+    let method = 0;
+    if (allowDeflate) {
+      const compressed = zlib.deflateRawSync(rawData);
+      if (compressed.length < rawData.length) {
+        dataBuf = compressed;
+        method = 8;
+      }
+    }
 
     // Local file header (30 bytes + filename)
     const lh = Buffer.alloc(30 + nameBuf.length);
@@ -124,12 +130,25 @@ export function getAndroidApkRelease() {
   return JSON.parse(fs.readFileSync(releasePath, 'utf8'));
 }
 
+export function sanitizeServerUrl(rawUrl, fallback) {
+  if (!rawUrl || typeof rawUrl !== 'string') return fallback;
+  const trimmed = rawUrl.trim().replace(/\/+$/, '');
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return fallback;
+    if (/["'<>`$\r\n\\;&|]/.test(trimmed)) return fallback;
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/+$/, '')}`;
+  } catch (e) {
+    return fallback;
+  }
+}
+
 export async function getAppDownloadInfo(reqHost = 'localhost:3000', customServerUrl = null) {
   const port = (reqHost.split(':')[1]) || 3000;
   const lanList = getLanAddresses(port);
   const primaryLan = lanList[0]?.url || `http://${reqHost}`;
   const localUrl = `http://localhost:${port}`;
-  const targetUrl = (customServerUrl && customServerUrl.trim()) ? customServerUrl.trim().replace(/\/$/, '') : primaryLan;
+  const targetUrl = sanitizeServerUrl(customServerUrl, primaryLan);
 
   const androidKioskUrl = `${targetUrl}/kiosk?app=android&fullscreen=1`;
   const androidApk = getAndroidApkRelease();

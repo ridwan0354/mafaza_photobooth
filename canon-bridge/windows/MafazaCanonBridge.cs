@@ -40,6 +40,12 @@ namespace MafazaCanonBridge
         private static volatile bool _pendingCapture = false;
         private static readonly AutoResetEvent _captureDoneEvent = new AutoResetEvent(false);
         private static readonly object _edsdkLock = new object();
+        private static readonly object _captureHttpGate = new object();
+
+        // Thread-safe STA queue for /control commands
+        private static volatile bool _pendingControl = false;
+        private static string _ctrlIso = null, _ctrlTv = null, _ctrlAv = null, _ctrlWb = null, _ctrlEv = null, _ctrlAf = null, _ctrlFocus = null;
+        private static readonly AutoResetEvent _controlDoneEvent = new AutoResetEvent(false);
 
         // High-res photo storage
         private static byte[] _capturedPhoto = null;
@@ -254,9 +260,12 @@ namespace MafazaCanonBridge
                     ctx.Response.StatusCode = 500;
                     byte[] err = Encoding.UTF8.GetBytes("Error: " + ex.Message);
                     ctx.Response.OutputStream.Write(err, 0, err.Length);
-                    ctx.Response.Close();
                 }
                 catch { }
+            }
+            finally
+            {
+                try { ctx.Response.Close(); } catch { }
             }
         }
 
@@ -333,10 +342,13 @@ namespace MafazaCanonBridge
 
             bool handled = false;
 
-            // If EDSDK is active, apply via EDSDK
+            // If EDSDK is active, queue onto STA _workerThread so EDSDK calls remain 100% single-threaded
             if (_edsdkLoaded && _cameraHandle != IntPtr.Zero)
             {
-                handled = ApplyEdsdkControl(iso, tv, av, wb, ev, af, focus);
+                _ctrlIso = iso; _ctrlTv = tv; _ctrlAv = av; _ctrlWb = wb; _ctrlEv = ev; _ctrlAf = af; _ctrlFocus = focus;
+                _controlDoneEvent.Reset();
+                _pendingControl = true;
+                handled = _controlDoneEvent.WaitOne(1200);
             }
 
             // If digiCamControl is active, forward
@@ -353,27 +365,29 @@ namespace MafazaCanonBridge
 
         private static void HandleCapture(HttpListenerRequest req, HttpListenerResponse res)
         {
-            try
+            lock (_captureHttpGate)
             {
-                Console.WriteLine("[HTTP] Menerima request /capture dari Kiosk...");
-                long reqId;
-                long reqStartMs = GetCurrentUnixTimeMs();
-                lock (_captureLock)
+                try
                 {
-                    _captureSeq++;
-                    reqId = _captureSeq;
-                    _capturedPhoto = null;
-                    _capturedPhotoTime = 0;
-                }
-                _captureDoneEvent.Reset();
-                _pendingCapture = true;
+                    Console.WriteLine("[HTTP] Menerima request /capture dari Kiosk...");
+                    long reqId;
+                    long reqStartMs = GetCurrentUnixTimeMs();
+                    lock (_captureLock)
+                    {
+                        _captureSeq++;
+                        reqId = _captureSeq;
+                        _capturedPhoto = null;
+                        _capturedPhotoTime = 0;
+                    }
+                    _captureDoneEvent.Reset();
+                    _pendingCapture = true;
 
-                // Tunggu proses capture fisik & transfer foto resolusi penuh pada worker thread
-                bool completed = _captureDoneEvent.WaitOne(4500);
-                if (!completed)
-                {
-                    Console.WriteLine("[CAPTURE] Peringatan: Proses capture melebihi batas waktu 4.5 detik.");
-                }
+                    // Tunggu proses capture fisik & transfer foto resolusi penuh pada worker thread
+                    bool completed = _captureDoneEvent.WaitOne(6000);
+                    if (!completed)
+                    {
+                        Console.WriteLine("[CAPTURE] Peringatan: Proses capture melebihi batas waktu 6 detik.");
+                    }
 
                 bool hasFreshPhoto = false;
                 lock (_captureLock)
@@ -396,14 +410,15 @@ namespace MafazaCanonBridge
                 res.OutputStream.Write(body, 0, body.Length);
                 res.Close();
             }
-            catch (Exception ex)
-            {
-                _pendingCapture = false;
-                _isCapturing = false;
-                res.StatusCode = 500;
-                byte[] err = Encoding.UTF8.GetBytes("Capture Error: " + ex.Message);
-                res.OutputStream.Write(err, 0, err.Length);
-                res.Close();
+                catch (Exception ex)
+                {
+                    _pendingCapture = false;
+                    _isCapturing = false;
+                    res.StatusCode = 500;
+                    byte[] err = Encoding.UTF8.GetBytes("Capture Error: " + ex.Message);
+                    res.OutputStream.Write(err, 0, err.Length);
+                    res.Close();
+                }
             }
         }
 
@@ -452,6 +467,17 @@ namespace MafazaCanonBridge
             {
                 try
                 {
+                    // Proses perintah /control secara thread-safe di STA thread
+                    if (_pendingControl)
+                    {
+                        _pendingControl = false;
+                        lock (_edsdkLock)
+                        {
+                            ApplyEdsdkControl(_ctrlIso, _ctrlTv, _ctrlAv, _ctrlWb, _ctrlEv, _ctrlAf, _ctrlFocus);
+                        }
+                        _controlDoneEvent.Set();
+                    }
+
                     // Jika ada perintah jepret fisik dari Kiosk (/capture), proses langsung pada thread ini!
                     if (_pendingCapture)
                     {
@@ -1104,7 +1130,11 @@ namespace MafazaCanonBridge
                         isFolder = (uint)(info.size >> 32);
                     }
 
-                    if (err == 0 && isFolder == 0 && itemSize > 2000)
+                    string fName = info.szFileName ?? "";
+                    bool isRawFile = fName.EndsWith(".CR2", StringComparison.OrdinalIgnoreCase)
+                                  || fName.EndsWith(".CR3", StringComparison.OrdinalIgnoreCase)
+                                  || fName.EndsWith(".DNG", StringComparison.OrdinalIgnoreCase);
+                    if (err == 0 && isFolder == 0 && !isRawFile && itemSize > 2000)
                     {
                         IntPtr stream;
                         if (EdsCreateMemoryStream(itemSize, out stream) == 0)

@@ -284,6 +284,10 @@ class MingleBoothEngine {
       this.setUsbMingleListen(false);
       this.stopLiveViewLoop();
       this.stopWebcam();
+      if (this.statusTimerId) { clearInterval(this.statusTimerId); this.statusTimerId = null; }
+      if (this._poolRefillTimerId) { clearInterval(this._poolRefillTimerId); this._poolRefillTimerId = null; }
+      if (this._panZoomSyncTimer) { clearTimeout(this._panZoomSyncTimer); this._panZoomSyncTimer = null; }
+      if (this._modeBroadcastChannel) { try { this._modeBroadcastChannel.close(); } catch (e) {} this._modeBroadcastChannel = null; }
     };
     window.addEventListener('pagehide', releaseResources);
     window.addEventListener('beforeunload', releaseResources);
@@ -306,6 +310,7 @@ class MingleBoothEngine {
     try {
       if (typeof BroadcastChannel === 'function') {
         const ch = new BroadcastChannel('pb_kiosk_mode');
+        this._modeBroadcastChannel = ch;
         ch.onmessage = (msg) => {
           if (msg && msg.data && msg.data.localPrintMode === false && this.eventConfig) {
             this.eventConfig.localPrintMode = false;
@@ -330,6 +335,7 @@ class MingleBoothEngine {
       });
     }
     this._poolRefillTimerId = setInterval(() => {
+      if (document.hidden) return;
       if (navigator.onLine !== false) {
         this.replenishGuestPassPool(20).catch(() => {});
       }
@@ -929,6 +935,8 @@ class MingleBoothEngine {
     this.rawPhotoDataUrl = null;
     this.cachedPhotoImg = null;
     this.cachedPhotoMap = {};
+    this.cachedKeyedFrame = null;
+    if (this._panZoomSyncTimer) { clearTimeout(this._panZoomSyncTimer); this._panZoomSyncTimer = null; }
     this._sessionFilterManuallyChosen = false;
     this.activeFilterIntensity = 1.0;
     this.syncDefaultEventFilter(true);
@@ -937,6 +945,17 @@ class MingleBoothEngine {
     this.sessionId = null;
     const qrHint = document.getElementById('mingleQrTapHint');
     if (qrHint) qrHint.style.display = 'none';
+    const readyRow = document.getElementById('mingleReadyStripRow');
+    if (readyRow) readyRow.innerHTML = '';
+    const slotBar = document.getElementById('mingleResultSlotBar');
+    if (slotBar) slotBar.innerHTML = '';
+    const filesStrip = document.getElementById('mingleFilesStrip');
+    if (filesStrip) filesStrip.innerHTML = '';
+    const qrImg = document.getElementById('mingleQrImg');
+    if (qrImg) {
+      if (typeof qrImg.removeAttribute === 'function') qrImg.removeAttribute('src');
+      else qrImg.src = '';
+    }
   }
 
   async startFilesOnlyMode() {
@@ -1254,6 +1273,7 @@ class MingleBoothEngine {
   startStatusPolling() {
     if (this.statusTimerId) clearInterval(this.statusTimerId);
     const poll = async () => {
+      if (document.hidden) return;
       let st = null;
       try {
         const res = await fetch('http://127.0.0.1:19898/status', { mode: 'cors', cache: 'no-store' });
@@ -1399,8 +1419,31 @@ class MingleBoothEngine {
     if (!canvas || !ctx) return;
 
     let busy = false;
+    const liveImg = new Image();
+    liveImg.crossOrigin = 'anonymous';
+    liveImg.onload = () => {
+      const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
+      const swap = (rot === 90 || rot === 270);
+      const targetW = swap ? liveImg.naturalHeight : liveImg.naturalWidth;
+      const targetH = swap ? liveImg.naturalWidth : liveImg.naturalHeight;
+      if (canvas.width !== targetW) canvas.width = targetW;
+      if (canvas.height !== targetH) canvas.height = targetH;
+      if (rot === 0) {
+        ctx.drawImage(liveImg, 0, 0);
+      } else {
+        ctx.save();
+        ctx.clearRect(0, 0, targetW, targetH);
+        ctx.translate(targetW / 2, targetH / 2);
+        ctx.rotate((rot * Math.PI) / 180);
+        ctx.drawImage(liveImg, -liveImg.naturalWidth / 2, -liveImg.naturalHeight / 2);
+        ctx.restore();
+      }
+      busy = false;
+    };
+    liveImg.onerror = () => { busy = false; };
+
     this.liveViewTimerId = setInterval(() => {
-      if (busy || this.currentScreen !== 'screenMingleReady' || this.isProcessingCapture) return;
+      if (document.hidden || busy || this.currentScreen !== 'screenMingleReady' || this.isProcessingCapture) return;
       if (!this.usbStatus || !this.usbStatus.active || !this.usbStatus.hasFrame) return;
       busy = true;
       let frameSrc = '';
@@ -1412,29 +1455,7 @@ class MingleBoothEngine {
       if (!frameSrc) {
         frameSrc = `http://127.0.0.1:19898/frame.jpg?t=${Date.now()}`;
       }
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
-        const swap = (rot === 90 || rot === 270);
-        const targetW = swap ? img.naturalHeight : img.naturalWidth;
-        const targetH = swap ? img.naturalWidth : img.naturalHeight;
-        if (canvas.width !== targetW) canvas.width = targetW;
-        if (canvas.height !== targetH) canvas.height = targetH;
-        if (rot === 0) {
-          ctx.drawImage(img, 0, 0);
-        } else {
-          ctx.save();
-          ctx.clearRect(0, 0, targetW, targetH);
-          ctx.translate(targetW / 2, targetH / 2);
-          ctx.rotate((rot * Math.PI) / 180);
-          ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
-          ctx.restore();
-        }
-        busy = false;
-      };
-      img.onerror = () => { busy = false; };
-      img.src = frameSrc;
+      liveImg.src = frameSrc;
     }, 75);
   }
 
@@ -2100,10 +2121,12 @@ class MingleBoothEngine {
     let lastY = 0;
     let pinchInitDist = 0;
     let pinchInitZoom = 1.0;
-    let syncTimer = null;
     const scheduleSync = () => {
-      if (syncTimer) clearTimeout(syncTimer);
-      syncTimer = setTimeout(() => this.syncFinalImageOnly(), 500);
+      if (this._panZoomSyncTimer) clearTimeout(this._panZoomSyncTimer);
+      this._panZoomSyncTimer = setTimeout(() => {
+        this._panZoomSyncTimer = null;
+        this.syncFinalImageOnly();
+      }, 500);
     };
     const toCanvasCoords = (clientX, clientY) => {
       const rect = canvas.getBoundingClientRect();
@@ -2987,6 +3010,7 @@ class MingleBoothEngine {
     this.setUsbMingleListen(false);
     this.stopLiveViewLoop();
     this.stopWebcam();
+    this.resetSessionCaptureState();
     this.showScreen('screenMingleWelcome');
   }
 

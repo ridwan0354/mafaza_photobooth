@@ -608,6 +608,11 @@
     <div style="display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: center; font-size: 12px; color: var(--soft-cream); background: rgba(0,0,0,0.24); padding: 7px 18px; border-radius: var(--radius-pill); border: 1px solid rgba(255,255,255,0.18);">
       <span id="eventExpiryText">📅 Berlaku hingga: 1 Tahun</span>
     </div>
+    <div id="galleryHeroDownloadAllWrap" style="display: none; margin-top: 14px; justify-content: center;">
+      <a id="btnGalleryDownloadAllZip" href="#" download class="btn btn-coral" style="padding: 10px 22px; font-size: 13px; font-weight: 800; border-radius: var(--radius-pill); text-decoration: none; display: inline-flex; align-items: center; gap: 8px;">
+        📦 Unduh Semua Foto &amp; Video (.ZIP)
+      </a>
+    </div>
   </div>
 
   <!-- 3. Main Gallery Container -->
@@ -630,15 +635,23 @@
   </div>
 
   <!-- 4. Lightbox Modal -->
-  <div id="galleryLightboxModal" style="display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(30, 18, 12, 0.88); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;" onclick="closeLightbox(event)">
-    <div style="position: relative; max-width: 92vw; max-height: 92vh; display: flex; flex-direction: column; align-items: center;" onclick="event.stopPropagation()">
-      <button onclick="closeLightbox()" style="position: absolute; top: -14px; right: -14px; width: 38px; height: 38px; border-radius: 50%; background: #fff; border: 2px solid var(--border-soft); font-size: 18px; font-weight: 800; color: var(--dark-roast); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,0.3); z-index: 10;">✕</button>
-      <img id="lightboxImg" src="" style="max-width: 90vw; max-height: 78vh; object-fit: contain; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); background: #fff;">
-      <div style="margin-top: 16px; display: flex; gap: 10px;">
-        <button id="lightboxDownloadBtn" class="btn btn-coral" onclick="downloadCurrentLightboxPhoto()" style="padding: 10px 22px; font-size: 13.5px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;">
-          ⬇️ Unduh File Ini
+  <div id="galleryLightboxModal" style="display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(30, 18, 12, 0.90); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 20px;" onclick="closeLightbox(event)">
+    <div style="position: relative; max-width: 94vw; max-height: 92vh; display: flex; flex-direction: column; align-items: center;" onclick="event.stopPropagation()">
+      <button type="button" onclick="closeLightbox()" style="position: absolute; top: -14px; right: -14px; width: 38px; height: 38px; border-radius: 50%; background: #fff; border: 2px solid var(--border-soft); font-size: 18px; font-weight: 800; color: var(--dark-roast); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,0,0,0.3); z-index: 10;">✕</button>
+      <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+        <button type="button" id="lightboxPrevBtn" onclick="stepLightbox(-1)" aria-label="Sebelumnya" style="display:none; position: absolute; left: -16px; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.92); border: 2px solid var(--border-soft); font-size: 20px; font-weight: 800; color: var(--dark-roast); cursor: pointer; align-items: center; justify-content: center; z-index: 9; box-shadow: 0 4px 12px rgba(0,0,0,0.28);">‹</button>
+        <img id="lightboxImg" src="" onclick="toggleLightboxZoom()" style="max-width: 88vw; max-height: 76vh; object-fit: contain; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,0.5); background: #fff; cursor: zoom-in; transition: transform 0.2s ease;">
+        <button type="button" id="lightboxNextBtn" onclick="stepLightbox(1)" aria-label="Berikutnya" style="display:none; position: absolute; right: -16px; width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.92); border: 2px solid var(--border-soft); font-size: 20px; font-weight: 800; color: var(--dark-roast); cursor: pointer; align-items: center; justify-content: center; z-index: 9; box-shadow: 0 4px 12px rgba(0,0,0,0.28);">›</button>
+      </div>
+      <div id="lightboxCounter" style="margin-top: 8px; font-size: 12px; font-weight: 700; color: rgba(255,255,255,0.75);"></div>
+      <div style="margin-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+        <button id="lightboxDownloadBtn" class="btn btn-coral" onclick="downloadCurrentLightboxPhoto()" style="padding: 10px 20px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;">
+          ⬇️ Unduh HD
         </button>
-        <button class="btn btn-secondary" onclick="closeLightbox()" style="padding: 10px 20px; font-size: 13.5px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;">
+        <button type="button" class="btn btn-teal" onclick="shareCurrentLightboxPhoto()" style="padding: 10px 18px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;">
+          📲 Bagikan
+        </button>
+        <button class="btn btn-secondary" onclick="closeLightbox()" style="padding: 10px 18px; font-size: 13px; font-weight: 700; border-radius: var(--radius-pill); cursor: pointer;">
           Tutup
         </button>
       </div>
@@ -688,6 +701,16 @@
     }
 
     let currentEventName = 'Photobooth Event';
+    const galleryLightboxItems = [];
+
+    function escapeHtmlAttr(val) {
+      return String(val || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function registerLightboxImage(src) {
+      if (!src || /\.(mp4|webm|mov)$/i.test(src)) return;
+      if (!galleryLightboxItems.includes(src)) galleryLightboxItems.push(src);
+    }
 
     function formatSessionTime(timestamp, timezone = 'Asia/Makassar') {
       if (!timestamp) return '';
@@ -732,6 +755,10 @@
       const boomerangAsset = s.media && s.media.find(m => m.type === 'boomerang');
       const livePhotoAsset = s.media && s.media.find(m => m.type === 'live_photo');
       const finalSrc = finalPhoto ? finalPhoto.filePath : '/assets/templates/strip-green-template.svg';
+      const isMainVideo = /\.(mp4|webm|mov)$/i.test(finalSrc);
+      if (!isMainVideo) registerLightboxImage(finalSrc);
+      const safeSid = escapeHtmlAttr(s.id);
+      const safeFinalSrc = escapeHtmlAttr(finalSrc);
       const genuineLiveClip = (liveClips.length > 0) ? liveClips[0].filePath : null;
       const mainLiveVideoSrc = genuineLiveClip || ((livePhotoAsset && livePhotoAsset.filePath && (!boomerangAsset || livePhotoAsset.filePath !== boomerangAsset.filePath)) ? livePhotoAsset.filePath : null) || null;
 
@@ -753,12 +780,15 @@
           const poseNum = rIdx + 1;
           const clip = liveClips.find(c => c.variant === `pose_${poseNum}`);
           const clipSrc = clip ? clip.filePath : null;
+          registerLightboxImage(raw.filePath);
+          const safeRawSrc = escapeHtmlAttr(raw.filePath);
+          const safeClipSrc = escapeHtmlAttr(clipSrc || '');
 
           return `
             <div class="pose-card">
-              <div class="pose-media-container" id="poseContainer_${s.id}_${rIdx}" style="position: relative; width: 100%; aspect-ratio: 4/3; border-radius: 12px; overflow: hidden; margin-bottom: 8px; cursor: pointer; background: #1C120C; user-select: none; -webkit-user-select: none; border: 1px solid var(--border-soft);">
+              <div class="pose-media-container" id="poseContainer_${safeSid}_${rIdx}" style="position: relative; width: 100%; aspect-ratio: 4/3; border-radius: 12px; overflow: hidden; margin-bottom: 8px; cursor: pointer; background: #1C120C; user-select: none; -webkit-user-select: none; border: 1px solid var(--border-soft);">
                 ${clipSrc ? `
-                  <div class="apple-live-badge-mini" id="poseBadge_${s.id}_${rIdx}" onclick="toggleSinglePoseLive('${s.id}', ${rIdx}, event)">
+                  <div class="apple-live-badge-mini" id="poseBadge_${safeSid}_${rIdx}" onclick="toggleSinglePoseLive('${safeSid}', ${rIdx}, event)">
                     <span class="live-icon">
                       <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
                         <circle cx="12" cy="12" r="9" stroke-dasharray="2.5 2.5"/>
@@ -770,11 +800,11 @@
                   </div>
                 ` : ''}
 
-                <img src="${raw.filePath}" id="poseImg_${s.id}_${rIdx}" loading="lazy" alt="Pose ${poseNum}" style="width: 100%; height: 100%; object-fit: contain; display: block;" onload="if(this.naturalWidth&&this.naturalHeight){this.parentElement.style.aspectRatio=this.naturalWidth+' / '+this.naturalHeight;}" onclick="openLightbox('${raw.filePath}')">
+                <img src="${safeRawSrc}" id="poseImg_${safeSid}_${rIdx}" loading="lazy" alt="Pose ${poseNum}" style="width: 100%; height: 100%; object-fit: contain; display: block;" onload="if(this.naturalWidth&&this.naturalHeight){this.parentElement.style.aspectRatio=this.naturalWidth+' / '+this.naturalHeight;}" onclick="openLightbox('${safeRawSrc}')">
                 
                 ${clipSrc ? `
-                  <video id="poseVid_${s.id}_${rIdx}" src="${clipSrc}" playsinline loop muted preload="none" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: contain; display: none; z-index: 4;"></video>
-                  <div class="pose-touch-hint" id="poseHint_${s.id}_${rIdx}">
+                  <video id="poseVid_${safeSid}_${rIdx}" src="${safeClipSrc}" playsinline loop muted preload="none" style="position: absolute; top:0; left:0; width:100%; height:100%; object-fit: contain; display: none; z-index: 4;"></video>
+                  <div class="pose-touch-hint" id="poseHint_${safeSid}_${rIdx}">
                     👆 Tahan
                   </div>
                 ` : ''}
@@ -785,11 +815,11 @@
               </div>
 
               <div style="display: flex; gap: 6px;">
-                <button type="button" class="btn btn-secondary" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; text-decoration: none; text-align: center; border-radius: var(--radius-pill); cursor: pointer;" onclick="downloadMediaFile('${raw.filePath}', 'Pose_${poseNum}_${s.id}.jpg', 'image/jpeg')" title="Unduh Foto HD">
+                <button type="button" class="btn btn-secondary" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; text-decoration: none; text-align: center; border-radius: var(--radius-pill); cursor: pointer;" onclick="downloadMediaFile('${safeRawSrc}', 'Pose_${poseNum}_${safeSid}.jpg', 'image/jpeg')" title="Unduh Foto HD">
                   📸 ${clipSrc ? 'Foto' : 'Unduh HD'}
                 </button>
                 ${clipSrc ? `
-                  <button type="button" class="btn btn-teal" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; border-radius: var(--radius-pill); cursor: pointer;" onclick="downloadPoseLiveVideo('${s.id}', ${rIdx}, '${raw.filePath}', '${clipSrc}')" title="Unduh Video Gerak Live Photo">
+                  <button type="button" class="btn btn-teal" style="flex: 1; font-size: 11px; font-weight: 700; padding: 7px 4px; border-radius: var(--radius-pill); cursor: pointer;" onclick="downloadPoseLiveVideo('${safeSid}', ${rIdx}, '${safeRawSrc}', '${safeClipSrc}')" title="Unduh Video Gerak Live Photo">
                     🎬 Live
                   </button>
                 ` : ''}
@@ -883,20 +913,27 @@
                 👆 Tahan foto untuk gerak
               </div>
 
-              <img src="${finalSrc}" id="stillImg_${s.id}" loading="lazy" alt="Foto Sesi" onclick="handleMainPhotoClick('${s.id}', '${finalSrc}')" title="Klik untuk memperbesar">
+              ${isMainVideo ? `
+                <video id="stillImg_${safeSid}" src="${safeFinalSrc}" controls playsinline loop muted preload="metadata" style="width: 100%; max-height: 70vh; border-radius: 12px; background: #000; display: block;"></video>
+              ` : `
+                <img src="${safeFinalSrc}" id="stillImg_${safeSid}" loading="lazy" alt="Foto Sesi" onclick="handleMainPhotoClick('${safeSid}', '${safeFinalSrc}')" title="Klik untuk memperbesar">
+              `}
               
-              <canvas class="live-anim-canvas" id="motionCanvas_${s.id}" style="position: absolute; inset:0; width:100%; height:100%; object-fit: contain; display: none; z-index: 2;"></canvas>
+              <canvas class="live-anim-canvas" id="motionCanvas_${safeSid}" style="position: absolute; inset:0; width:100%; height:100%; object-fit: contain; display: none; z-index: 2;"></canvas>
 
               ${mainLiveVideoSrc ? `
-                <video id="liveVideo_${s.id}" src="${mainLiveVideoSrc}" playsinline muted loop preload="auto" style="display: none;"></video>
+                <video id="liveVideo_${safeSid}" src="${escapeHtmlAttr(mainLiveVideoSrc)}" playsinline muted loop preload="none" style="display: none;"></video>
               ` : ''}
             </div>
 
-            <div class="session-main-actions" id="mainActions_${s.id}">
-              <button type="button" class="btn btn-coral" id="btnDownloadMain_${s.id}" onclick="downloadMainPhoto('${s.id}', '${finalSrc}')" style="flex: 1; cursor: pointer; text-decoration: none;">
-                ⬇️ Unduh Foto HD
+            <div class="session-main-actions" id="mainActions_${safeSid}">
+              <button type="button" class="btn btn-coral" id="btnDownloadMain_${safeSid}" onclick="downloadMainPhoto('${safeSid}', '${safeFinalSrc}')" style="flex: 1; cursor: pointer; text-decoration: none;">
+                ${isMainVideo ? '⬇️ Unduh Video' : '⬇️ Unduh Foto HD'}
               </button>
-              <button class="btn btn-teal" id="btnShareMain_${s.id}" onclick="shareMedia('${finalSrc}', 'Foto Photobooth')" style="cursor: pointer;">
+              <a href="/api/gallery/s/${encodeURIComponent(s.id)}/zip" download class="btn btn-secondary" style="cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px;" title="Unduh semua file sesi ini sebagai ZIP">
+                📦 ZIP
+              </a>
+              <button class="btn btn-teal" id="btnShareMain_${safeSid}" onclick="shareMedia('${safeFinalSrc}', 'Foto Photobooth')" style="cursor: pointer;">
                 📲 Bagikan
               </button>
             </div>
@@ -909,7 +946,9 @@
       `;
       container.appendChild(card);
 
-      initFramedSessionController(s.id, finalSrc, poseImages, sessionTemplate, mainLiveVideoSrc, boomerangAsset, liveClips);
+      if (!isMainVideo) {
+        initFramedSessionController(s.id, finalSrc, poseImages, sessionTemplate, mainLiveVideoSrc, boomerangAsset, liveClips);
+      }
 
       rawCaptures.forEach((raw, rIdx) => {
         const clip = liveClips.find(c => c.variant === `pose_${rIdx + 1}`);
@@ -1035,6 +1074,12 @@
           }
 
           const container = document.getElementById('galleryContainer');
+          const zipWrap = document.getElementById('galleryHeroDownloadAllWrap');
+          const zipBtn = document.getElementById('btnGalleryDownloadAllZip');
+          if (zipWrap && zipBtn && !data.isEventGallery && currentGuestToken && data.sessions && data.sessions.length > 0) {
+            zipBtn.href = `/api/gallery/g/${encodeURIComponent(currentGuestToken)}/zip`;
+            zipWrap.style.display = 'flex';
+          }
           if (data.sessions && data.sessions.length > 0) {
             container.innerHTML = '';
             const totalSessions = (galleryPagination && galleryPagination.totalSessions) || data.sessions.length;
@@ -1230,6 +1275,9 @@
           const kCtx = keyedFrameCanvas.getContext('2d');
           kCtx.drawImage(sourceImg, 0, 0, tWidth, tHeight);
 
+          const shouldRunChroma = Boolean((template && template.chromaKey) || /\.svg(\?|$)/i.test((template && template.imageUrl) || ''));
+          if (!shouldRunChroma) return;
+
           const imgData = kCtx.getImageData(0, 0, tWidth, tHeight);
           const data = imgData.data;
 
@@ -1301,7 +1349,7 @@
             v.playsInline = true;
             v.muted = true;
             v.loop = true;
-            v.preload = 'auto';
+            v.preload = 'metadata';
             v.style.display = 'none';
             document.body.appendChild(v);
             slotVideos[sIdx] = v;
@@ -1310,19 +1358,17 @@
           }
         });
       }
-      ensureSlotVideosLoaded(slots);
 
       if (template && template.imageUrl) {
         const tImg = new Image();
         tImg.crossOrigin = 'anonymous';
         tImg.src = template.imageUrl;
-        tImg.onload = () => { setupKeyedFrame(tImg); ensureSlotVideosLoaded(slots); };
-        tImg.onerror = () => { setupKeyedFrame(stillImageObj); ensureSlotVideosLoaded(slots); };
+        tImg.onload = () => setupKeyedFrame(tImg);
+        tImg.onerror = () => setupKeyedFrame(stillImageObj);
       } else {
-        stillImageObj.onload = () => { setupKeyedFrame(stillImageObj); ensureSlotVideosLoaded(slots); };
+        stillImageObj.onload = () => setupKeyedFrame(stillImageObj);
         if (stillImageObj.complete && stillImageObj.naturalWidth > 0) {
           setupKeyedFrame(stillImageObj);
-          ensureSlotVideosLoaded(slots);
         }
       }
 
@@ -1530,6 +1576,7 @@
               btnShare.onclick = () => shareMedia((boomerangAsset && boomerangAsset.filePath) || stillSrc, 'Boomerang Photobooth');
             }
           } else if (mode === 'live') {
+            ensureSlotVideosLoaded(slots);
             stillImg.style.visibility = 'visible';
             stillImg.style.opacity = '1';
             motionCanvas.style.display = 'none';
@@ -2045,6 +2092,11 @@
       }
     }
 
+    function downloadAllSessionZip(sessionId) {
+      window.location.href = `/api/gallery/s/${encodeURIComponent(sessionId)}/zip`;
+      showToast('📦 Menyiapkan file ZIP sesi...', 3000);
+    }
+
     async function downloadMediaFile(source, filename = 'download', mimeType = '') {
       try {
         let blob;
@@ -2112,6 +2164,11 @@
     }
 
     function downloadMainPhoto(sessionId, stillSrc) {
+      if (/\.(mp4|webm|mov)$/i.test(stillSrc)) {
+        const ext = stillSrc.split('.').pop().split('?')[0].toLowerCase() || 'mp4';
+        downloadMediaFile(stillSrc, `Photobooth_${sessionId}.${ext}`, `video/${ext === 'mov' ? 'quicktime' : ext}`);
+        return;
+      }
       const ext = /\.(jpe?g)$/i.test(stillSrc) ? 'jpg' : 'png';
       downloadMediaFile(stillSrc, `Photobooth_${sessionId}.${ext}`, ext === 'png' ? 'image/png' : 'image/jpeg');
     }
@@ -2460,8 +2517,31 @@
           fileUrl: photoUrl || ''
         };
 
-        // 1. Native Web Share API (Android Chrome & iOS Safari)
+        // 1. Native Web Share API (Android Chrome & iOS Safari):
+        // Coba bagikan File langsung (gambar/video) agar bisa langsung ke IG Story / WhatsApp tanpa unduh manual
         if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+          if (photoUrl && typeof navigator.canShare === 'function') {
+            try {
+              const fullFileUrl = photoUrl.startsWith('http') ? photoUrl : (window.location.origin + (photoUrl.startsWith('/') ? '' : '/') + photoUrl);
+              const fileRes = await fetch(fullFileUrl, { mode: 'cors' });
+              if (fileRes.ok) {
+                const blob = await fileRes.blob();
+                const isVid = /\.(mp4|webm|mov)$/i.test(photoUrl);
+                const ext = isVid ? 'mp4' : (/\.(png)$/i.test(photoUrl) ? 'png' : 'jpg');
+                const mime = blob.type || (isVid ? 'video/mp4' : (ext === 'png' ? 'image/png' : 'image/jpeg'));
+                const file = new File([blob], `Mafaza_Photobooth.${ext}`, { type: mime });
+                if (navigator.canShare({ files: [file] })) {
+                  await navigator.share({ files: [file], title: shareTitle, text: shareText });
+                  return;
+                }
+              }
+            } catch (fileShareErr) {
+              if (fileShareErr && (fileShareErr.name === 'AbortError' || (fileShareErr.message && fileShareErr.message.includes('Abort')))) {
+                return;
+              }
+            }
+          }
+
           const shareData = {
             title: shareTitle,
             text: shareText,
@@ -2498,32 +2578,97 @@
       }
     }
 
-    function shareBoomerang(sessionId, filePath) {
-      const vid = document.getElementById(`bmVideo_${sessionId}`);
-      const src = filePath || (vid ? vid.src : '');
-      shareMedia(src, 'Video Boomerang');
-    }
-
     function shareToWhatsApp(photoUrl) {
       shareMedia(photoUrl);
     }
 
-    // Lightbox modal handlers
+    // Lightbox modal handlers with Prev/Next swipe, zoom toggle & keyboard support
+    let activeLightboxIdx = -1;
+    let lightboxZoomed = false;
+
+    function updateLightboxNavUI() {
+      const prevBtn = document.getElementById('lightboxPrevBtn');
+      const nextBtn = document.getElementById('lightboxNextBtn');
+      const counter = document.getElementById('lightboxCounter');
+      const hasMulti = galleryLightboxItems.length > 1 && activeLightboxIdx >= 0;
+      if (prevBtn) prevBtn.style.display = hasMulti ? 'flex' : 'none';
+      if (nextBtn) nextBtn.style.display = hasMulti ? 'flex' : 'none';
+      if (counter) {
+        counter.innerText = hasMulti ? `${activeLightboxIdx + 1} / ${galleryLightboxItems.length}` : '';
+      }
+    }
+
     function openLightbox(src) {
       const modal = document.getElementById('galleryLightboxModal');
       const img = document.getElementById('lightboxImg');
       if (modal && img) {
+        lightboxZoomed = false;
+        img.style.transform = 'scale(1)';
+        img.style.cursor = 'zoom-in';
+        registerLightboxImage(src);
+        activeLightboxIdx = galleryLightboxItems.indexOf(src);
         img.src = src;
+        updateLightboxNavUI();
         modal.style.display = 'flex';
       } else {
         window.open(src, '_blank');
       }
     }
 
+    function stepLightbox(delta) {
+      if (galleryLightboxItems.length <= 1) return;
+      activeLightboxIdx = (activeLightboxIdx + delta + galleryLightboxItems.length) % galleryLightboxItems.length;
+      const img = document.getElementById('lightboxImg');
+      if (img) {
+        lightboxZoomed = false;
+        img.style.transform = 'scale(1)';
+        img.style.cursor = 'zoom-in';
+        img.src = galleryLightboxItems[activeLightboxIdx];
+      }
+      updateLightboxNavUI();
+    }
+
+    function toggleLightboxZoom() {
+      const img = document.getElementById('lightboxImg');
+      if (!img) return;
+      lightboxZoomed = !lightboxZoomed;
+      img.style.transform = lightboxZoomed ? 'scale(1.65)' : 'scale(1)';
+      img.style.cursor = lightboxZoomed ? 'zoom-out' : 'zoom-in';
+    }
+
+    function shareCurrentLightboxPhoto() {
+      const img = document.getElementById('lightboxImg');
+      if (img && img.src) shareMedia(img.src, 'Foto Photobooth');
+    }
+
     function closeLightbox(event) {
       const modal = document.getElementById('galleryLightboxModal');
       if (modal) modal.style.display = 'none';
+      lightboxZoomed = false;
     }
+
+    window.addEventListener('keydown', (e) => {
+      const modal = document.getElementById('galleryLightboxModal');
+      if (!modal || modal.style.display !== 'flex') return;
+      if (e.key === 'Escape') closeLightbox();
+      else if (e.key === 'ArrowLeft') stepLightbox(-1);
+      else if (e.key === 'ArrowRight') stepLightbox(1);
+    });
+
+    (function bindLightboxSwipe() {
+      let touchStartX = 0;
+      const modal = document.getElementById('galleryLightboxModal');
+      if (!modal) return;
+      modal.addEventListener('touchstart', (e) => {
+        if (e.touches && e.touches.length === 1) touchStartX = e.touches[0].clientX;
+      }, { passive: true });
+      modal.addEventListener('touchend', (e) => {
+        if (!touchStartX || !e.changedTouches || e.changedTouches.length !== 1) return;
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        touchStartX = 0;
+        if (Math.abs(dx) > 48) stepLightbox(dx < 0 ? 1 : -1);
+      }, { passive: true });
+    })();
   </script>
   <script src="/js/notify.js?v=warm-retro-v3.2"></script>
 </body>

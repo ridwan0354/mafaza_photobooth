@@ -182,8 +182,9 @@ export function getPrinterMediaTypes(printerIdOrModel) {
   if ((platform === 'darwin' || platform === 'linux') && printerIdOrModel) {
     try {
       const { cupsQueueId } = resolveCupsQueueId(printerIdOrModel, printerIdOrModel);
-      const rawPrinterId = cupsQueueId || printerIdOrModel.trim().replace(/[\s-]+/g, '_');
-      const out = execSync(`lpoptions -p "${rawPrinterId}" -l`, { encoding: 'utf8', timeout: 2500 });
+      const rawPrinterId = String(cupsQueueId || printerIdOrModel.trim().replace(/[\s-]+/g, '_')).replace(/[^A-Za-z0-9_.-]/g, '');
+      if (!rawPrinterId) return result;
+      const out = execFileSync('lpoptions', ['-p', rawPrinterId, '-l'], { encoding: 'utf8', timeout: 2500 });
       const ppdLabels = readCupsMediaTypeLabelsFromPpd(rawPrinterId);
       const mediaLine = out.split('\n').find(l => l.startsWith('MediaType/'));
       if (mediaLine) {
@@ -474,6 +475,16 @@ export function isAgentOnline(tenantId) {
 }
 
 export function claimAgentJobs(tenantId) {
+  // Pulihkan job 'processing' yang macet > 5 menit akibat agent putus/restart di tengah cetak
+  try {
+    db.prepare(`
+      UPDATE print_jobs
+      SET state = 'queued', updated_at = datetime('now')
+      WHERE tenant_id = ? AND state = 'processing' AND updated_at <= datetime('now', '-5 minutes')
+        AND created_at >= datetime('now', ?)
+    `).run(tenantId, `-${AGENT_JOB_MAX_AGE_MIN} minutes`);
+  } catch (e) {}
+
   const jobs = db.prepare(`
     SELECT id, copies, options_json FROM print_jobs
     WHERE tenant_id = ? AND state = 'queued' AND created_at >= datetime('now', ?)
@@ -551,7 +562,7 @@ function resolveCupsDriverOptions(cupsQueueId, options) {
       res.pageOptKey = pageLine.split('/')[0].trim();
       const choices = (pageLine.split(':')[1] || '').trim().split(/\s+/).map(c => c.replace(/^\*/, ''));
       const matchers = [new RegExp(`(^|[^0-9])${wi}\\s*x\\s*${hi}(?![0-9.])`, 'i')];
-      if (wi === 4 && hi === 6) matchers.push(/10\s*x\s*15|100\s*x\s*150|102\s*x\s*152|4r\b/i);
+      if (wi === 4 && hi === 6) matchers.push(/10\s*x\s*15|100\s*x\s*150|102\s*x\s*152|4r\b|kg\b/i);
       if (wi === 5 && hi === 7) matchers.push(/13\s*x\s*18|127\s*x\s*178|5\s*x\s*7|5r\b|2l\b/i);
       if (fallbackPage === 'A4') matchers.push(/^a4(\.|$)/i);
       const candidates = choices.filter(c => !/manucdr|disc|id\s*card|envelope|roll/i.test(c) && matchers.some(re => re.test(c)));
@@ -622,13 +633,16 @@ export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, opt
         if (drv.colorArgs.length > 0) {
           lpArgs.push(...drv.colorArgs);
         }
-        if (options.borderless) {
+        const isEpson = /epson|epij/i.test(`${cupsQueueId} ${driverName || ''} ${printerName || ''}`);
+        if (options.borderless && isEpson) {
           lpArgs.push('-o', 'EPIJ_Bdls=1', '-o', 'EPIJ_exmg=0');
         }
         if (options.highDpi) {
-          lpArgs.push('-o', 'EPIJ_Qual=306', '-o', 'Resolution=720x720dpi', '-o', 'EPIJ_Mode=3', '-o', 'EPIJ_OPT_Bi_D=0', '-o', 'print-quality=5');
+          if (isEpson) lpArgs.push('-o', 'EPIJ_Qual=306', '-o', 'Resolution=720x720dpi', '-o', 'EPIJ_Mode=3', '-o', 'EPIJ_OPT_Bi_D=0');
+          lpArgs.push('-o', 'print-quality=5');
         } else {
-          lpArgs.push('-o', 'EPIJ_Qual=303', '-o', 'Resolution=360x360dpi', '-o', 'EPIJ_OPT_Bi_D=1', '-o', 'print-quality=3');
+          if (isEpson) lpArgs.push('-o', 'EPIJ_Qual=303', '-o', 'Resolution=360x360dpi', '-o', 'EPIJ_OPT_Bi_D=1');
+          lpArgs.push('-o', 'print-quality=3');
         }
         lpArgs.push(printFilePath);
 
@@ -636,11 +650,17 @@ export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, opt
           execFile('open', ['-g', '-a', '/System/Applications/Utilities/Print Center.app'], () => {});
         }
 
-        db.prepare("UPDATE print_jobs SET state = 'processing' WHERE id = ?").run(printJobId);
+        db.prepare("UPDATE print_jobs SET state = 'processing', updated_at = datetime('now') WHERE id = ?").run(printJobId);
         execFile('lp', lpArgs, { timeout: 10000 }, (err, stdout) => {
           if (err) {
-            console.warn('CUPS lp warning (falling back to spooled state):', err.message);
-          } else if (stdout) {
+            console.warn('CUPS lp error:', err.message);
+            try {
+              db.prepare("UPDATE print_jobs SET state = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?")
+                .run(String(err.message || 'Gagal kirim ke CUPS').slice(0, 280), printJobId);
+            } catch (e) {}
+            return;
+          }
+          if (stdout) {
             const m = stdout.trim().match(/(?:request id is|id permintaan adalah)\s+([^\s]+)/i)
               || stdout.trim().match(/([A-Za-z0-9_]+-\d+)/);
             const realCupsJobId = m ? (m[1] || m[2]) : null;
@@ -651,10 +671,10 @@ export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, opt
             }
           }
           try {
-            db.prepare("UPDATE print_jobs SET state = 'spooled' WHERE id = ?").run(printJobId);
+            db.prepare("UPDATE print_jobs SET state = 'spooled', updated_at = datetime('now') WHERE id = ?").run(printJobId);
             setTimeout(() => {
               try {
-                db.prepare("UPDATE print_jobs SET state = 'completed' WHERE id = ?").run(printJobId);
+                db.prepare("UPDATE print_jobs SET state = 'completed', updated_at = datetime('now') WHERE id = ? AND state = 'spooled'").run(printJobId);
               } catch (e) {}
             }, 2500);
           } catch (e) {}
@@ -671,18 +691,15 @@ export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, opt
       resolvedQueueId = printerObj ? printerObj.id : targetWinPrinter;
       dispatchedToOs = true;
 
-      db.prepare("UPDATE print_jobs SET state = 'processing' WHERE id = ?").run(printJobId);
-
-      if (targetWinPrinter) {
-        execFile('rundll32.exe', ['printui.dll,PrintUIEntry', '/o', '/n', targetWinPrinter], () => {});
-      }
+      db.prepare("UPDATE print_jobs SET state = 'processing', updated_at = datetime('now') WHERE id = ?").run(printJobId);
 
       const psScript = `
         Add-Type -AssemblyName System.Drawing;
         $img = [System.Drawing.Image]::FromFile($env:PB_FILE);
         $doc = New-Object System.Drawing.Printing.PrintDocument;
+        $doc.PrintController = New-Object System.Drawing.Printing.StandardPrintController;
         if ($env:PB_PRINTER) { $doc.PrinterSettings.PrinterName = $env:PB_PRINTER };
-        $doc.PrinterSettings.Copies = [int]$env:PB_COPIES;
+        $doc.PrinterSettings.Copies = [int16]$env:PB_COPIES;
         $doc.OriginAtMargins = $false;
         $doc.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0,0,0,0);
         $wIn = [double]$env:PB_PAPER_W; $hIn = [double]$env:PB_PAPER_H;
@@ -724,16 +741,23 @@ export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, opt
           ...process.env,
           PB_FILE: printFilePath,
           PB_PRINTER: targetWinPrinter || '',
-          PB_COPIES: String(copies || 1),
+          PB_COPIES: String(Math.max(1, copies || 1)),
           PB_PAPER_W: String(options.paperWidthIn || 4),
           PB_PAPER_H: String(options.paperHeightIn || 6)
         }
-      }, () => {
+      }, (err, stdout, stderr) => {
+        if (err || !String(stdout || '').includes('WIN_SPOOL_OK')) {
+          try {
+            db.prepare("UPDATE print_jobs SET state = 'failed', error_message = ?, updated_at = datetime('now') WHERE id = ?")
+              .run(String(err?.message || stderr || 'Windows PrintDocument gagal').slice(0, 280), printJobId);
+          } catch (e) {}
+          return;
+        }
         try {
-          db.prepare("UPDATE print_jobs SET state = 'spooled' WHERE id = ?").run(printJobId);
+          db.prepare("UPDATE print_jobs SET state = 'spooled', updated_at = datetime('now') WHERE id = ?").run(printJobId);
           setTimeout(() => {
             try {
-              db.prepare("UPDATE print_jobs SET state = 'completed' WHERE id = ?").run(printJobId);
+              db.prepare("UPDATE print_jobs SET state = 'completed', updated_at = datetime('now') WHERE id = ? AND state = 'spooled'").run(printJobId);
             } catch (e) {}
           }, 2500);
         } catch (e) {}
@@ -752,6 +776,11 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
 
   // Ambil seluruh pengaturan cetak aktif (plus override ukuran kertas 4R/5R bila dipilih tamu/operator)
   const options = buildPrintOptions(tenantId, copies, extraOptions.paperSize || null);
+  const safeCopies = Math.max(1, Math.min(options.maxCopies || 10, parseInt(copies, 10) || 1));
+  if (extraOptions.mediaType) options.mediaType = extraOptions.mediaType;
+  if (extraOptions.borderless !== undefined) options.borderless = Boolean(extraOptions.borderless);
+  if (extraOptions.highDpi !== undefined) options.highDpi = Boolean(extraOptions.highDpi);
+  if (extraOptions.safeMargin !== undefined) options.safeMargin = extraOptions.safeMargin;
 
   // Cari token galeri dan posisi QR template untuk ditempelkan khusus pada lembar cetak
   let qrUrl = extraOptions.qrUrl || null;
@@ -842,7 +871,7 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
     deviceId || null,
     photoSessionId,
     mediaAssetId,
-    copies,
+    safeCopies,
     initialState,
     spoolerJobId,
     idempotencyKey,
@@ -854,7 +883,7 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
   let resolvedPrinterName = printerName;
 
   if (!requiresPaperConfirm && absFilePath && !isUnitTestSession && !isSimulator) {
-    const disp = dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, options, copies, sheetOrientation);
+    const disp = dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, options, safeCopies, sheetOrientation);
     dispatchedToOs = disp.dispatchedToOs;
     resolvedQueueId = disp.resolvedQueueId;
     resolvedPrinterName = disp.resolvedPrinterName;
@@ -1017,7 +1046,11 @@ export function reprintJob(printJobId, tenantId, operatorId, copies = null, extr
       baseUrl: resolvedBaseUrl,
       qrUrl: resolvedQrUrl,
       qrPosition: origOpts.qrPosition || null,
-      qrCoords: Array.isArray(origOpts.qrCoords) ? origOpts.qrCoords : null
+      qrCoords: Array.isArray(origOpts.qrCoords) ? origOpts.qrCoords : null,
+      mediaType: origOpts.mediaType || null,
+      borderless: origOpts.borderless,
+      highDpi: origOpts.highDpi,
+      safeMargin: origOpts.safeMargin
     }
   );
 

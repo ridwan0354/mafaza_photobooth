@@ -299,6 +299,9 @@ public class CanonUsbPtpEngine {
 
     public void stop() {
         isRunning = false;
+        if (workerThread != null) {
+            workerThread.interrupt();
+        }
         try {
             context.unregisterReceiver(usbReceiver);
         } catch (Exception ignored) {}
@@ -675,7 +678,9 @@ public class CanonUsbPtpEngine {
                     Thread.sleep(36); // ~25 FPS smooth Live View
                 } else {
                     consecutiveFailures++;
-                    if (!hasLiveFrame()) notifyStatus(cameraModelName + ": Live View belum siap. Periksa kabel dan mode USB kamera.");
+                    if (!hasLiveFrame() && (consecutiveFailures == 1 || consecutiveFailures % 25 == 0)) {
+                        notifyStatus(cameraModelName + ": Live View belum siap. Periksa kabel dan mode USB kamera.");
+                    }
                     if (consecutiveFailures % 15 == 0) {
                         synchronized (usbLock) {
                             if (isConnected && !isCapturingPhoto) {
@@ -692,24 +697,11 @@ public class CanonUsbPtpEngine {
                             }
                         }
                     }
-                    // Verify physical USB device is still attached before resetting
+                    // Reset dead PTP session even if cable stays plugged in so camera recovers automatically
                     if (consecutiveFailures > 120) {
                         consecutiveFailures = 0;
-                        if (activeDevice != null && usbManager != null) {
-                            HashMap<String, UsbDevice> devMap = usbManager.getDeviceList();
-                            boolean stillPlugged = false;
-                            if (devMap != null) {
-                                for (UsbDevice d : devMap.values()) {
-                                    if (d.getDeviceId() == activeDevice.getDeviceId()) {
-                                        stillPlugged = true;
-                                        break;
-                                    }
-                                }
-                            }
-                            if (!stillPlugged) {
-                                closeCurrentConnection();
-                            }
-                        }
+                        Log.w(TAG, "USB PTP stream stalled (>120 failures), reopening camera session...");
+                        closeCurrentConnection();
                     }
                     Thread.sleep(80);
                 }

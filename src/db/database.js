@@ -36,10 +36,13 @@ export async function createSqlJsDatabase(dbPath, options = {}) {
   const saveToDiskNow = () => {
     clearTimers();
     dirty = false;
+    const tmpPath = `${dbPath}.tmp.${process.pid}`;
     try {
       const data = wasmDb.export();
-      fs.writeFileSync(dbPath, Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+      fs.writeFileSync(tmpPath, Buffer.from(data.buffer, data.byteOffset, data.byteLength));
+      fs.renameSync(tmpPath, dbPath);
     } catch (err) {
+      try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (e) {}
       console.error('SQLite WASM disk sync error:', err.message);
     }
   };
@@ -97,7 +100,11 @@ export async function createSqlJsDatabase(dbPath, options = {}) {
         inTransaction = true;
         return;
       }
-      if (/^(COMMIT|END|ROLLBACK)\b/i.test(trimmed)) {
+      if (/^ROLLBACK\b/i.test(trimmed)) {
+        inTransaction = false;
+        return;
+      }
+      if (/^(COMMIT|END)\b/i.test(trimmed)) {
         inTransaction = false;
       }
       saveToDiskNow();
@@ -180,6 +187,7 @@ export function hashPassword(password) {
 }
 
 export function initDatabase() {
+  try { db.exec('PRAGMA foreign_keys = ON;'); } catch (e) {}
   const schemaPath = path.join(__dirname, 'schema.sql');
   const schemaSql = fs.readFileSync(schemaPath, 'utf8');
   db.exec(schemaSql);

@@ -29,14 +29,36 @@ if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+const ALLOWED_UPLOAD_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.mp4', '.webm', '.mov']);
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname) || '.png';
+    const rawExt = path.extname(file.originalname || '').toLowerCase();
+    let ext = ALLOWED_UPLOAD_EXTS.has(rawExt) ? rawExt : '';
+    if (!ext) {
+      if (/video\/webm/i.test(file.mimetype || '')) ext = '.webm';
+      else if (/video\/mp4/i.test(file.mimetype || '')) ext = '.mp4';
+      else if (/image\/jpeg/i.test(file.mimetype || '')) ext = '.jpg';
+      else ext = '.png';
+    }
     cb(null, `${Date.now()}_${crypto.randomBytes(6).toString('hex')}${ext}`);
   }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 35 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const mime = (file.mimetype || '').toLowerCase();
+    const mimeOk = mime.startsWith('image/') || mime.startsWith('video/') || mime === 'application/octet-stream';
+    const isUnsafeSvgOrHtml = ext === '.svg' || ext === '.html' || ext === '.htm' || ext === '.js' || mime.includes('svg') || mime.includes('html');
+    if (isUnsafeSvgOrHtml || (ext && !ALLOWED_UPLOAD_EXTS.has(ext)) || !mimeOk) {
+      return cb(new Error('Format file upload tidak diizinkan (hanya foto JPG/PNG/WEBP/GIF atau video MP4/WEBM/MOV).'));
+    }
+    cb(null, true);
+  }
+});
 
 export const apiRouter = express.Router();
 
@@ -49,13 +71,18 @@ const adminLoginAttempts = new Map();
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 10 * 60 * 1000; // 10 menit
 
-function getClientIp(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) {
-    const list = forwarded.split(',');
-    return list[0].trim();
+function pruneAttemptMap(map, ttlMs = 15 * 60 * 1000) {
+  if (map.size < 200) return;
+  const now = Date.now();
+  for (const [k, v] of map.entries()) {
+    if (!v || (v.lockedUntil > 0 && v.lockedUntil <= now) || (v.updatedAt && now - v.updatedAt > ttlMs)) {
+      map.delete(k);
+    }
   }
-  return req.socket?.remoteAddress || '127.0.0.1';
+}
+
+function getClientIp(req) {
+  return req.ip || req.socket?.remoteAddress || '127.0.0.1';
 }
 
 function verifyAdminPassword(inputPassword) {
@@ -98,7 +125,8 @@ apiRouter.post('/admin/login', (req, res) => {
       });
     }
 
-    adminLoginAttempts.set(clientIp, { count: newCount, lockedUntil });
+    adminLoginAttempts.set(clientIp, { count: newCount, lockedUntil, updatedAt: now });
+    pruneAttemptMap(adminLoginAttempts);
     const sisa = MAX_LOGIN_ATTEMPTS - newCount;
     return res.status(401).json({
       error: `Password salah! Sisa percobaan: ${sisa} kali sebelum terkunci.`,
@@ -126,9 +154,11 @@ apiRouter.post('/admin/login', (req, res) => {
     tenantId: activeTenant.id
   });
 
+  const isHttps = req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https');
+  const secureAttr = isHttps ? '; Secure' : '';
   res.setHeader('Set-Cookie', [
-    `pb_admin_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
-    `pb_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=2592000`
+    `pb_admin_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secureAttr}`,
+    `pb_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=2592000${secureAttr}`
   ]);
 
   return res.json({
@@ -719,7 +749,8 @@ apiRouter.post('/kiosk/verify-operator-pin', (req, res) => {
     if (!isValid) {
       const count = (attemptInfo.lockedUntil > 0 && attemptInfo.lockedUntil <= now) ? 1 : attemptInfo.count + 1;
       const lockedUntil = count >= 8 ? (now + 5 * 60 * 1000) : 0;
-      operatorPinAttempts.set(clientIp, { count, lockedUntil });
+      operatorPinAttempts.set(clientIp, { count, lockedUntil, updatedAt: now });
+      pruneAttemptMap(operatorPinAttempts);
       return res.status(401).json({ valid: false, error: 'PIN Operator salah!' });
     }
 
@@ -833,7 +864,21 @@ apiRouter.patch('/templates/:id', authMiddleware(), (req, res) => {
 
 apiRouter.delete('/templates/:id', authMiddleware(), (req, res) => {
   try {
-    db.prepare('DELETE FROM templates WHERE id = ? AND tenant_id = ?').run(req.params.id, req.user.tenantId);
+    const versions = db.prepare(`
+      SELECT tv.image_storage_key FROM template_versions tv
+      JOIN templates t ON tv.template_id = t.id
+      WHERE t.id = ? AND t.tenant_id = ?
+    `).all(req.params.id, req.user.tenantId);
+    const delRes = db.prepare('DELETE FROM templates WHERE id = ? AND tenant_id = ?').run(req.params.id, req.user.tenantId);
+    if (delRes.changes > 0) {
+      db.prepare('DELETE FROM template_versions WHERE template_id = ?').run(req.params.id);
+      for (const v of versions) {
+        if (v.image_storage_key && v.image_storage_key.startsWith('/uploads/')) {
+          const oldPath = path.join(uploadDir, path.basename(v.image_storage_key));
+          try { if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath); } catch (e) {}
+        }
+      }
+    }
     res.json({ success: true, message: 'Template berhasil dihapus' });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1064,8 +1109,12 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
     if (req.files && req.files['livePhoto'] && req.files['livePhoto'][0]) {
       const lpFile = req.files['livePhoto'][0];
       const lpUrl = `/uploads/${lpFile.filename}`;
-      const existingLp = db.prepare("SELECT id FROM media_assets WHERE photo_session_id = ? AND type = 'live_photo'").get(sessionId);
+      const existingLp = db.prepare("SELECT id, file_path FROM media_assets WHERE photo_session_id = ? AND type = 'live_photo'").get(sessionId);
       if (existingLp) {
+        if (existingLp.file_path && existingLp.file_path !== lpUrl) {
+          const oldLp = path.join(uploadDir, path.basename(existingLp.file_path));
+          try { if (fs.existsSync(oldLp)) fs.unlinkSync(oldLp); } catch (e) {}
+        }
         db.prepare("UPDATE media_assets SET file_path = ?, size_bytes = ? WHERE id = ?").run(lpUrl, lpFile.size, existingLp.id);
       } else {
         const lpId = 'asset_lp_' + crypto.randomBytes(8).toString('hex');
@@ -1080,8 +1129,12 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
     if (req.files && req.files['boomerang'] && req.files['boomerang'][0]) {
       const bmFile = req.files['boomerang'][0];
       const bmUrl = `/uploads/${bmFile.filename}`;
-      const existingBm = db.prepare("SELECT id FROM media_assets WHERE photo_session_id = ? AND type = 'boomerang'").get(sessionId);
+      const existingBm = db.prepare("SELECT id, file_path FROM media_assets WHERE photo_session_id = ? AND type = 'boomerang'").get(sessionId);
       if (existingBm) {
+        if (existingBm.file_path && existingBm.file_path !== bmUrl) {
+          const oldBm = path.join(uploadDir, path.basename(existingBm.file_path));
+          try { if (fs.existsSync(oldBm)) fs.unlinkSync(oldBm); } catch (e) {}
+        }
         db.prepare("UPDATE media_assets SET file_path = ?, size_bytes = ? WHERE id = ?").run(bmUrl, bmFile.size, existingBm.id);
       } else {
         const bmId = 'asset_bm_' + crypto.randomBytes(8).toString('hex');
@@ -1137,7 +1190,7 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
     let printJob = null;
     if (req.body.printRequested === 'true') {
       if (finalAssetId) {
-        const copies = parseInt(req.body.printCopies) || 1;
+        const copies = Math.max(1, Math.min(20, parseInt(req.body.printCopies, 10) || 1));
         const paperSize = req.body.printPaperSize || req.body.paperSize || null;
         const paperConfirmed = req.body.paperConfirmed === 'true' || req.body.paperConfirmed === '1';
         const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
@@ -1214,6 +1267,81 @@ apiRouter.post('/gallery/g/:token/share-click', (req, res) => {
     `).run('audit_' + crypto.randomBytes(8).toString('hex'), pass.tenant_id, JSON.stringify({ token: req.params.token }));
   }
   res.json({ success: true });
+});
+
+function buildSafeGalleryZipFromSessions(sessions, labelPrefix = 'Sesi') {
+  const entries = [];
+  let totalBytes = 0;
+  const maxBytes = 85 * 1024 * 1024;
+  const maxFiles = 60;
+
+  for (let sIdx = 0; sIdx < sessions.length; sIdx++) {
+    const s = sessions[sIdx];
+    const mediaList = Array.isArray(s.media) ? s.media : [];
+    const folder = sessions.length > 1 ? `${labelPrefix}_${sIdx + 1}/` : '';
+    let idx = 1;
+    for (const m of mediaList) {
+      if (entries.length >= maxFiles || totalBytes >= maxBytes) break;
+      const fp = m && (m.filePath || m.file_path);
+      if (!fp || !String(fp).startsWith('/uploads/')) continue;
+      const absPath = path.resolve(uploadDir, path.basename(String(fp)));
+      if (!absPath.startsWith(uploadDir + path.sep) || !fs.existsSync(absPath)) continue;
+      const st = fs.statSync(absPath);
+      if (!st.isFile() || totalBytes + st.size > maxBytes) continue;
+      const ext = path.extname(absPath) || '.jpg';
+      const baseLabel = m.type === 'final_photo'
+        ? 'Foto_Frame'
+        : (m.type === 'boomerang' ? 'Boomerang' : (m.type === 'live_clip' || m.type === 'live_photo' ? 'Live' : 'Foto_HD'));
+      const entryName = `${folder}${String(idx++).padStart(2, '0')}_${baseLabel}${ext}`;
+      entries.push({ name: entryName, content: fs.readFileSync(absPath) });
+      totalBytes += st.size;
+    }
+  }
+  if (entries.length === 0) return null;
+  return appBuilder.createZipArchive(entries, { storeOnly: true });
+}
+
+// One-click ZIP download seluruh foto & video milik Guest Pass (zero-CPU STORE mode)
+apiRouter.get('/gallery/g/:token/zip', (req, res) => {
+  try {
+    const data = qrService.getGuestGalleryData(req.params.token);
+    if (!data || !Array.isArray(data.sessions) || data.sessions.length === 0) {
+      return res.status(404).json({ error: 'Belum ada foto di galeri ini' });
+    }
+    const zipBuf = buildSafeGalleryZipFromSessions(data.sessions, 'Sesi');
+    if (!zipBuf) return res.status(404).json({ error: 'File media tidak ditemukan di server' });
+    const safeEvent = String((data.guestPass && data.guestPass.eventName) || 'Mafaza').replace(/[^A-Za-z0-9_-]+/g, '_').slice(0, 40);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="Mafaza-${safeEvent}-Gallery.zip"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(zipBuf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// One-click ZIP download per 1 sesi foto tamu
+apiRouter.get('/gallery/s/:sessionId/zip', (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT id, type, variant, file_path FROM media_assets
+      WHERE photo_session_id = ?
+      ORDER BY CASE WHEN type = 'final_photo' THEN 1 WHEN type = 'boomerang' THEN 2 WHEN type = 'live_clip' THEN 3 WHEN type = 'live_photo' THEN 4 ELSE 5 END ASC,
+        LENGTH(variant) ASC, variant ASC
+    `).all(req.params.sessionId);
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ error: 'File sesi tidak ditemukan' });
+    }
+    const zipBuf = buildSafeGalleryZipFromSessions([{ id: req.params.sessionId, media: rows }], 'Sesi');
+    if (!zipBuf) return res.status(404).json({ error: 'File media tidak ditemukan di server' });
+    const cleanSid = String(req.params.sessionId).replace(/[^A-Za-z0-9_-]/g, '').slice(-12);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="Mafaza-Sesi-${cleanSid}.zip"`);
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(zipBuf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ==========================================
@@ -1464,7 +1592,7 @@ apiRouter.get('/photos/recent', authMiddleware(), (req, res) => {
         AND (ma.type = 'final_photo' OR ma.variant = 'print_hires')
         AND ma.file_path NOT LIKE '%.mp4'
         AND ma.file_path NOT LIKE '%.webm'
-        AND (ps.id IS NULL OR (ps.id NOT LIKE 'sess_print_test_%' AND ps.id NOT LIKE 'sess_test_0%'))
+        AND (ps.id IS NULL OR (ps.id NOT LIKE 'sess_print_test_%' AND ps.id NOT LIKE 'sess_test_print_%' AND ps.id NOT LIKE 'sess_test_0%'))
     `;
     const params = [tenantId];
     if (eventId) {

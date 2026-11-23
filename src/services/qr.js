@@ -276,6 +276,10 @@ export async function listGuestPasses(tenantId, eventId, baseUrl = '') {
   return list;
 }
 
+function safeParseJson(raw, fallback) {
+  try { return JSON.parse(raw); } catch (e) { return fallback; }
+}
+
 export function resolveGuestPass(token) {
   if (!token) return null;
   // Can resolve either by plain token or extracted from URL
@@ -286,6 +290,7 @@ export function resolveGuestPass(token) {
     JOIN events e ON gp.event_id = e.id
     JOIN tenants t ON gp.tenant_id = t.id
     WHERE (gp.token_plain = ? OR gp.id = ?) AND gp.status = 'active'
+      AND (gp.expires_at IS NULL OR datetime(gp.expires_at) > datetime('now'))
   `).get(cleanToken, cleanToken);
 
   return pass || null;
@@ -312,7 +317,7 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, 
     // 1. If explicit templateId is associated with this session
     if (templateId) {
       tpl = db.prepare(`
-        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        SELECT t.id, t.name, t.width, t.height, t.orientation, t.chroma_key, tv.image_storage_key, tv.slots_json
         FROM templates t
         LEFT JOIN template_versions tv ON t.current_version_id = tv.id
         WHERE t.id = ? AND t.status != 'archived'
@@ -326,7 +331,7 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, 
     // 2. By event_id AND matching orientation/aspect-ratio & slot count preference
     if (!tpl && eventId) {
       tpl = db.prepare(`
-        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        SELECT t.id, t.name, t.width, t.height, t.orientation, t.chroma_key, tv.image_storage_key, tv.slots_json
         FROM templates t
         LEFT JOIN template_versions tv ON t.current_version_id = tv.id
         WHERE t.event_id = ? AND t.status != 'archived'
@@ -347,13 +352,24 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, 
       `).get(eventId, targetOrientation, targetOrientation, targetOrientation, targetOrientation, sessionMode, sessionMode);
     }
 
-    // 3. Match by matching orientation across non-archived templates
+    // 3. Match by matching orientation across same-tenant non-archived templates (mencegah kebocoran lintas tenant)
     if (!tpl) {
+      let tenantFilterId = null;
+      if (eventId) {
+        const evTenant = db.prepare('SELECT tenant_id FROM events WHERE id = ?').get(eventId);
+        tenantFilterId = evTenant ? evTenant.tenant_id : null;
+      }
+      const tenantSql = tenantFilterId ? 'AND t.tenant_id = ?' : '';
+      const params3 = [
+        ...(tenantFilterId ? [tenantFilterId] : []),
+        targetOrientation, targetOrientation, targetOrientation, targetOrientation,
+        sessionMode, sessionMode
+      ];
       tpl = db.prepare(`
-        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        SELECT t.id, t.name, t.width, t.height, t.orientation, t.chroma_key, tv.image_storage_key, tv.slots_json
         FROM templates t
         LEFT JOIN template_versions tv ON t.current_version_id = tv.id
-        WHERE t.status != 'archived'
+        WHERE t.status != 'archived' ${tenantSql}
           AND (
             t.orientation = ? 
             OR (? = 'portrait' AND (t.orientation = 'portrait' OR t.orientation = 'single' OR t.width <= t.height))
@@ -368,13 +384,13 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, 
           END ASC,
           t.created_at DESC
         LIMIT 1
-      `).get(targetOrientation, targetOrientation, targetOrientation, targetOrientation, sessionMode, sessionMode);
+      `).get(...params3);
     }
 
     // 4. Fallback to any template for this event
     if (!tpl && eventId) {
       tpl = db.prepare(`
-        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        SELECT t.id, t.name, t.width, t.height, t.orientation, t.chroma_key, tv.image_storage_key, tv.slots_json
         FROM templates t
         LEFT JOIN template_versions tv ON t.current_version_id = tv.id
         WHERE t.event_id = ? AND t.status != 'archived'
@@ -385,7 +401,7 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, 
     // 5. General fallback
     if (!tpl) {
       tpl = db.prepare(`
-        SELECT t.id, t.name, t.width, t.height, t.orientation, tv.image_storage_key, tv.slots_json
+        SELECT t.id, t.name, t.width, t.height, t.orientation, t.chroma_key, tv.image_storage_key, tv.slots_json
         FROM templates t
         LEFT JOIN template_versions tv ON t.current_version_id = tv.id
         WHERE t.status != 'archived'
@@ -402,6 +418,7 @@ function getEventTemplate(eventId, sessionMode = 'portrait', templateId = null, 
       width: tpl.width || 1200,
       height: tpl.height || 1800,
       orientation: tpl.orientation || 'portrait',
+      chromaKey: Boolean(tpl.chroma_key),
       imageUrl: tpl.image_storage_key || '/assets/templates/single-green-template.svg',
       slots: slots
     };
@@ -505,13 +522,19 @@ export function getGuestGalleryData(token) {
 
   const primaryMode = rawSessions.length > 0 ? rawSessions[0].mode : 'portrait';
   const tpl = getEventTemplate(pass.event_id, primaryMode);
+  const tplCache = new Map();
+  const resolveSessionTpl = (evId, mode, tId) => {
+    const k = `${evId || ''}:${mode || ''}:${tId || ''}`;
+    if (!tplCache.has(k)) tplCache.set(k, getEventTemplate(evId, mode, tId) || tpl);
+    return tplCache.get(k);
+  };
 
   const sessions = rawSessions.map(s => {
-    const sTpl = getEventTemplate(s.event_id, s.mode, s.template_id) || tpl;
+    const sTpl = resolveSessionTpl(s.event_id, s.mode, s.template_id);
     return {
       ...s,
       template: sTpl,
-      media: JSON.parse(s.media_json || '[]')
+      media: safeParseJson(s.media_json || '[]', [])
     };
   });
 
@@ -604,13 +627,19 @@ export function getEventGalleryData(eventId, options = {}) {
   `).all(ev.id, limit, offset);
 
   const defaultTpl = getEventTemplate(ev.id, 'portrait');
+  const tplCache = new Map();
+  const resolveSessionTpl = (evId, mode, tId) => {
+    const k = `${evId || ''}:${mode || ''}:${tId || ''}`;
+    if (!tplCache.has(k)) tplCache.set(k, getEventTemplate(evId, mode, tId) || defaultTpl);
+    return tplCache.get(k);
+  };
 
   const sessions = rawSessions.map(s => {
-    const sTpl = getEventTemplate(s.event_id, s.mode, s.template_id) || defaultTpl;
+    const sTpl = resolveSessionTpl(s.event_id, s.mode, s.template_id);
     return {
       ...s,
       template: sTpl,
-      media: JSON.parse(s.media_json || '[]')
+      media: safeParseJson(s.media_json || '[]', [])
     };
   });
 

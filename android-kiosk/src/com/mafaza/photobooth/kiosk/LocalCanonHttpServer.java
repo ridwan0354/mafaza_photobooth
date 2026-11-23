@@ -75,6 +75,9 @@ public class LocalCanonHttpServer {
                 serverSocket.close();
             } catch (IOException ignored) {}
         }
+        try {
+            executor.shutdownNow();
+        } catch (Exception ignored) {}
     }
 
     private void handleClient(Socket client) {

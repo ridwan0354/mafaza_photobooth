@@ -61,7 +61,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   if (typeof initGlobalPrintStationMonitor === 'function') {
     initGlobalPrintStationMonitor();
   }
-  setInterval(loadPrintAgentStatus, 10000);
+  setInterval(() => {
+    if (document.visibilityState !== 'hidden') loadPrintAgentStatus();
+  }, 10000);
   await loadRecentPhotos(activeKioskEventId);
   await loadAppDownloadInfo();
   await loadCameraFlashSettings();
@@ -165,10 +167,14 @@ async function renderAdminOfflineQueue() {
   box.style.display = 'block';
   grid.innerHTML = sessions.map((s) => {
     const timeStr = new Date(s.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const thumbSrc = s.finalImage || (Array.isArray(s.captures) && s.captures[0] && (s.captures[0].dataUrl || s.captures[0])) || '';
+    const thumbHtml = thumbSrc
+      ? `<img src="${thumbSrc}" style="width: 100%; height: 100%; object-fit: contain; display: block;" alt="Foto Offline">`
+      : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#8c6b53;">📁 ${(s.captures && s.captures.length) || 0} File HD</div>`;
     return `
       <div style="background: #fff; border: 1.5px solid #E5A823; border-radius: 14px; overflow: hidden; padding: 10px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.06);">
         <div style="position: relative; width: 100%; aspect-ratio: 3/4; border-radius: 8px; overflow: hidden; background: #eee;">
-          <img src="${s.finalImage}" style="width: 100%; height: 100%; object-fit: contain; display: block;" alt="Foto Offline">
+          ${thumbHtml}
           <span style="position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.72); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 99px;">
             ⚡ ${timeStr}
           </span>
@@ -208,14 +214,22 @@ async function syncSingleOfflineSession(sessionId) {
     return;
   }
   if (!window.pbOfflineStore) return;
-  const sessions = await window.pbOfflineStore.getPendingSessions();
-  const target = sessions.find(s => s.id === sessionId);
-  if (!target) return;
 
   try {
     if (window.pbToast) window.pbToast('⏳ Mengunggah foto ke server cloud...', 'info', 2500);
-    await window.pbOfflineStore.uploadSession(target);
-    await window.pbOfflineStore.deleteSession(target.id);
+    const res = typeof window.pbOfflineStore.syncSingleSessionById === 'function'
+      ? await window.pbOfflineStore.syncSingleSessionById(sessionId)
+      : await (async () => {
+          const sessions = await window.pbOfflineStore.getPendingSessions();
+          const target = sessions.find(s => s.id === sessionId);
+          if (!target) return { missing: true };
+          const up = await window.pbOfflineStore.uploadSession(target);
+          if (typeof window.pbOfflineStore.recordSyncedSummary === 'function') window.pbOfflineStore.recordSyncedSummary(target, up);
+          await window.pbOfflineStore.deleteSession(target.id);
+          return { success: true };
+        })();
+    if (res && res.busy) return;
+    if (res && res.missing) return;
     if (window.pbToast) window.pbToast('✅ Berhasil mengunggah sesi foto offline!', 'success', 3500);
     renderAdminOfflineQueue();
     if (typeof loadRecentPhotos === 'function') await loadRecentPhotos(activeKioskEventId);
@@ -3043,6 +3057,8 @@ if (editorCanvas) {
   });
 
   window.addEventListener('mousemove', (e) => {
+    const tplTab = document.getElementById('tab-templates');
+    if (!tplTab || !tplTab.classList.contains('active')) return;
     const canvas = document.getElementById('templateEditorCanvas');
     if (!canvas) return;
     const coords = getCanvasMouseCoords(e, canvas);
@@ -3288,7 +3304,7 @@ function printAllGuestCards() {
     alert('Belum ada kartu QR untuk dicetak. Silakan generate batch kartu terlebih dahulu.');
     return;
   }
-  const eventName = activeKioskEventName || 'Photobooth Event';
+  const eventName = escapeHtml((activeEvent && activeEvent.name) || 'Photobooth Event');
   const printWin = window.open('', '_blank', 'width=900,height=750');
   if (!printWin) {
     alert('Pop-up terblokir di browser Anda. Mohon izinkan pop-up untuk mencetak kartu.');
@@ -3338,7 +3354,7 @@ function printAllGuestCards() {
 function printSingleGuestCard(passId) {
   const p = currentGuestPasses.find(item => item.id === passId);
   if (!p) return;
-  const eventName = activeKioskEventName || 'Photobooth Event';
+  const eventName = escapeHtml((activeEvent && activeEvent.name) || 'Photobooth Event');
   const printWin = window.open('', '_blank', 'width=500,height=600');
   if (!printWin) {
     alert('Pop-up terblokir di browser Anda.');
@@ -5704,8 +5720,10 @@ window.logoutAdmin = logoutAdmin;
   const originalFetch = window.fetch;
   window.fetch = async function(resource, init = {}) {
     init = init || {};
+    const rawUrl = typeof resource === 'string' ? resource : (resource?.url || '');
+    const isSameOriginRequest = rawUrl.startsWith('/') || rawUrl.startsWith(window.location.origin);
     const token = localStorage.getItem('pb_admin_token');
-    if (token) {
+    if (token && isSameOriginRequest) {
       init.headers = init.headers || {};
       if (typeof init.headers.set === 'function') {
         if (!init.headers.get('Authorization')) {
