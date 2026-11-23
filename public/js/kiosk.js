@@ -178,13 +178,22 @@ class KioskEngine {
     });
   }
 
-  isLocalDirectMode() {
+  isLocalStorageMode() {
     try {
-      const ls = localStorage.getItem('pb_kiosk_local_mode');
-      if (ls === 'true') return true;
-      if (ls === 'false') return false;
+      return localStorage.getItem('pb_kiosk_local_mode') === 'true';
     } catch (e) {}
-    return Boolean(this.eventConfig && this.eventConfig.localPrintMode);
+    return false;
+  }
+
+  isLocalPrintMode() {
+    try {
+      if (localStorage.getItem('pb_kiosk_local_print') === 'true') return true;
+    } catch (e) {}
+    return this.isLocalStorageMode();
+  }
+
+  isLocalDirectMode() {
+    return this.isLocalStorageMode();
   }
 
   async fetchWithTimeout(url, options = {}, timeoutMs = 2500) {
@@ -198,9 +207,6 @@ class KioskEngine {
   }
 
   updateLocalModeUI() {
-    if (typeof window !== 'undefined') {
-      window.__pbEventLocalMode = Boolean(this.eventConfig && this.eventConfig.localPrintMode);
-    }
     if (typeof this._updateOfflineBadge === 'function') {
       this._updateOfflineBadge();
     }
@@ -217,16 +223,17 @@ class KioskEngine {
       const galleryBtn = document.getElementById('btnKioskOfflineGallery');
 
       const isOnline = navigator.onLine;
-      const isLocal = this.isLocalDirectMode();
+      const isLocal = this.isLocalStorageMode();
+      const isLocalPrintOnly = this.isLocalPrintMode() && !isLocal;
       const applyGalleryBtn = (count) => {
         if (!galleryBtn) return;
         const c = Number(count) || 0;
         galleryBtn.textContent = c > 0
-          ? (isOnline ? `🔄 Mengirim (${c}) · 📂 Galeri` : `📦 Belum Terkirim (${c})`)
-          : (isOnline ? '📂 Galeri Lokal' : '⚡ Offline · 📂 Galeri');
-        galleryBtn.style.borderColor = c > 0 ? (isOnline ? 'var(--teal)' : 'var(--coral)') : 'var(--border-soft)';
-        galleryBtn.style.background = c > 0 ? (isOnline ? 'rgba(95, 143, 138, 0.16)' : '#FFF0EC') : 'var(--cream-card)';
-        galleryBtn.style.color = c > 0 ? (isOnline ? '#1F5B56' : '#B93829') : 'var(--caramel-brown)';
+          ? (isOnline && !isLocal ? `🔄 Mengirim (${c}) · 📂 Galeri` : `📦 Belum Terkirim (${c})`)
+          : (isOnline ? (isLocal ? '📦 Lokal (Tahan Upload)' : '📂 Galeri Lokal') : '⚡ Offline · 📂 Galeri');
+        galleryBtn.style.borderColor = c > 0 ? (isOnline && !isLocal ? 'var(--teal)' : 'var(--coral)') : 'var(--border-soft)';
+        galleryBtn.style.background = c > 0 ? (isOnline && !isLocal ? 'rgba(95, 143, 138, 0.16)' : '#FFF0EC') : 'var(--cream-card)';
+        galleryBtn.style.color = c > 0 ? (isOnline && !isLocal ? '#1F5B56' : '#B93829') : 'var(--caramel-brown)';
       };
 
       if (window.pbOfflineStore) {
@@ -238,7 +245,13 @@ class KioskEngine {
             badge.style.borderColor = '#D4A754';
             badge.style.color = '#7a581a';
             badge.style.background = 'rgba(212, 167, 84, 0.18)';
-            if (textEl) textEl.innerText = count > 0 ? `🔌 Mode Lokal (${count} foto tersimpan)` : '🔌 Mode Lokal • Cetak Langsung';
+            if (textEl) textEl.innerText = count > 0 ? `📦 Tahan Upload (${count} foto lokal)` : '📦 Tahan Upload • Lokal Perangkat Ini';
+          } else if (isLocalPrintOnly) {
+            badge.style.display = 'inline-flex';
+            badge.style.borderColor = '#5F8F8A';
+            badge.style.color = '#1F5B56';
+            badge.style.background = 'rgba(95, 143, 138, 0.14)';
+            if (textEl) textEl.innerText = '🖨️ Cetak Lokal • QR Tetap Server';
           } else if (!isOnline || count > 0) {
             badge.style.display = 'inline-flex';
             if (!isOnline) {
@@ -258,9 +271,13 @@ class KioskEngine {
         });
       } else {
         applyGalleryBtn(0);
-        if (badge && (isLocal || !isOnline)) {
+        if (badge && (isLocal || isLocalPrintOnly || !isOnline)) {
           badge.style.display = 'inline-flex';
-          if (textEl) textEl.innerText = isLocal ? '🔌 Mode Lokal • Cetak Langsung' : 'Mode Offline';
+          if (textEl) {
+            textEl.innerText = isLocal
+              ? '📦 Tahan Upload • Lokal Perangkat Ini'
+              : (isLocalPrintOnly ? '🖨️ Cetak Lokal • QR Tetap Server' : 'Mode Offline');
+          }
         } else if (badge) {
           badge.style.display = 'none';
         }
@@ -269,9 +286,9 @@ class KioskEngine {
     this._updateOfflineBadge = updateOfflineBadge;
 
     window.addEventListener('storage', (ev) => {
-      if (ev.key === 'pb_kiosk_local_mode') {
-        updateOfflineBadge();
-        if (ev.newValue !== 'true' && navigator.onLine !== false && window.pbOfflineStore) {
+      if (ev.key === 'pb_kiosk_local_mode' || ev.key === 'pb_kiosk_local_print') {
+        this.updateLocalModeUI();
+        if (ev.key === 'pb_kiosk_local_mode' && ev.newValue !== 'true' && navigator.onLine !== false && window.pbOfflineStore) {
           window.pbOfflineStore.syncAllPending();
         }
       }
@@ -281,17 +298,11 @@ class KioskEngine {
         const ch = new BroadcastChannel('pb_kiosk_mode');
         this._modeBroadcastChannel = ch;
         ch.onmessage = (msg) => {
-          if (msg && msg.data && msg.data.localPrintMode === false) {
-            if (this.eventConfig) this.eventConfig.localPrintMode = false;
-            if (typeof window !== 'undefined') window.__pbEventLocalMode = false;
-            if (navigator.onLine !== false && window.pbOfflineStore) {
-              window.pbOfflineStore.syncAllPending();
-            }
-          } else if (msg && msg.data && msg.data.localPrintMode === true) {
-            if (this.eventConfig) this.eventConfig.localPrintMode = true;
-            if (typeof window !== 'undefined') window.__pbEventLocalMode = true;
+          this.updateLocalModeUI();
+          const turnedOffStorage = msg && msg.data && (msg.data.localStorageOnly === false || msg.data.localPrintMode === false);
+          if (turnedOffStorage && !this.isLocalStorageMode() && navigator.onLine !== false && window.pbOfflineStore) {
+            window.pbOfflineStore.syncAllPending();
           }
-          updateOfflineBadge();
         };
       }
     } catch (e) {}
@@ -5858,24 +5869,27 @@ class KioskEngine {
   }
 
   syncPrintOptionsModalLabels() {
-    const isLocal = this.isLocalDirectMode();
+    const isLocalPrint = this.isLocalPrintMode();
+    const isLocalStorage = this.isLocalStorageMode();
     const sub = document.getElementById('kioskPrintModalSubtitle');
     const confirmBtn = document.getElementById('kioskPrintModalConfirmBtn');
     const notice5r = document.getElementById('kioskPrint5rNoticeText');
     const readyRow = document.getElementById('kioskPaperReadyRow');
     if (sub) {
-      sub.innerText = isLocal
-        ? 'Mode Lokal Aktif: langsung cetak ke printer laptop tanpa kirim ke server'
+      sub.innerText = isLocalPrint
+        ? (isLocalStorage
+          ? 'Mode Tahan Upload Aktif: langsung cetak ke printer laptop (foto disimpan lokal)'
+          : 'Cetak Lokal Aktif: langsung cetak di laptop ini, foto & QR tetap tersimpan di server')
         : 'Pilih jumlah lembar & ukuran kertas sebelum dikirim ke antrean server';
     }
     if (confirmBtn) {
-      confirmBtn.innerText = isLocal
+      confirmBtn.innerText = isLocalPrint
         ? '⚡ Cetak Langsung di Laptop (Tanpa Server)'
         : '🚀 Kirim Cetak ke Antrean Server';
     }
     if (notice5r) {
-      notice5r.innerHTML = isLocal
-        ? '<strong>⚠️ Kertas 5R (Mode Lokal):</strong> Pastikan kertas <strong>5R (13×18 cm)</strong> sudah terpasang di printer yang tercolok ke laptop ini sebelum mencetak.'
+      notice5r.innerHTML = isLocalPrint
+        ? '<strong>⚠️ Kertas 5R (Cetak Lokal):</strong> Pastikan kertas <strong>5R (13×18 cm)</strong> sudah terpasang di printer yang tercolok ke laptop ini sebelum mencetak.'
         : '<strong>⚠️ Konfirmasi Kertas 5R:</strong> Laptop Stasiun Printer akan menampilkan popup pengingat ganti kertas 5R sebelum mencetak ke Epson.';
     }
     if (readyRow) {
@@ -6120,17 +6134,24 @@ class KioskEngine {
       });
     }
 
-    // Simpan foto digital secara lokal (printRequested: false agar tidak mencetak dobel saat sync nanti)
-    if (blob) {
+    // Simpan foto digital secara lokal hanya saat offline / Mode Tahan Upload aktif
+    if (blob && (!navigator.onLine || this.isLocalStorageMode())) {
       this.saveOfflineSessionBackup(blob, { printRequested: false, printCopies: qty });
     }
 
+    const isServerQrOnline = navigator.onLine !== false && !this.isLocalStorageMode();
     if (btn) btn.innerHTML = printedViaLocalAgent ? `✅ ${qty}× ${paperLabel} Dicetak Langsung!` : `✅ Dialog Cetak ${qty}× ${paperLabel} Dibuka`;
     if (banner) {
       banner.style.display = 'block';
-      banner.innerHTML = printedViaLocalAgent
-        ? `🔌 <strong>Mode Lokal:</strong> <strong>${qty} lembar (${paperLabel})</strong> langsung dicetak ke <strong>${agentPrinterName}</strong> tanpa kirim ke server!`
-        : `🔌 <strong>Mode Lokal:</strong> Cetak langsung <strong>${qty} lembar (${paperLabel})</strong> dipicu dari browser laptop (tanpa kirim ke server).`;
+      if (isServerQrOnline) {
+        banner.innerHTML = printedViaLocalAgent
+          ? `🖨️ <strong>Cetak Lokal:</strong> <strong>${qty} lembar (${paperLabel})</strong> dicetak ke <strong>${agentPrinterName}</strong> (Foto &amp; QR tetap aktif di server!).`
+          : `🖨️ <strong>Cetak Lokal:</strong> Dialog cetak <strong>${qty} lembar (${paperLabel})</strong> dibuka di perangkat ini (Foto &amp; QR tetap aktif di server!).`;
+      } else {
+        banner.innerHTML = printedViaLocalAgent
+          ? `🔌 <strong>Mode Lokal:</strong> <strong>${qty} lembar (${paperLabel})</strong> langsung dicetak ke <strong>${agentPrinterName}</strong> tanpa kirim ke server!`
+          : `🔌 <strong>Mode Lokal:</strong> Cetak langsung <strong>${qty} lembar (${paperLabel})</strong> dipicu dari browser laptop (tanpa kirim ke server).`;
+      }
     }
     setTimeout(() => {
       if (btn) {
@@ -6148,7 +6169,7 @@ class KioskEngine {
     const finalCanvas = document.getElementById('finalCanvas');
     const btn = document.getElementById('btnPrintSession');
     const banner = document.getElementById('printStatusBanner');
-    const isLocalMode = this.isLocalDirectMode();
+    const isLocalMode = this.isLocalPrintMode();
 
     if (btn) {
       btn.disabled = true;
@@ -6449,8 +6470,24 @@ window.addEventListener('DOMContentLoaded', () => {
   window.kiosk = kiosk;
 });
 
-// Operator PIN Lock modal functions
-function promptOperatorUnlock() {
+// Operator PIN / Admin Session Unlock modal functions
+async function promptOperatorUnlock() {
+  if (navigator.onLine !== false) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 900);
+      const res = await fetch('/api/kiosk/admin-session', { credentials: 'same-origin', signal: ctrl.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.authenticated) {
+          window.location.href = '/admin?tab=photos';
+          return;
+        }
+      }
+    } catch (e) {}
+  }
+
   const modal = document.getElementById('operatorPinModal');
   modal.style.display = 'flex';
   const input = document.getElementById('operatorPinInput');
@@ -6466,7 +6503,7 @@ async function verifyOperatorPin() {
   const input = document.getElementById('operatorPinInput');
   const pin = String((input && input.value) || '').trim();
   if (!pin) {
-    alert('Masukkan PIN Operator terlebih dahulu!');
+    alert('Masukkan Password Admin atau PIN Operator terlebih dahulu!');
     return;
   }
 
@@ -6476,6 +6513,7 @@ async function verifyOperatorPin() {
     const timer = setTimeout(() => ctrl.abort(), 2000);
     const res = await fetch('/api/kiosk/verify-operator-pin', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ eventId, pin }),
       signal: ctrl.signal
@@ -6486,14 +6524,14 @@ async function verifyOperatorPin() {
       window.location.href = '/admin?tab=photos';
       return;
     }
-    alert(data.error || 'PIN Operator salah!');
+    alert(data.error || 'Password Admin / PIN Operator salah!');
   } catch (e) {
     // Fallback offline jika server tidak terjangkau
     const localPin = (window.kiosk && window.kiosk.eventConfig && window.kiosk.eventConfig.pinLock) || '1234';
     if (pin === String(localPin)) {
       window.location.href = '/admin?tab=photos';
     } else {
-      alert('PIN Operator salah! (Default PIN: 1234)');
+      alert('PIN Operator salah atau server sedang offline.');
     }
   }
 }

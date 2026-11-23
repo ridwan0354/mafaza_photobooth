@@ -219,20 +219,26 @@ class MingleBoothEngine {
     }
   }
 
-  isLocalDirectMode() {
-    let ls = null;
+  isLocalStorageMode() {
     try {
-      ls = localStorage.getItem('pb_kiosk_local_mode');
+      return localStorage.getItem('pb_kiosk_local_mode') === 'true';
     } catch (e) {}
-    if (ls === 'true') return true;
-    if (ls === 'false') return false;
-    return Boolean(this.eventConfig && this.eventConfig.localPrintMode);
+    return false;
+  }
+
+  isLocalPrintMode() {
+    try {
+      if (localStorage.getItem('pb_kiosk_local_print') === 'true') return true;
+    } catch (e) {}
+    return this.isLocalStorageMode();
+  }
+
+  isLocalDirectMode() {
+    return this.isLocalStorageMode();
   }
 
   syncGlobalEventLocalFlag() {
-    if (typeof window !== 'undefined') {
-      window.__pbEventLocalMode = Boolean(this.eventConfig && this.eventConfig.localPrintMode);
-    }
+    this.updateOfflineGalleryBadge();
   }
 
   async fetchWithTimeout(url, options = {}, timeoutMs = 2500) {
@@ -304,9 +310,9 @@ class MingleBoothEngine {
       this.updateOfflineGalleryBadge();
     });
     window.addEventListener('storage', (ev) => {
-      if (ev.key === 'pb_kiosk_local_mode') {
+      if (ev.key === 'pb_kiosk_local_mode' || ev.key === 'pb_kiosk_local_print') {
         this.updateOfflineGalleryBadge();
-        if (ev.newValue !== 'true' && navigator.onLine !== false && window.pbOfflineStore) {
+        if (ev.key === 'pb_kiosk_local_mode' && ev.newValue !== 'true' && navigator.onLine !== false && window.pbOfflineStore) {
           window.pbOfflineStore.syncAllPending();
         }
       }
@@ -316,15 +322,9 @@ class MingleBoothEngine {
         const ch = new BroadcastChannel('pb_kiosk_mode');
         this._modeBroadcastChannel = ch;
         ch.onmessage = (msg) => {
-          if (msg && msg.data && msg.data.localPrintMode === false && this.eventConfig) {
-            this.eventConfig.localPrintMode = false;
-            this.syncGlobalEventLocalFlag();
-          } else if (msg && msg.data && msg.data.localPrintMode === true && this.eventConfig) {
-            this.eventConfig.localPrintMode = true;
-            this.syncGlobalEventLocalFlag();
-          }
           this.updateOfflineGalleryBadge();
-          if (msg && msg.data && msg.data.localPrintMode === false && navigator.onLine !== false && window.pbOfflineStore) {
+          const turnedOffStorage = msg && msg.data && (msg.data.localStorageOnly === false || msg.data.localPrintMode === false);
+          if (turnedOffStorage && !this.isLocalStorageMode() && navigator.onLine !== false && window.pbOfflineStore) {
             window.pbOfflineStore.syncAllPending();
           }
         };
@@ -355,14 +355,17 @@ class MingleBoothEngine {
       }
     } catch (e) {}
     const isOnline = navigator.onLine !== false;
-    const isLocal = this.isLocalDirectMode();
+    const isLocal = this.isLocalStorageMode();
+    const isLocalPrintOnly = this.isLocalPrintMode() && !isLocal;
     let label;
     if (isLocal) {
-      label = count > 0 ? `🔌 Mode Lokal (${count}) · 📂 Galeri` : '🔌 Mode Lokal · 📂 Galeri';
+      label = count > 0 ? `📦 Tahan Upload (${count}) · 📂 Galeri` : '📦 Tahan Upload · 📂 Galeri';
     } else if (count > 0) {
       label = isOnline ? `🔄 Mengirim (${count}) · 📂 Galeri` : `📦 Belum Terkirim (${count})`;
+    } else if (isLocalPrintOnly) {
+      label = '🖨️ Cetak Lokal · 📂 Antrean';
     } else {
-      label = isOnline ? '📂 Galeri Lokal' : '⚡ Offline · 📂 Galeri';
+      label = isOnline ? '📂 Antrean Offline' : '⚡ Offline · 📂 Antrean';
     }
 
     for (const id of ['btnMingleOfflineGallery', 'btnMingleWelcomeOfflineGallery']) {
@@ -373,6 +376,10 @@ class MingleBoothEngine {
         btn.style.borderColor = '#D4A754';
         btn.style.background = '#FFF8E6';
         btn.style.color = '#7A5210';
+      } else if (isLocalPrintOnly && count === 0) {
+        btn.style.borderColor = '#5F8F8A';
+        btn.style.background = 'rgba(95, 143, 138, 0.12)';
+        btn.style.color = '#1F5B56';
       } else {
         btn.style.borderColor = count > 0 ? (isOnline ? '#5F8F8A' : '#E6786B') : '';
         btn.style.background = count > 0 ? (isOnline ? 'rgba(95, 143, 138, 0.16)' : '#FFF0EC') : '';
@@ -2645,7 +2652,7 @@ class MingleBoothEngine {
         modeVal,
         filterKey: snapFilter,
         filterIntensity: snapFilterIntensity,
-        printRequested: !this.isLocalDirectMode() && Boolean(printRequested),
+        printRequested: !this.isLocalPrintMode() && Boolean(printRequested),
         printCopies,
         printPaperSize: printPaperSize || null,
         paperConfirmed,
@@ -2815,8 +2822,8 @@ class MingleBoothEngine {
     if (readyCheck) readyCheck.checked = false;
     const confirmBtn = document.getElementById('minglePrintModalConfirmBtn');
     if (confirmBtn) {
-      confirmBtn.innerText = this.isLocalDirectMode()
-        ? '⚡ Cetak Langsung di Perangkat (Mode Lokal)'
+      confirmBtn.innerText = this.isLocalPrintMode()
+        ? (this.isLocalStorageMode() ? '⚡ Cetak Langsung di Perangkat (Mode Lokal)' : '⚡ Cetak Langsung di Perangkat (QR Tetap ke Server)')
         : '🚀 Kirim Cetak ke Antrean Server';
     }
     modal.style.display = 'flex';
@@ -3007,11 +3014,12 @@ class MingleBoothEngine {
       this.openPrintOptionsModal();
       return;
     }
-    if (this.isLocalDirectMode()) {
+    if (this.isLocalPrintMode()) {
       await this.printFromModalViaDevice();
       await this.syncFinalImageOnly(false, false, printOpts);
       this._sessionPrintDispatched = true;
-      this.showToast(`⚡ ${printOpts.copies || 1}× ${printOpts.paperLabel || '4R'} dicetak langsung & disimpan lokal!`, '🖨️', 2800);
+      const serverNote = !this.isLocalStorageMode() && navigator.onLine !== false ? ' & QR tersimpan di server' : ' & disimpan lokal';
+      this.showToast(`⚡ ${printOpts.copies || 1}× ${printOpts.paperLabel || '4R'} dicetak langsung${serverNote}!`, '🖨️', 2800);
       return;
     }
     const resData = await this.syncFinalImageOnly(false, true, printOpts);
@@ -3259,6 +3267,220 @@ class MingleBoothEngine {
       }).catch(() => {});
     }
     return null;
+  }
+
+  openEventPhotosModal() {
+    const modal = document.getElementById('mingleEventPhotosModal');
+    if (!modal) return;
+    this.eventPhotosFilter = this.eventPhotosFilter || 'all';
+    this.updateEventPhotosFilterButtons();
+    modal.style.display = 'flex';
+    this.loadEventFramedPhotos();
+  }
+
+  closeEventPhotosModal(event) {
+    if (event && event.target && event.target.closest('div[onclick*="stopPropagation"]')) return;
+    const modal = document.getElementById('mingleEventPhotosModal');
+    if (modal) modal.style.display = 'none';
+    this.closeEventPhotoZoom();
+  }
+
+  setEventPhotosFilter(filterKey) {
+    this.eventPhotosFilter = ['unprinted', 'ordered'].includes(filterKey) ? filterKey : 'all';
+    this.updateEventPhotosFilterButtons();
+    this.renderEventFramedPhotosGrid();
+  }
+
+  updateEventPhotosFilterButtons() {
+    const activeKey = this.eventPhotosFilter || 'all';
+    document.querySelectorAll('.mingle-evphoto-filter').forEach(btn => {
+      const isActive = btn.dataset.filter === activeKey;
+      btn.style.background = isActive ? 'var(--coral, #E6786B)' : '';
+      btn.style.color = isActive ? '#fff' : '';
+      btn.style.borderColor = isActive ? 'var(--coral, #E6786B)' : '';
+    });
+  }
+
+  _formatMinglePaperLabel(code) {
+    const raw = String(code || '').trim().toUpperCase();
+    if (!raw) return '4R';
+    if (raw === '5R' || raw === '5X7' || raw === '1500X2100' || raw === '2100X1500') return '5R';
+    if (raw === '2X6' || raw === 'STRIP') return 'Strip';
+    return '4R';
+  }
+
+  async loadEventFramedPhotos() {
+    const body = document.getElementById('mingleEventPhotosBody');
+    const sub = document.getElementById('mingleEventPhotosSubtitle');
+    if (body) {
+      body.innerHTML = `<div style="text-align:center;padding:34px;color:var(--text-muted);font-weight:700;">⏳ Memuat foto berframe...</div>`;
+    }
+
+    const items = [];
+    const seenSessionIds = new Set();
+
+    // 1. Foto berframe lokal di perangkat ini yang belum terkirim ke server
+    try {
+      if (window.pbOfflineStore && typeof window.pbOfflineStore.getPendingSessions === 'function') {
+        const pending = await window.pbOfflineStore.getPendingSessions();
+        pending.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        for (const s of pending) {
+          if (!s || !s.finalImage) continue;
+          if (s.id) seenSessionIds.add(s.id);
+          const reqCopies = parseInt(s.requestedPrintCopies, 10) || 0;
+          items.push({
+            id: s.id,
+            sessionId: s.id,
+            src: s.finalImage,
+            createdAt: s.createdAt || Date.now(),
+            templateName: s.templateName || 'Foto Booth Mingle',
+            galleryUrl: s.guestPassGalleryUrl || null,
+            isPrinted: false,
+            printCopies: 0,
+            requestedCopies: reqCopies,
+            requestedPaperLabel: reqCopies > 0 ? this._formatMinglePaperLabel(s.requestedPrintPaper || '4R') : null,
+            isLocalPending: true
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 2. Foto berframe dari server untuk event aktif
+    let serverCount = 0;
+    if (navigator.onLine !== false) {
+      try {
+        const q = this.eventId ? `?eventId=${encodeURIComponent(this.eventId)}` : '';
+        const res = await this.fetchWithTimeout(`/api/kiosk/gallery/recent${q}`, {}, 6000);
+        if (res.ok) {
+          const rows = await res.json();
+          for (const r of (Array.isArray(rows) ? rows : [])) {
+            if (!r || !r.file_path) continue;
+            if (r.session_id && seenSessionIds.has(r.session_id)) continue;
+            const reqCopies = parseInt(r.requested_print_copies, 10) || 0;
+            items.push({
+              id: r.asset_id || r.session_id,
+              sessionId: r.session_id,
+              src: r.file_path,
+              createdAt: r.created_at || Date.now(),
+              templateName: r.template_name || r.event_name || 'Foto Berframe',
+              galleryUrl: r.galleryUrl || null,
+              isPrinted: Boolean(r.print_job_id),
+              printCopies: parseInt(r.print_copies, 10) || 1,
+              requestedCopies: reqCopies,
+              requestedPaperLabel: reqCopies > 0 ? this._formatMinglePaperLabel(r.requested_print_paper || r.template_paper_size || '4R') : null,
+              isLocalPending: false
+            });
+            serverCount++;
+          }
+        }
+      } catch (e) {}
+    }
+
+    this._eventFramedPhotosAll = items;
+    if (sub) {
+      const localCount = items.filter(x => x.isLocalPending).length;
+      sub.textContent = localCount > 0
+        ? `${serverCount} foto di server + ${localCount} menunggu kirim di perangkat ini`
+        : `${items.length} foto berframe terbaru`;
+    }
+    this.renderEventFramedPhotosGrid();
+  }
+
+  renderEventFramedPhotosGrid() {
+    const body = document.getElementById('mingleEventPhotosBody');
+    if (!body) return;
+    const all = Array.isArray(this._eventFramedPhotosAll) ? this._eventFramedPhotosAll : [];
+    const filterKey = this.eventPhotosFilter || 'all';
+    const filtered = all.filter(p => {
+      if (filterKey === 'unprinted') return !p.isPrinted;
+      if (filterKey === 'ordered') return !p.isPrinted && p.requestedCopies > 0;
+      return true;
+    });
+    this._eventFramedPhotosFiltered = filtered;
+
+    if (filtered.length === 0) {
+      body.innerHTML = `
+        <div style="text-align:center;padding:36px 16px;background:#FFF7EB;border:2px dashed #EAD8C7;border-radius:16px;">
+          <div style="font-size:36px;margin-bottom:8px;">🖼️</div>
+          <strong style="font-size:15px;color:var(--caramel-brown);">Belum Ada Foto Berframe</strong>
+          <p style="font-size:12.5px;color:var(--text-muted);margin:6px 0 0;">Foto tamu yang sudah memakai bingkai frame akan otomatis muncul di sini untuk dicek ulang.</p>
+        </div>
+      `;
+      return;
+    }
+
+    body.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(195px,1fr));gap:12px;">` + filtered.map((p, idx) => {
+      const timeStr = new Date(p.createdAt).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
+      const statusBadge = p.isPrinted
+        ? `<span style="font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:999px;background:rgba(39,174,96,0.14);color:#1E8449;border:1px solid rgba(39,174,96,0.28);">🟢 Dicetak (${p.printCopies}×)</span>`
+        : `<span style="font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:999px;background:#F3EFEA;color:#6E584B;border:1px solid #EAD8C7;">⚪ Belum Cetak</span>`;
+      const orderNote = (!p.isPrinted && p.requestedCopies > 0)
+        ? `<div style="font-size:11px;font-weight:800;color:#7A4B0E;background:#FFF4D6;border:1px solid #E5B95C;border-radius:8px;padding:4px 7px;display:flex;justify-content:space-between;"><span>📝 Pesanan</span><span>${this.escapeHtml(p.requestedPaperLabel)} · ${p.requestedCopies}×</span></div>`
+        : '';
+      const borderStyle = (!p.isPrinted && p.requestedCopies > 0) ? 'border:2px solid #D4A754;background:#FFFDF7;' : 'border:1.5px solid #EAD8C7;background:#fff;';
+
+      return `
+        <div style="${borderStyle}border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:7px;box-shadow:0 4px 12px rgba(123,72,46,0.06);">
+          <div style="height:190px;background:#1B1614;border-radius:11px;overflow:hidden;position:relative;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="mingle.openEventPhotoZoom(${idx})">
+            <img src="${this.escapeHtml(p.src)}" loading="lazy" style="max-width:100%;max-height:100%;object-fit:contain;" alt="Foto Berframe">
+            ${p.isLocalPending ? `<span style="position:absolute;top:6px;left:6px;background:rgba(212,167,84,0.95);color:#381E11;font-size:10px;font-weight:800;padding:2px 7px;border-radius:999px;">⚡ Lokal</span>` : ''}
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            <span style="font-size:11.5px;font-weight:800;color:var(--caramel-brown);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${this.escapeHtml(p.templateName)}</span>
+            ${statusBadge}
+          </div>
+          <div style="font-size:10.5px;color:var(--text-muted);">${this.escapeHtml(timeStr)}</div>
+          ${orderNote}
+          <div style="display:flex;gap:6px;margin-top:auto;">
+            <button type="button" class="btn btn-secondary" style="flex:1;padding:6px 8px;font-size:11.5px;font-weight:800;" onclick="mingle.openEventPhotoZoom(${idx})">👁️ Perbesar</button>
+            ${p.galleryUrl ? `<a href="${this.escapeHtml(p.galleryUrl)}" target="_blank" class="btn btn-coral" style="padding:6px 10px;font-size:11.5px;font-weight:800;text-decoration:none;">📲 QR</a>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('') + `</div>`;
+  }
+
+  openEventPhotoZoom(index) {
+    const list = Array.isArray(this._eventFramedPhotosFiltered) ? this._eventFramedPhotosFiltered : [];
+    const item = list[index];
+    if (!item) return;
+    this._eventPhotoZoomIdx = index;
+    const overlay = document.getElementById('mingleEventPhotoZoomOverlay');
+    const img = document.getElementById('mingleEventPhotoZoomImg');
+    const title = document.getElementById('mingleEventPhotoZoomTitle');
+    const meta = document.getElementById('mingleEventPhotoZoomMeta');
+    const link = document.getElementById('mingleEventPhotoZoomGalleryLink');
+    if (img) img.src = item.src;
+    if (title) title.textContent = `🖼️ ${item.templateName || 'Foto Berframe'} (${index + 1}/${list.length})`;
+    if (meta) {
+      const timeStr = new Date(item.createdAt).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
+      const statusText = item.isPrinted
+        ? `Dicetak ${item.printCopies}×`
+        : (item.requestedCopies > 0 ? `Pesanan Cetak: ${item.requestedPaperLabel} (${item.requestedCopies}×)` : 'Belum Dicetak');
+      meta.textContent = `${timeStr} · ${statusText}${item.isLocalPending ? ' · Belum dikirim ke server' : ''}`;
+    }
+    if (link) {
+      if (item.galleryUrl) {
+        link.href = item.galleryUrl;
+        link.style.display = 'inline-flex';
+      } else {
+        link.style.display = 'none';
+      }
+    }
+    if (overlay) overlay.style.display = 'flex';
+  }
+
+  stepEventPhotoZoom(delta) {
+    const list = Array.isArray(this._eventFramedPhotosFiltered) ? this._eventFramedPhotosFiltered : [];
+    if (list.length === 0) return;
+    const cur = Number.isFinite(this._eventPhotoZoomIdx) ? this._eventPhotoZoomIdx : 0;
+    const next = (cur + delta + list.length) % list.length;
+    this.openEventPhotoZoom(next);
+  }
+
+  closeEventPhotoZoom() {
+    const overlay = document.getElementById('mingleEventPhotoZoomOverlay');
+    if (overlay) overlay.style.display = 'none';
   }
 
   async toggleFullScreen() {

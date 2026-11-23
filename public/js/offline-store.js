@@ -263,20 +263,24 @@
 
     isLocalDirectMode() {
       try {
-        const ls = localStorage.getItem('pb_kiosk_local_mode');
-        if (ls === 'true') return true;
-        if (ls === 'false') return false;
+        return localStorage.getItem('pb_kiosk_local_mode') === 'true';
       } catch (e) {}
-      return Boolean(typeof window !== 'undefined' && window.__pbEventLocalMode);
+      return false;
+    },
+
+    isLocalPrintOnlyMode() {
+      try {
+        return localStorage.getItem('pb_kiosk_local_print') === 'true';
+      } catch (e) {}
+      return false;
     },
 
     async disableLocalModeAndSync() {
       try { localStorage.setItem('pb_kiosk_local_mode', 'false'); } catch (e) {}
-      if (typeof window !== 'undefined') window.__pbEventLocalMode = false;
       try {
         if (typeof BroadcastChannel === 'function') {
           const ch = new BroadcastChannel('pb_kiosk_mode');
-          ch.postMessage({ localPrintMode: false });
+          ch.postMessage({ localPrintMode: false, localStorageOnly: false });
           ch.close();
         }
       } catch (e) {}
@@ -730,6 +734,7 @@
 
       const isOnline = navigator.onLine !== false;
       const isLocalMode = this.isLocalDirectMode();
+      const isLocalPrintOnly = this.isLocalPrintOnlyMode();
       const pending = await this.getPendingSessions();
       pending.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
       const history = this.getRecentSyncedHistory();
@@ -737,7 +742,9 @@
       if (!isOnline) {
         netEl.innerHTML = `<span style="color:#B93829;">⚡ Tanpa Internet (Offline) · ${pending.length} foto aman tersimpan di perangkat</span>`;
       } else if (isLocalMode) {
-        netEl.innerHTML = `<span style="color:#8A5A12;">🔌 Mode Lokal Aktif (otomatis kirim ke server dimatikan meski internet nyala) · ${pending.length} foto tersimpan</span>`;
+        netEl.innerHTML = `<span style="color:#8A5A12;">📦 Tahan Upload Aktif (khusus browser ini · foto disimpan offline) · ${pending.length} foto tersimpan</span>`;
+      } else if (isLocalPrintOnly) {
+        netEl.innerHTML = `<span style="color:#1F5B56;">🖨️ Cetak Lokal Aktif (khusus perangkat ini · foto &amp; QR tetap otomatis ke server) · ${pending.length} menunggu kirim</span>`;
       } else {
         netEl.innerHTML = `<span style="color:#1F5B56;">🟢 WiFi/Internet Tersambung · ${pending.length} foto menunggu kirim</span>`;
       }

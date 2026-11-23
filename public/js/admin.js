@@ -49,7 +49,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
 
   setupAdminOfflineEngine();
-  syncKioskLocalModeUI(getStoredKioskLocalMode());
+  syncKioskLocalModeUI(getStoredKioskLocalMode(), getStoredLocalPrintOnly());
   await syncActiveEvent();
   await loadEvents();
   await loadOverview();
@@ -744,13 +744,7 @@ function populateSelectedEventConfig() {
   if (document.getElementById('m_gif')) document.getElementById('m_gif').checked = modes.includes('gif');
   if (document.getElementById('m_boomerang')) document.getElementById('m_boomerang').checked = modes.includes('boomerang');
 
-  const lsLocal = (() => {
-    try { return localStorage.getItem('pb_kiosk_local_mode'); } catch (e) { return null; }
-  })();
-  const resolvedLocal = (lsLocal === 'true' || lsLocal === 'false')
-    ? (lsLocal === 'true')
-    : Boolean(cfg.localPrintMode);
-  syncKioskLocalModeUI(resolvedLocal);
+  syncKioskLocalModeUI(getStoredKioskLocalMode(), getStoredLocalPrintOnly());
 }
 
 let lastSelectedBgType = 'default';
@@ -1283,7 +1277,6 @@ async function saveEventConfig() {
     welcomeBtnText: welcomeBtnText,
     defaultPhotoFilter: document.getElementById('cfgDefaultPhotoFilter')?.value || 'normal',
     livePhotoFilter: Boolean(document.getElementById('cfgLivePhotoFilter')?.checked),
-    localPrintMode: Boolean(document.getElementById('cfgLocalPrintMode')?.checked ?? getStoredKioskLocalMode()),
     kioskBackground: {
       type: bgType,
       url: bgType === 'default' ? '' : bgUrl,
@@ -5104,64 +5097,95 @@ function getStoredKioskLocalMode() {
   }
 }
 
-function syncKioskLocalModeUI(enabled) {
-  const active = Boolean(enabled);
-  const el1 = document.getElementById('adminLocalModeToggle');
-  const el2 = document.getElementById('cfgLocalPrintMode');
-  const badge = document.getElementById('adminLocalModeBadge');
-  if (el1) el1.checked = active;
-  if (el2) el2.checked = active;
-  if (badge) {
-    badge.textContent = active ? '🟢 Mode Lokal Aktif' : '⚪ Mode Server';
-    badge.style.background = active ? 'rgba(39, 174, 96, 0.15)' : 'rgba(120,120,120,0.12)';
-    badge.style.color = active ? '#1e8449' : '#666';
+function getStoredLocalPrintOnly() {
+  try {
+    return localStorage.getItem('pb_kiosk_local_print') === 'true';
+  } catch (e) {
+    return false;
   }
 }
+
+function syncKioskLocalModeUI(storageLocalEnabled, printLocalEnabled) {
+  const storageActive = storageLocalEnabled !== undefined ? Boolean(storageLocalEnabled) : getStoredKioskLocalMode();
+  const printActive = printLocalEnabled !== undefined ? Boolean(printLocalEnabled) : getStoredLocalPrintOnly();
+  const el1 = document.getElementById('adminLocalModeToggle');
+  const el2 = document.getElementById('cfgLocalPrintMode');
+  const p1 = document.getElementById('adminLocalPrintToggle');
+  const p2 = document.getElementById('cfgLocalPrintOnly');
+  const badge = document.getElementById('adminLocalModeBadge');
+  if (el1) el1.checked = storageActive;
+  if (el2) el2.checked = storageActive;
+  if (p1) p1.checked = printActive;
+  if (p2) p2.checked = printActive;
+  if (badge) {
+    if (storageActive) {
+      badge.textContent = '📦 Tahan Upload Aktif (Lokal Perangkat Ini)';
+      badge.style.background = 'rgba(230, 120, 107, 0.16)';
+      badge.style.color = '#B93829';
+    } else if (printActive) {
+      badge.textContent = '🖨️ Cetak Lokal · Galeri Tetap Server';
+      badge.style.background = 'rgba(39, 174, 96, 0.15)';
+      badge.style.color = '#1e8449';
+    } else {
+      badge.textContent = '⚪ Mode Server Penuh';
+      badge.style.background = 'rgba(120,120,120,0.12)';
+      badge.style.color = '#666';
+    }
+  }
+}
+
+function _broadcastDeviceModeState() {
+  const localStorageOnly = getStoredKioskLocalMode();
+  const localPrintOnly = getStoredLocalPrintOnly();
+  try {
+    if (typeof BroadcastChannel === 'function') {
+      const ch = new BroadcastChannel('pb_kiosk_mode');
+      ch.postMessage({
+        localStorageOnly,
+        localPrintOnly,
+        localPrintMode: localStorageOnly
+      });
+      ch.close();
+    }
+  } catch (e) {}
+}
+
+function setDeviceLocalPrintMode(enabled) {
+  const active = Boolean(enabled);
+  try {
+    localStorage.setItem('pb_kiosk_local_print', active ? 'true' : 'false');
+  } catch (e) {}
+  syncKioskLocalModeUI(getStoredKioskLocalMode(), active);
+  _broadcastDeviceModeState();
+
+  if (window.pbToast) {
+    window.pbToast(
+      active
+        ? '🖨️ Cetak Lokal AKTIF (khusus perangkat ini) — Printer cetak langsung, foto & QR tetap naik ke server!'
+        : '🌐 Cetak Server AKTIF (khusus perangkat ini) — Antrean cetak dikirim ke Stasiun Printer server.',
+      active ? 'ok' : 'info',
+      4500
+    );
+  }
+}
+window.setDeviceLocalPrintMode = setDeviceLocalPrintMode;
 
 async function setKioskLocalMode(enabled, source = 'admin') {
   const active = Boolean(enabled);
   try {
     localStorage.setItem('pb_kiosk_local_mode', active ? 'true' : 'false');
   } catch (e) {}
-  syncKioskLocalModeUI(active);
-
-  try {
-    if (typeof BroadcastChannel === 'function') {
-      const ch = new BroadcastChannel('pb_kiosk_mode');
-      ch.postMessage({ localPrintMode: active });
-      ch.close();
-    }
-  } catch (e) {}
+  syncKioskLocalModeUI(active, getStoredLocalPrintOnly());
+  _broadcastDeviceModeState();
 
   if (window.pbToast) {
     window.pbToast(
       active
-        ? '🔌 Mode Lokal AKTIF — Kiosk langsung mencetak di laptop tanpa mengirim ke server dulu!'
-        : '🌐 Mode Server AKTIF — Kiosk kembali mengirim antrean cetak ke server.',
-      active ? 'ok' : 'warn',
+        ? '📦 Tahan Upload AKTIF (khusus perangkat ini) — Foto disimpan di browser ini saja tanpa kirim ke server!'
+        : '🌐 Auto-Upload Server AKTIF (khusus perangkat ini) — Foto otomatis disinkronkan ke server.',
+      active ? 'warn' : 'ok',
       4500
     );
-  }
-
-  const targetEventId = currentEditingEventId || activeKioskEventId;
-  if (targetEventId) {
-    const evItem = Array.isArray(eventsList) ? eventsList.find(e => e.id === targetEventId) : null;
-    if (evItem) {
-      evItem.config = { ...(evItem.config || {}), localPrintMode: active };
-    }
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 2000);
-      await fetch(`/api/events/${encodeURIComponent(targetEventId)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ localPrintMode: active }),
-        signal: ctrl.signal
-      });
-      clearTimeout(timer);
-    } catch (e) {
-      // Saat susah sinyal, localStorage tetap memastikan laptop Kiosk memakai Mode Lokal seketika
-    }
   }
 }
 window.setKioskLocalMode = setKioskLocalMode;

@@ -716,10 +716,21 @@ apiRouter.get('/events/active/current', (req, res) => {
   res.json({ event, activeEventId: event ? event.id : null });
 });
 
-// Verify Operator PIN securely on server (supports OPERATOR_PIN env var or event config pinLock)
+// Cek apakah browser saat ini sudah punya sesi Admin aktif (cookie / bearer)
+apiRouter.get('/kiosk/admin-session', (req, res) => {
+  const { isAuthed, tenantId } = resolveOptionalAuth(req);
+  res.json({ authenticated: Boolean(isAuthed), tenantId });
+});
+
+// Verify Operator PIN securely on server (supports Admin Password, OPERATOR_PIN env var, or event config pinLock)
 const operatorPinAttempts = new Map();
 apiRouter.post('/kiosk/verify-operator-pin', (req, res) => {
   try {
+    const { isAuthed } = resolveOptionalAuth(req);
+    if (isAuthed) {
+      return res.json({ valid: true, authenticated: true });
+    }
+
     const clientIp = getClientIp(req);
     const now = Date.now();
     const attemptInfo = operatorPinAttempts.get(clientIp) || { count: 0, lockedUntil: 0 };
@@ -744,17 +755,40 @@ apiRouter.post('/kiosk/verify-operator-pin', (req, res) => {
 
     const bufIn = Buffer.from(inputPin, 'utf8');
     const bufExp = Buffer.from(expectedPin, 'utf8');
-    const isValid = bufIn.length > 0 && bufIn.length === bufExp.length && crypto.timingSafeEqual(bufIn, bufExp);
+    const isPinMatch = bufIn.length > 0 && bufIn.length === bufExp.length && crypto.timingSafeEqual(bufIn, bufExp);
+    const isAdminPassMatch = bufIn.length > 0 && verifyAdminPassword(inputPin);
+    const isValid = isPinMatch || isAdminPassMatch;
 
     if (!isValid) {
       const count = (attemptInfo.lockedUntil > 0 && attemptInfo.lockedUntil <= now) ? 1 : attemptInfo.count + 1;
       const lockedUntil = count >= 8 ? (now + 5 * 60 * 1000) : 0;
       operatorPinAttempts.set(clientIp, { count, lockedUntil, updatedAt: now });
       pruneAttemptMap(operatorPinAttempts);
-      return res.status(401).json({ valid: false, error: 'PIN Operator salah!' });
+      return res.status(401).json({ valid: false, error: 'Password Admin / PIN Operator salah!' });
     }
 
     operatorPinAttempts.delete(clientIp);
+    if (isAdminPassMatch) {
+      const adminUser = db.prepare("SELECT id, email, full_name FROM users WHERE role IN ('business_admin', 'super_admin') LIMIT 1").get() || {
+        id: 'user_business_owner_01',
+        email: 'owner@studiokeren.id',
+        full_name: 'Admin Mafaza'
+      };
+      const activeTenant = db.prepare('SELECT id FROM tenants LIMIT 1').get() || { id: 'tenant_studiokeren_01' };
+      const token = createToken({
+        userId: adminUser.id,
+        email: adminUser.email,
+        name: adminUser.full_name,
+        role: 'super_admin',
+        tenantId: activeTenant.id
+      });
+      const isHttps = req.secure || String(req.headers['x-forwarded-proto'] || '').includes('https');
+      const secureAttr = isHttps ? '; Secure' : '';
+      res.setHeader('Set-Cookie', [
+        `pb_admin_auth=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secureAttr}`,
+        `pb_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax; Max-Age=2592000${secureAttr}`
+      ]);
+    }
     return res.json({ valid: true });
   } catch (err) {
     return res.status(400).json({ valid: false, error: err.message });
@@ -1622,6 +1656,56 @@ apiRouter.get('/photos/recent', authMiddleware(), (req, res) => {
     query += ' ORDER BY ma.created_at DESC LIMIT 60';
     const photos = db.prepare(query).all(...params);
     res.json(photos);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Daftar hasil foto berframe untuk dicek langsung oleh petugas di Kiosk / Mingle (tanpa butuh login admin penuh)
+apiRouter.get('/kiosk/gallery/recent', (req, res) => {
+  try {
+    const { tenantId } = resolveOptionalAuth(req);
+    let eventId = req.query.eventId ? String(req.query.eventId).trim() : null;
+    if (!eventId) {
+      const tenant = db.prepare('SELECT brand_config_json FROM tenants WHERE id = ?').get(tenantId);
+      if (tenant && tenant.brand_config_json) {
+        try {
+          eventId = JSON.parse(tenant.brand_config_json).activeEventId || null;
+        } catch (e) {}
+      }
+    }
+
+    let query = `
+      SELECT ma.id as asset_id, ma.file_path, ma.variant, ma.created_at,
+             ps.id as session_id, ps.mode as session_mode,
+             ps.requested_print_paper, ps.requested_print_copies,
+             (SELECT t.name FROM templates t WHERE t.id = ps.template_id LIMIT 1) as template_name,
+             (SELECT t.paper_size FROM templates t WHERE t.id = ps.template_id LIMIT 1) as template_paper_size,
+             gp.token_plain as guest_token,
+             e.id as event_id, e.name as event_name,
+             (SELECT pj.id FROM print_jobs pj WHERE pj.media_asset_id = ma.id ORDER BY pj.created_at DESC LIMIT 1) as print_job_id,
+             (SELECT pj.copies FROM print_jobs pj WHERE pj.media_asset_id = ma.id ORDER BY pj.created_at DESC LIMIT 1) as print_copies
+      FROM media_assets ma
+      LEFT JOIN photo_sessions ps ON ma.photo_session_id = ps.id
+      LEFT JOIN guest_passes gp ON ps.guest_pass_id = gp.id
+      LEFT JOIN events e ON ma.event_id = e.id
+      WHERE ma.tenant_id = ?
+        AND (ma.type = 'final_photo' OR ma.variant = 'print_hires')
+        AND ma.file_path NOT LIKE '%.mp4'
+        AND ma.file_path NOT LIKE '%.webm'
+        AND (ps.id IS NULL OR (ps.id NOT LIKE 'sess_print_test_%' AND ps.id NOT LIKE 'sess_test_print_%' AND ps.id NOT LIKE 'sess_test_0%'))
+    `;
+    const params = [tenantId];
+    if (eventId) {
+      query += ' AND ma.event_id = ?';
+      params.push(eventId);
+    }
+    query += ' ORDER BY ma.created_at DESC LIMIT 60';
+    const rows = db.prepare(query).all(...params).map(r => ({
+      ...r,
+      galleryUrl: r.guest_token ? `/gallery/g/${r.guest_token}` : (r.session_id ? `/gallery/s/${r.session_id}` : null)
+    }));
+    res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

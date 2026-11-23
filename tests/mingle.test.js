@@ -1161,7 +1161,7 @@ test('Mode Lokal clearly shows active banner, disables auto-sync until turned of
   assert.match(mingleHtml, /\.mingle-canvas-stage\s*\{[\s\S]*background:\s*#EFE4D6/);
   assert.doesNotMatch(mingleHtml, /\.mingle-canvas-stage\s*\{[\s\S]*#221D1A/);
   assert.match(mingleSrc, /classList\.toggle\('mingle-on-result', id === 'screenMingleResult'\)/);
-  assert.match(mingleSrc, /Mode Lokal \(\$\{count\}\) · 📂 Galeri/);
+  assert.match(mingleSrc, /(Tahan Upload|Mode Lokal) \(\$\{count\}\) · 📂 Galeri/);
   assert.match(mingleSrc, /30000/);
   assert.match(kioskSrc, /35000/);
 
@@ -1702,4 +1702,149 @@ test('Mingle finish print-order flow persists paper & copies offline -> server /
   assert.equal(offlineOrderCalls[0].id, 'sess_mgl_off_modal_1');
   assert.equal(offlineOrderCalls[0].data.requestedPrintPaper, '5x7');
   assert.equal(offlineOrderCalls[0].data.requestedPrintCopies, 2);
+});
+
+test('Split Local Print vs Local Storage per-device isolation, Admin 313354 / session unlock, and Mingle framed gallery viewer', async () => {
+  const vm = await import('node:vm');
+  const express = (await import('express')).default;
+  const { apiRouter } = await import('../src/routes/api.js');
+  const { createToken } = await import('../src/services/auth.js');
+
+  const adminJs = fs.readFileSync(path.join(process.cwd(), 'public/js/admin.js'), 'utf8');
+  const kioskJs = fs.readFileSync(path.join(process.cwd(), 'public/js/kiosk.js'), 'utf8');
+  const mingleJs = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const offlineJs = fs.readFileSync(path.join(process.cwd(), 'public/js/offline-store.js'), 'utf8');
+  const mingleHtml = fs.readFileSync(path.join(process.cwd(), 'public/mingle.html'), 'utf8');
+
+  // 1. Per-device isolation: admin.js does NOT persist localPrintMode onto shared event config
+  assert.doesNotMatch(adminJs, /body:\s*JSON\.stringify\(\{\s*localPrintMode:/);
+  assert.doesNotMatch(offlineJs, /window\.__pbEventLocalMode/);
+  assert.match(adminJs, /function setDeviceLocalPrintMode\(/);
+
+  // 2. Kiosk & Mingle cleanly split Cetak Lokal (pb_kiosk_local_print) from Tahan Upload (pb_kiosk_local_mode)
+  const ls = new Map([['pb_kiosk_local_print', 'true']]);
+  const baseCtxObj = {
+    URL, URLSearchParams, AbortController, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    localStorage: { getItem: (k) => (ls.has(k) ? ls.get(k) : null), setItem: (k, v) => ls.set(k, String(v)) },
+    navigator: { onLine: true, mediaDevices: null },
+    document: { head: { appendChild() {} }, body: { classList: { toggle() {} } }, getElementById: () => null, querySelectorAll: () => [], createElement: () => ({ style: {} }) },
+    window: { location: { origin: 'http://localhost', search: '' }, addEventListener() {} },
+    setInterval: () => 1, clearInterval: () => {}, setTimeout, clearTimeout,
+    requestAnimationFrame: (fn) => fn(), console
+  };
+  const mCtx = vm.createContext({ ...baseCtxObj });
+  vm.runInContext(mingleJs.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n'), mCtx);
+  const mEng = vm.runInContext('Object.create(MingleBoothEngine.prototype)', mCtx);
+  mEng.eventConfig = { localPrintMode: true }; // even if legacy field exists, device stays isolated!
+  assert.equal(mEng.isLocalPrintMode(), true, 'pb_kiosk_local_print enables local device printing');
+  assert.equal(mEng.isLocalStorageMode(), false, 'Cetak Lokal does NOT hold gallery uploads or QR from server');
+  assert.equal(mEng.isLocalDirectMode(), false, 'Other devices or Cetak Lokal do not trigger offline storage hold');
+
+  ls.set('pb_kiosk_local_print', 'false');
+  assert.equal(mEng.isLocalPrintMode(), false, 'Server eventConfig.localPrintMode cannot infect another device');
+  assert.equal(mEng.isLocalStorageMode(), false);
+
+  const kCtx = vm.createContext({ ...baseCtxObj });
+  vm.runInContext(kioskJs.replace(/\n\/\/ Global kiosk instance[\s\S]*$/, '\n'), kCtx);
+  const kEng = vm.runInContext('Object.create(KioskEngine.prototype)', kCtx);
+  kEng.eventConfig = { localPrintMode: true };
+  ls.set('pb_kiosk_local_print', 'true');
+  assert.equal(kEng.isLocalPrintMode(), true);
+  assert.equal(kEng.isLocalStorageMode(), false);
+
+  // 3. Mingle UI has Hasil Foto gallery viewer buttons & modal on both Welcome (?fullscreen=1) and Topbar
+  assert.match(mingleHtml, /id="btnMingleEventPhotos"[^>]*openEventPhotosModal\(\)/);
+  assert.match(mingleHtml, /id="btnMingleWelcomeEventPhotos"[^>]*openEventPhotosModal\(\)/);
+  assert.match(mingleHtml, /id="mingleEventPhotosModal"/);
+  assert.match(mingleJs, /async loadEventFramedPhotos\s*\(/);
+
+  // 4. Express endpoints: /kiosk/admin-session, /kiosk/verify-operator-pin (accepts 313354 + authed cookie), /kiosk/gallery/recent
+  const app = express();
+  app.use((req, res, next) => {
+    req.cookies = {};
+    const h = req.headers.cookie;
+    if (h) {
+      h.split(';').forEach(c => {
+        const idx = c.indexOf('=');
+        if (idx !== -1) {
+          const k = c.substring(0, idx).trim();
+          const v = c.substring(idx + 1).trim();
+          try { req.cookies[k] = decodeURIComponent(v); } catch (e) { req.cookies[k] = v; }
+        }
+      });
+    }
+    next();
+  });
+  app.use(express.json());
+  app.use('/api', apiRouter);
+  const srv = app.listen(0);
+  const port = srv.address().port;
+  const sessId = `sess_mgl_gallery_${Date.now()}`;
+  const assetId = `asset_mgl_gallery_${Date.now()}`;
+  let passId = null;
+
+  try {
+    const anonSess = await fetch(`http://127.0.0.1:${port}/api/kiosk/admin-session`);
+    assert.equal(anonSess.status, 200);
+    assert.equal((await anonSess.json()).authenticated, false);
+
+    const adminJwt = createToken({ userId: 'u_admin', tenantId: 'tenant_studiokeren_01', role: 'super_admin' });
+    const authedSess = await fetch(`http://127.0.0.1:${port}/api/kiosk/admin-session`, {
+      headers: { Cookie: `pb_admin_auth=${encodeURIComponent(adminJwt)}` }
+    });
+    assert.equal(authedSess.status, 200);
+    assert.equal((await authedSess.json()).authenticated, true);
+
+    // Wrong PIN rejected
+    const badPin = await fetch(`http://127.0.0.1:${port}/api/kiosk/verify-operator-pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: '000000' })
+    });
+    assert.equal(badPin.status, 401);
+
+    // Admin password 313354 accepted and issues auth cookie
+    const goodAdminPass = await fetch(`http://127.0.0.1:${port}/api/kiosk/verify-operator-pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: '313354' })
+    });
+    assert.equal(goodAdminPass.status, 200);
+    assert.equal((await goodAdminPass.json()).valid, true);
+    assert.match(goodAdminPass.headers.get('set-cookie') || '', /pb_admin_auth=/);
+
+    // Mingle gallery recent works without Admin login and returns framed photo + QR link
+    const fd = new FormData();
+    fd.append('tenantId', 'tenant_studiokeren_01');
+    fd.append('eventId', 'event_wedding_dimas_sarah');
+    fd.append('mode', 'single');
+    fd.append('printRequested', 'false');
+    fd.append('requestedPrintPaper', '5R');
+    fd.append('requestedPrintCopies', '2');
+    fd.append('finalImage', new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xd9])], { type: 'image/jpeg' }), 'framed.jpg');
+    const cRes = await fetch(`http://127.0.0.1:${port}/api/kiosk/sessions/${sessId}/complete`, { method: 'POST', body: fd });
+    assert.equal(cRes.status, 200);
+    passId = (await cRes.json()).guestPassId;
+
+    const gRes = await fetch(`http://127.0.0.1:${port}/api/kiosk/gallery/recent?eventId=event_wedding_dimas_sarah`);
+    assert.equal(gRes.status, 200);
+    const gList = await gRes.json();
+    const found = gList.find(x => x.session_id === sessId);
+    assert.ok(found, 'Kiosk/Mingle recent framed gallery returns newly synced framed photo');
+    assert.match(found.galleryUrl || '', /^\/gallery\/g\//);
+    assert.equal(found.requested_print_paper, '5x7');
+    assert.equal(found.requested_print_copies, 2);
+  } finally {
+    srv.closeAllConnections?.();
+    srv.close();
+    const assets = db.prepare('SELECT file_path FROM media_assets WHERE photo_session_id = ?').all(sessId);
+    for (const a of assets) {
+      if (a && a.file_path) {
+        try { fs.unlinkSync(path.join(process.cwd(), 'public', a.file_path)); } catch (e) {}
+      }
+    }
+    db.prepare('DELETE FROM media_assets WHERE photo_session_id = ?').run(sessId);
+    db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(sessId);
+    if (passId) db.prepare('DELETE FROM guest_passes WHERE id = ?').run(passId);
+  }
 });
