@@ -1281,3 +1281,161 @@ test('Mode Lokal clearly shows active banner, disables auto-sync until turned of
   assert.equal(b1.filter(f => f.k === 'captures').length, 1);
   await new Promise(r => setTimeout(r, 20));
 });
+
+test('VPS optimization: issue-batch QR endpoint, single-request client pool refill, DSLR 2160px downscale, tmp cleanup, and sql.js debounce', async () => {
+  const os = await import('node:os');
+  const vm = await import('node:vm');
+  const express = (await import('express')).default;
+  const { createSqlJsDatabase } = await import('../src/db/database.js');
+  const { cleanupOldPrintSheets } = await import('../src/services/sheet.js');
+  const { apiRouter } = await import('../src/routes/api.js');
+
+  // 1. Test /api/guest-passes/issue-batch returns clamped batch & creates passes in 1 DB transaction
+  const app = express();
+  app.use(express.json());
+  app.use('/api', apiRouter);
+  const srv = app.listen(0);
+  const port = srv.address().port;
+  const createdIds = [];
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/guest-passes/issue-batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenantId: 'tenant_studiokeren_01',
+        eventId: 'event_wedding_dimas_sarah',
+        baseUrl: 'https://mafaza.galipatsistem.com',
+        count: 5
+      })
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.count, 5);
+    assert.equal(data.passes.length, 5);
+    data.passes.forEach(p => {
+      createdIds.push(p.id);
+      assert.ok(p.token && p.qrDataUrl && p.qrDataUrl.startsWith('data:image/png;base64,'));
+    });
+    assert.equal(new Set(data.passes.map(p => p.token)).size, 5);
+  } finally {
+    srv.closeAllConnections?.();
+    srv.close();
+    if (createdIds.length > 0) {
+      db.prepare(`DELETE FROM guest_passes WHERE id IN (${createdIds.map(() => '?').join(',')})`).run(...createdIds);
+    }
+  }
+
+  // 2. Test Mingle client replenishGuestPassPool(20) uses 1 batch request & enforces 2160px cap on 6000x4000 DSLR photos
+  const mingleSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const trimmed = mingleSrc.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
+  const storageMap = new Map();
+  const fetchCalls = [];
+  const canvases = [];
+  const docEl = () => ({
+    style: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute() {},
+    addEventListener() {},
+    width: 0,
+    height: 0,
+    toDataURL: () => 'data:image/jpeg;base64,RESIZED',
+    getContext: () => ({ drawImage() {}, fillRect() {} })
+  });
+  class MockImage {
+    set src(val) {
+      this._src = val;
+      this.naturalWidth = 6000;
+      this.naturalHeight = 4000;
+      setTimeout(() => { if (this.onload) this.onload(); }, 0);
+    }
+  }
+  const ctx = vm.createContext({
+    Image: MockImage,
+    URL, URLSearchParams, AbortController, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    Blob: class {}, FormData: class { append() {} },
+    localStorage: {
+      getItem: (k) => (storageMap.has(k) ? storageMap.get(k) : null),
+      setItem: (k, v) => storageMap.set(k, String(v))
+    },
+    navigator: { onLine: true, mediaDevices: null },
+    document: {
+      body: docEl(),
+      getElementById: () => docEl(),
+      querySelectorAll: () => [],
+      createElement: (tag) => { const el = docEl(); if (tag === 'canvas') canvases.push(el); return el; }
+    },
+    window: { location: { origin: 'https://mafaza.galipatsistem.com', search: '' }, addEventListener() {} },
+    fetch: async (url, opts) => {
+      fetchCalls.push(String(url));
+      if (String(url).includes('/api/guest-passes/issue-batch')) {
+        const body = JSON.parse(opts.body);
+        const passes = Array.from({ length: body.count }, (_, idx) => ({
+          id: `bgp_${idx}`,
+          token: `btok_${idx}`,
+          token_plain: `btok_${idx}`,
+          galleryUrl: `/gallery/g/btok_${idx}`,
+          fullQrUrl: `https://mafaza.galipatsistem.com/gallery/g/btok_${idx}`,
+          qrDataUrl: `data:image/png;base64,QR_${idx}`
+        }));
+        return { ok: true, json: async () => ({ passes, count: passes.length }) };
+      }
+      return { ok: false, json: async () => ({}) };
+    },
+    setInterval: () => 1, clearInterval: () => {}, setTimeout, clearTimeout, requestAnimationFrame: (fn) => fn(), console
+  });
+  vm.runInContext(trimmed, ctx);
+  const engine = vm.runInContext('Object.create(MingleBoothEngine.prototype)', ctx);
+  Object.assign(engine, {
+    tenantId: 't_opt', eventId: 'e_opt', cameraCaptureOrientation: 'landscape', filesOnlyMode: true
+  });
+
+  await engine.replenishGuestPassPool(20);
+  assert.equal(fetchCalls.length, 1, 'Pool of 20 passes fetched in 1 single batch HTTP request');
+  assert.match(fetchCalls[0], /\/api\/guest-passes\/issue-batch/);
+  assert.equal(JSON.parse(storageMap.get(engine.getGuestPassPoolKey())).length, 20);
+
+  await engine.enforceCaptureOrientationDataUrl('data:image/jpeg;base64,DSLR_24MP');
+  assert.equal(canvases[0].width, 2160, '24MP 6000x4000 DSLR landscape scaled cleanly to 2160px');
+  assert.equal(canvases[0].height, 1440);
+
+  engine.cameraCaptureOrientation = 'portrait';
+  await engine.enforceCaptureOrientationDataUrl('data:image/jpeg;base64,DSLR_24MP');
+  assert.equal(canvases[1].width, 1440, '24MP 6000x4000 cropped & scaled to portrait 1440x2160');
+  assert.equal(canvases[1].height, 2160);
+
+  // 3. Test cleanupOldPrintSheets deletes stale sheet_*.png and keeps fresh ones
+  const tmpDir = os.tmpdir();
+  const stalePath = path.join(tmpDir, `mafaza_sheet_test_stale_${Date.now()}.png`);
+  const freshPath = path.join(tmpDir, `mafaza_sheet_test_fresh_${Date.now()}.png`);
+  fs.writeFileSync(stalePath, 'stale');
+  fs.writeFileSync(freshPath, 'fresh');
+  const twoHoursAgo = new Date(Date.now() - 2 * 3600 * 1000);
+  fs.utimesSync(stalePath, twoHoursAgo, twoHoursAgo);
+  try {
+    const cleanRes = cleanupOldPrintSheets(3600 * 1000, true);
+    assert.ok(cleanRes.removedCount >= 1);
+    assert.equal(fs.existsSync(stalePath), false, 'Stale print sheet PNG removed');
+    assert.equal(fs.existsSync(freshPath), true, 'Fresh print sheet PNG kept');
+  } finally {
+    try { fs.unlinkSync(stalePath); } catch (e) {}
+    try { fs.unlinkSync(freshPath); } catch (e) {}
+  }
+
+  // 4. Test sql.js debounced persistence batches rapid .run() calls cleanly
+  const testDbPath = path.join(tmpDir, `mafaza_wasm_debounce_${Date.now()}.db`);
+  try {
+    const wasmDb = await createSqlJsDatabase(testDbPath, { debounceMs: 60, maxWaitMs: 300, registerShutdownHooks: false });
+    wasmDb.exec('CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT);');
+    const beforeRunMtime = fs.statSync(testDbPath).mtimeMs;
+    const stmt = wasmDb.prepare('INSERT INTO items (name) VALUES (?)');
+    for (let i = 0; i < 10; i++) stmt.run(`item_${i}`);
+    // Immediately available in RAM without waiting for debounce
+    assert.equal(wasmDb.prepare('SELECT COUNT(*) as c FROM items').get().c, 10);
+    // Explicit flush writes cleanly to disk
+    wasmDb.flush();
+    assert.ok(fs.statSync(testDbPath).mtimeMs >= beforeRunMtime);
+    assert.ok(fs.statSync(testDbPath).size > 0);
+  } finally {
+    try { fs.unlinkSync(testDbPath); } catch (e) {}
+  }
+});

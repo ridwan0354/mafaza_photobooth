@@ -110,6 +110,10 @@ export function optimizePhotoFile(absFilePath, options = {}) {
       data: rgbaData
     }, quality);
 
+    // Bebaskan buffer piksel mentah sesegera mungkin agar GC cepat mengembalikan RAM ke OS
+    if (img) img.data = null;
+    rgbaData = null;
+
     let outPath = absFilePath;
     if (/\.png$/i.test(absFilePath)) {
       outPath = absFilePath.replace(/\.png$/i, '.jpg');

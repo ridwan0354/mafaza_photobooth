@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import QRCode from 'qrcode';
-import { db } from '../db/database.js';
+import { db, runInTransaction } from '../db/database.js';
 import { encodePng, getMafazaLogoImage } from './sheet.js';
 
 /**
@@ -138,11 +138,7 @@ export async function createQrWithLogoDataUrl(url, options = {}) {
   return `data:image/png;base64,${pngBuf.toString('base64')}`;
 }
 
-export function createGuestPassRecordSync(tenantId, eventId, issuedVia = 'booth', baseUrl = '') {
-  const tokenPlain = 'gst_' + crypto.randomBytes(16).toString('hex');
-  const tokenHash = crypto.createHash('sha256').update(tokenPlain).digest('hex');
-  const passId = 'pass_' + crypto.randomBytes(8).toString('hex');
-
+function resolveEventContextForPass(tenantId, eventId) {
   let validEventId = eventId;
   const ev = db.prepare('SELECT id, tenant_id, config_json FROM events WHERE id = ?').get(validEventId);
   let validTenantId = tenantId || (ev ? ev.tenant_id : 'tenant_studiokeren_01');
@@ -174,18 +170,23 @@ export function createGuestPassRecordSync(tenantId, eventId, issuedVia = 'booth'
     } catch (e) {}
   }
 
-  db.prepare(`
-    INSERT INTO guest_passes (id, tenant_id, event_id, opaque_token_hash, token_plain, status, issued_via, expires_at)
-    VALUES (?, ?, ?, ?, ?, 'active', ?, ${expiresAtClause})
-  `).run(passId, validTenantId, validEventId, tokenHash, tokenPlain, issuedVia, ...expiryParams);
+  return { validEventId, validTenantId, expiresAtClause, expiryParams };
+}
+
+function buildAndInsertPassRow(insertStmt, ctx, issuedVia, baseUrl) {
+  const tokenPlain = 'gst_' + crypto.randomBytes(16).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(tokenPlain).digest('hex');
+  const passId = 'pass_' + crypto.randomBytes(8).toString('hex');
+
+  insertStmt.run(passId, ctx.validTenantId, ctx.validEventId, tokenHash, tokenPlain, issuedVia, ...ctx.expiryParams);
 
   const galleryUrl = `/gallery/g/${tokenPlain}`;
   const fullQrUrl = baseUrl ? `${baseUrl.replace(/\/$/, '')}${galleryUrl}` : galleryUrl;
 
   return {
     id: passId,
-    tenant_id: validTenantId,
-    event_id: validEventId,
+    tenant_id: ctx.validTenantId,
+    event_id: ctx.validEventId,
     token: tokenPlain,
     token_plain: tokenPlain,
     galleryUrl,
@@ -194,20 +195,47 @@ export function createGuestPassRecordSync(tenantId, eventId, issuedVia = 'booth'
   };
 }
 
-export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', baseUrl = '') {
+export function createGuestPassRecordSync(tenantId, eventId, issuedVia = 'booth', baseUrl = '') {
+  const ctx = resolveEventContextForPass(tenantId, eventId);
+  const insertStmt = db.prepare(`
+    INSERT INTO guest_passes (id, tenant_id, event_id, opaque_token_hash, token_plain, status, issued_via, expires_at)
+    VALUES (?, ?, ?, ?, ?, 'active', ?, ${ctx.expiresAtClause})
+  `);
+  return buildAndInsertPassRow(insertStmt, ctx, issuedVia, baseUrl);
+}
+
+export async function createGuestPass(tenantId, eventId, issuedVia = 'booth', baseUrl = '', options = {}) {
   const pass = createGuestPassRecordSync(tenantId, eventId, issuedVia, baseUrl);
-  const qrDataUrl = await createQrWithLogoDataUrl(pass.fullQrUrl, { size: 340 });
+  const qrDataUrl = await createQrWithLogoDataUrl(pass.fullQrUrl, { size: options.qrSize || 280 });
   return {
     ...pass,
     qrDataUrl
   };
 }
 
-export async function createBatchGuestPasses(tenantId, eventId, count = 10, baseUrl = '') {
+export async function createBatchGuestPasses(tenantId, eventId, count = 10, baseUrl = '', options = {}) {
+  const safeCount = Math.max(1, parseInt(count, 10) || 10);
+  const issuedVia = options.issuedVia || 'batch';
+  const qrSize = options.qrSize || 240;
+
+  // Masukkan seluruh row dalam satu transaksi atomik agar disk/WASM SQLite hanya sync 1x
+  const records = runInTransaction(() => {
+    const ctx = resolveEventContextForPass(tenantId, eventId);
+    const insertStmt = db.prepare(`
+      INSERT INTO guest_passes (id, tenant_id, event_id, opaque_token_hash, token_plain, status, issued_via, expires_at)
+      VALUES (?, ?, ?, ?, ?, 'active', ?, ${ctx.expiresAtClause})
+    `);
+    const rows = [];
+    for (let i = 0; i < safeCount; i++) {
+      rows.push(buildAndInsertPassRow(insertStmt, ctx, issuedVia, baseUrl));
+    }
+    return rows;
+  });
+
   const results = [];
-  for (let i = 0; i < count; i++) {
-    const pass = await createGuestPass(tenantId, eventId, 'batch', baseUrl);
-    results.push(pass);
+  for (const pass of records) {
+    const qrDataUrl = await createQrWithLogoDataUrl(pass.fullQrUrl, { size: qrSize });
+    results.push({ ...pass, qrDataUrl });
   }
   return results;
 }

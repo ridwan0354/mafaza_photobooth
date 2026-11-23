@@ -130,7 +130,7 @@ export function decodeImage(buf) {
   // JPEG signature: FF D8 FF
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
     try {
-      const decoded = jpeg.decode(buf, { useTArray: true });
+      const decoded = jpeg.decode(buf, { useTArray: true, maxMemoryUsageInMB: 192 });
       return {
         width: decoded.width,
         height: decoded.height,
@@ -514,8 +514,42 @@ export function overlayQrCodeOnImage(img, qrUrl, positionOrList = 'bottom-right'
  * 3) Stempel QR Galeri Tamu sesuai konfigurasi posisi template (kanan bawah, kiri bawah, dll).
  * File asli digital di /uploads tetap 100% utuh tanpa margin dan tanpa watermark QR.
  */
+let lastPrintSheetCleanupAt = 0;
+
+/**
+ * Hapus file cache sheet sementara (mafaza_sheet_*.png) di /tmp yang lebih tua dari maxAgeMs
+ * agar RAM/tmpfs atau disk VPS tidak menumpuk dari job cetak lama.
+ */
+export function cleanupOldPrintSheets(maxAgeMs = 3600 * 1000, force = false) {
+  const now = Date.now();
+  if (!force && now - lastPrintSheetCleanupAt < 10 * 60 * 1000) {
+    return { removedCount: 0, scannedCount: 0, skipped: true };
+  }
+  lastPrintSheetCleanupAt = now;
+  let removedCount = 0;
+  let scannedCount = 0;
+  try {
+    const tmpDir = os.tmpdir();
+    const files = fs.readdirSync(tmpDir);
+    for (const name of files) {
+      if (!/^mafaza_sheet_.*\.png$/i.test(name)) continue;
+      scannedCount++;
+      const fullPath = path.join(tmpDir, name);
+      try {
+        const st = fs.statSync(fullPath);
+        if (st.isFile() && now - st.mtimeMs >= maxAgeMs) {
+          fs.unlinkSync(fullPath);
+          removedCount++;
+        }
+      } catch (e) {}
+    }
+  } catch (e) {}
+  return { removedCount, scannedCount, skipped: false };
+}
+
 export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
   if (!srcPath || !/\.(png|jpe?g)$/i.test(srcPath) || !fs.existsSync(srcPath)) return srcPath;
+  cleanupOldPrintSheets();
 
   const paper = resolvePaper(options.paperSize);
   const is4x6Paper = Math.round(paper.widthIn) === 4 && Math.round(paper.heightIn) === 6;
@@ -598,6 +632,9 @@ export function buildPrintSheetFile(srcPath, options = {}, cacheKey = 'sheet') {
     }
 
     const composed = encodePng(finalImg);
+    if (img) img.data = null;
+    baseImg = null;
+    finalImg = null;
     fs.writeFileSync(outPath, composed);
     return outPath;
   } catch (e) {

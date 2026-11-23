@@ -325,7 +325,7 @@ function switchTab(tabId, element) {
   if (tabId === 'printqueue') {
     if (typeof loadPrintQueueTab === 'function') loadPrintQueueTab();
     if (!printQueuePollInterval && typeof refreshPrintQueueSilently === 'function') {
-      printQueuePollInterval = setInterval(refreshPrintQueueSilently, 3500);
+      printQueuePollInterval = setInterval(refreshPrintQueueSilently, 5000);
     }
   } else {
     if (printQueuePollInterval) {
@@ -4579,7 +4579,10 @@ async function loadPrintQueueTab() {
   await loadPrintJobs();
 }
 
+let lastPrintJobsFetchAt = 0;
+
 async function refreshPrintQueueSilently() {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
   const tabEl = document.getElementById('tab-printqueue');
   if (!tabEl || !tabEl.classList.contains('active')) {
     if (printQueuePollInterval) {
@@ -4588,9 +4591,11 @@ async function refreshPrintQueueSilently() {
     }
     return;
   }
+  if (Date.now() - lastPrintJobsFetchAt < 3000) return;
   try {
     const res = await fetch('/api/print-jobs');
     if (res.ok) {
+      lastPrintJobsFetchAt = Date.now();
       const jobs = await res.json();
       cachedPrintJobs = jobs || [];
       updatePrintQueueStats(cachedPrintJobs);
@@ -5244,6 +5249,7 @@ async function pollGlobalPrintStation() {
   try {
     const res = await fetch('/api/print-jobs');
     if (!res.ok) return;
+    lastPrintJobsFetchAt = Date.now();
     const jobs = await res.json();
     cachedPrintJobs = jobs || [];
 
@@ -5299,7 +5305,7 @@ function initGlobalPrintStationMonitor() {
   }
 
   if (!globalPrintPollTimer) {
-    globalPrintPollTimer = setInterval(pollGlobalPrintStation, 2500);
+    globalPrintPollTimer = setInterval(pollGlobalPrintStation, 4000);
   }
 }
 

@@ -10,6 +10,7 @@ import { initDatabase, db } from './db/database.js';
 import { apiRouter } from './routes/api.js';
 import { appDownloadRouter } from './routes/app-downloads.js';
 import { cleanupExpiredEventPhotos } from './services/event.js';
+import { cleanupOldPrintSheets } from './services/sheet.js';
 import { verifyToken, createToken } from './services/auth.js';
 
 dotenv.config();
@@ -27,14 +28,22 @@ try {
     console.log(`🧹 Auto-cleanup: Foto dari ${cleanResult.affectedEventsCount} event (> 1 tahun) telah dibersihkan.`);
   }
 } catch (e) {}
-setInterval(cleanupExpiredEventPhotos, 24 * 3600 * 1000);
+const eventCleanupTimer = setInterval(cleanupExpiredEventPhotos, 24 * 3600 * 1000);
+if (eventCleanupTimer.unref) eventCleanupTimer.unref();
+
+// Bersihkan file temp hasil sheet cetak lama (> 1 jam) saat boot & setiap 1 jam
+try {
+  cleanupOldPrintSheets(3600 * 1000, true);
+} catch (e) {}
+const sheetCleanupTimer = setInterval(() => cleanupOldPrintSheets(3600 * 1000, true), 3600 * 1000);
+if (sheetCleanupTimer.unref) sheetCleanupTimer.unref();
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Zero-dependency cookie parser
 app.use((req, res, next) => {

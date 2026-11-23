@@ -867,8 +867,23 @@ apiRouter.post('/guest-passes/issue', async (req, res) => {
   try {
     const { tenantId, eventId, baseUrl } = req.body;
     const origin = baseUrl || `${req.protocol}://${req.get('host')}`;
-    const pass = await qrService.createGuestPass(tenantId, eventId, 'booth', origin);
+    const pass = await qrService.createGuestPass(tenantId, eventId, 'booth', origin, { qrSize: 260 });
     res.json(pass);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/guest-passes/issue-batch', async (req, res) => {
+  try {
+    const { tenantId, eventId, baseUrl, count } = req.body || {};
+    const origin = baseUrl || `${req.protocol}://${req.get('host')}`;
+    const safeCount = Math.max(1, Math.min(25, parseInt(count, 10) || 10));
+    const passes = await qrService.createBatchGuestPasses(tenantId, eventId, safeCount, origin, {
+      issuedVia: 'pool',
+      qrSize: 220
+    });
+    res.json({ passes, count: passes.length });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

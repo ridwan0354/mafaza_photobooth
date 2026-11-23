@@ -133,7 +133,7 @@ class MingleBoothEngine {
       if (idx === -1) return null;
       const picked = pool.splice(idx, 1)[0];
       localStorage.setItem(key, JSON.stringify(pool));
-      if (navigator.onLine !== false) {
+      if (navigator.onLine !== false && pool.length <= 15) {
         setTimeout(() => this.replenishGuestPassPool().catch(() => {}), 300);
       }
       return picked;
@@ -153,6 +153,46 @@ class MingleBoothEngine {
         if (Array.isArray(parsed)) pool = parsed.filter(p => p && p.id && (p.token || p.token_plain) && p.qrDataUrl);
       } catch (e) {}
 
+      if (pool.length >= targetCount) return;
+
+      const normalizePass = (pass) => ({
+        id: pass.id,
+        token: pass.token || pass.token_plain,
+        token_plain: pass.token_plain || pass.token,
+        galleryUrl: pass.galleryUrl,
+        fullQrUrl: pass.fullQrUrl,
+        qrDataUrl: pass.qrDataUrl
+      });
+
+      // Coba isi pool lewat 1 HTTP request batch agar server hanya lakukan 1 transaksi DB
+      const needed = targetCount - pool.length;
+      if (needed > 1 && navigator.onLine !== false) {
+        try {
+          const batchRes = await this.fetchWithTimeout('/api/guest-passes/issue-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenantId: this.tenantId,
+              eventId: this.eventId,
+              baseUrl: window.location.origin,
+              count: Math.min(25, needed)
+            })
+          }, 4500);
+          if (batchRes.ok) {
+            const batchData = await batchRes.json();
+            const list = Array.isArray(batchData)
+              ? batchData
+              : (Array.isArray(batchData?.passes) ? batchData.passes : (batchData?.id && batchData?.qrDataUrl ? [batchData] : null));
+            if (list && list.length > 0) {
+              for (const pass of list) {
+                if (pass && pass.id && pass.qrDataUrl) pool.push(normalizePass(pass));
+              }
+              try { localStorage.setItem(key, JSON.stringify(pool)); } catch (e) {}
+            }
+          }
+        } catch (e) {}
+      }
+
       while (pool.length < targetCount && navigator.onLine !== false) {
         const res = await this.fetchWithTimeout('/api/guest-passes/issue', {
           method: 'POST',
@@ -166,14 +206,7 @@ class MingleBoothEngine {
         if (!res.ok) break;
         const pass = await res.json();
         if (!pass || !pass.id || !pass.qrDataUrl) break;
-        pool.push({
-          id: pass.id,
-          token: pass.token || pass.token_plain,
-          token_plain: pass.token_plain || pass.token,
-          galleryUrl: pass.galleryUrl,
-          fullQrUrl: pass.fullQrUrl,
-          qrDataUrl: pass.qrDataUrl
-        });
+        pool.push(normalizePass(pass));
         try { localStorage.setItem(key, JSON.stringify(pool)); } catch (e) { break; }
       }
     } catch (e) {
@@ -685,7 +718,7 @@ class MingleBoothEngine {
     requestAnimationFrame(() => this.applyMingleVideoTransform());
   }
 
-  async enforceCaptureOrientationDataUrl(dataUrl) {
+  async enforceCaptureOrientationDataUrl(dataUrl, maxDim = 2160) {
     if (!dataUrl) return dataUrl;
     const effective = this.getEffectiveCaptureOrientation();
     const img = new Image();
@@ -699,26 +732,34 @@ class MingleBoothEngine {
     const curRatio = iw / ih;
     const needsPortraitCrop = effective === 'portrait' && curRatio > 0.75;
     const needsLandscapeCrop = effective === 'landscape' && curRatio < 1.32;
-    if (!needsPortraitCrop && !needsLandscapeCrop) return dataUrl;
+    const needsResize = Math.max(iw, ih) > maxDim;
+    if (!needsPortraitCrop && !needsLandscapeCrop && !needsResize) return dataUrl;
 
     let cropW = iw;
     let cropH = ih;
-    if (curRatio > targetRatio) {
-      cropW = Math.max(1, Math.round(ih * targetRatio));
-      cropH = ih;
-    } else {
-      cropW = iw;
-      cropH = Math.max(1, Math.round(iw / targetRatio));
+    if (needsPortraitCrop || needsLandscapeCrop) {
+      if (curRatio > targetRatio) {
+        cropW = Math.max(1, Math.round(ih * targetRatio));
+        cropH = ih;
+      } else {
+        cropW = iw;
+        cropH = Math.max(1, Math.round(iw / targetRatio));
+      }
     }
     const sx = Math.max(0, Math.round((iw - cropW) / 2));
     const sy = Math.max(0, Math.round((ih - cropH) / 2));
+    const maxCropSide = Math.max(cropW, cropH);
+    const downScale = maxCropSide > maxDim ? (maxDim / maxCropSide) : 1;
+    const outW = Math.max(1, Math.round(cropW * downScale));
+    const outH = Math.max(1, Math.round(cropH * downScale));
+
     const c = document.createElement('canvas');
-    c.width = cropW;
-    c.height = cropH;
+    c.width = outW;
+    c.height = outH;
     const ctx = c.getContext('2d');
     if (!ctx) return dataUrl;
-    ctx.drawImage(img, sx, sy, cropW, cropH, 0, 0, cropW, cropH);
-    return c.toDataURL('image/jpeg', 0.92);
+    ctx.drawImage(img, sx, sy, cropW, cropH, 0, 0, outW, outH);
+    return c.toDataURL('image/jpeg', 0.88);
   }
 
   applyOrientationLayout(tplW, tplH) {
@@ -1171,7 +1212,7 @@ class MingleBoothEngine {
     });
   }
 
-  async rotateDataUrlIfNeeded(dataUrl, checkPortraitExifGuard = true) {
+  async rotateDataUrlIfNeeded(dataUrl, checkPortraitExifGuard = true, maxDim = 2160) {
     const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
     if (!rot || !dataUrl) return dataUrl;
     const img = new Image();
@@ -1181,16 +1222,20 @@ class MingleBoothEngine {
     if (checkPortraitExifGuard && (rot === 90 || rot === 270) && img.naturalHeight > img.naturalWidth) {
       return dataUrl;
     }
+    const maxSide = Math.max(img.naturalWidth, img.naturalHeight);
+    const scale = maxSide > maxDim ? (maxDim / maxSide) : 1;
+    const drawW = Math.max(1, Math.round(img.naturalWidth * scale));
+    const drawH = Math.max(1, Math.round(img.naturalHeight * scale));
     const swap = (rot === 90 || rot === 270);
     const c = document.createElement('canvas');
-    c.width = swap ? img.naturalHeight : img.naturalWidth;
-    c.height = swap ? img.naturalWidth : img.naturalHeight;
+    c.width = swap ? drawH : drawW;
+    c.height = swap ? drawW : drawH;
     const ctx = c.getContext('2d');
     if (!ctx) return dataUrl;
     ctx.translate(c.width / 2, c.height / 2);
     ctx.rotate((rot * Math.PI) / 180);
-    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
-    return c.toDataURL('image/jpeg', 0.92);
+    ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+    return c.toDataURL('image/jpeg', 0.88);
   }
 
   async toggleCanonLiveView() {

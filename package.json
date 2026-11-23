@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:vps": "node --max-old-space-size=512 src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test tests/*.test.js",
     "compress:photos": "node src/scripts/compress-existing-photos.mjs"

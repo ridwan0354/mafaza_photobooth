@@ -1191,7 +1191,7 @@ class KioskEngine {
       if (idx === -1) return null;
       const picked = pool.splice(idx, 1)[0];
       localStorage.setItem(key, JSON.stringify(pool));
-      if (navigator.onLine !== false) {
+      if (navigator.onLine !== false && pool.length <= 15) {
         setTimeout(() => this.replenishGuestPassPool().catch(() => {}), 300);
       }
       return picked;
@@ -1211,6 +1211,45 @@ class KioskEngine {
         if (Array.isArray(parsed)) pool = parsed.filter(p => p && p.id && (p.token || p.token_plain) && p.qrDataUrl);
       } catch (e) {}
 
+      if (pool.length >= targetCount) return;
+
+      const normalizePass = (pass) => ({
+        id: pass.id,
+        token: pass.token || pass.token_plain,
+        token_plain: pass.token_plain || pass.token,
+        galleryUrl: pass.galleryUrl,
+        fullQrUrl: pass.fullQrUrl,
+        qrDataUrl: pass.qrDataUrl
+      });
+
+      const needed = targetCount - pool.length;
+      if (needed > 1 && navigator.onLine !== false) {
+        try {
+          const batchRes = await this.fetchWithTimeout('/api/guest-passes/issue-batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenantId: this.tenantId,
+              eventId: this.eventId,
+              baseUrl: window.location.origin,
+              count: Math.min(25, needed)
+            })
+          }, 4500);
+          if (batchRes.ok) {
+            const batchData = await batchRes.json();
+            const list = Array.isArray(batchData)
+              ? batchData
+              : (Array.isArray(batchData?.passes) ? batchData.passes : (batchData?.id && batchData?.qrDataUrl ? [batchData] : null));
+            if (list && list.length > 0) {
+              for (const pass of list) {
+                if (pass && pass.id && pass.qrDataUrl) pool.push(normalizePass(pass));
+              }
+              try { localStorage.setItem(key, JSON.stringify(pool)); } catch (e) {}
+            }
+          }
+        } catch (e) {}
+      }
+
       while (pool.length < targetCount && navigator.onLine !== false) {
         const res = await this.fetchWithTimeout('/api/guest-passes/issue', {
           method: 'POST',
@@ -1224,14 +1263,7 @@ class KioskEngine {
         if (!res.ok) break;
         const pass = await res.json();
         if (!pass || !pass.id || !pass.qrDataUrl) break;
-        pool.push({
-          id: pass.id,
-          token: pass.token || pass.token_plain,
-          token_plain: pass.token_plain || pass.token,
-          galleryUrl: pass.galleryUrl,
-          fullQrUrl: pass.fullQrUrl,
-          qrDataUrl: pass.qrDataUrl
-        });
+        pool.push(normalizePass(pass));
         try { localStorage.setItem(key, JSON.stringify(pool)); } catch (e) { break; }
       }
     } catch (e) {
@@ -3614,13 +3646,28 @@ class KioskEngine {
         img.onload = () => {
           clearTimeout(timeout);
           try {
+            const rawW = img.naturalWidth || 1920;
+            const rawH = img.naturalHeight || 1280;
+            const maxDim = 2160;
+            const dsScale = Math.max(rawW, rawH) > maxDim ? (maxDim / Math.max(rawW, rawH)) : 1;
             const c = document.createElement('canvas');
-            c.width = img.naturalWidth || 1920;
-            c.height = img.naturalHeight || 1280;
+            c.width = Math.max(1, Math.round(rawW * dsScale));
+            c.height = Math.max(1, Math.round(rawH * dsScale));
             const ctx = c.getContext('2d');
             const camCss = this.getCameraCssFilterString();
+            let filterInput = img;
+            if (dsScale < 1 && camCss && window.MafazaPhotoFilters) {
+              const preCanvas = document.createElement('canvas');
+              preCanvas.width = c.width;
+              preCanvas.height = c.height;
+              const preCtx = preCanvas.getContext('2d');
+              if (preCtx) {
+                preCtx.drawImage(img, 0, 0, c.width, c.height);
+                filterInput = preCanvas;
+              }
+            }
             const drawSource = (camCss && window.MafazaPhotoFilters)
-              ? (window.MafazaPhotoFilters.renderStyledCanvas(img, 'normal', { extraCssFilter: camCss, skipCache: true }) || img)
+              ? (window.MafazaPhotoFilters.renderStyledCanvas(filterInput, 'normal', { extraCssFilter: camCss, skipCache: true }) || filterInput)
               : img;
             const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
             const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
@@ -3644,7 +3691,7 @@ class KioskEngine {
               const cropY = Math.max(0, Math.min(ih - cropH, maxOffY + (panY * maxOffY)));
               ctx.drawImage(drawSource, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height);
             }
-            const flashDataUrl = c.toDataURL('image/jpeg', 0.90);
+            const flashDataUrl = c.toDataURL('image/jpeg', 0.88);
             this.posesCaptured[poseIndex] = flashDataUrl;
             this.renderFilmstripDock();
 
@@ -4096,17 +4143,21 @@ class KioskEngine {
     // already made the still photo upright portrait (height > width), avoid double-rotating sideways.
     if ((rot === 90 || rot === 270) && img.naturalHeight > img.naturalWidth) return;
 
+    const maxSide = Math.max(img.naturalWidth, img.naturalHeight);
+    const scale = maxSide > 2160 ? (2160 / maxSide) : 1;
+    const drawW = Math.max(1, Math.round(img.naturalWidth * scale));
+    const drawH = Math.max(1, Math.round(img.naturalHeight * scale));
     const swap = (rot === 90 || rot === 270);
     const c = document.createElement('canvas');
-    c.width = swap ? img.naturalHeight : img.naturalWidth;
-    c.height = swap ? img.naturalWidth : img.naturalHeight;
+    c.width = swap ? drawH : drawW;
+    c.height = swap ? drawW : drawH;
     const ctx = c.getContext('2d');
     if (!ctx) return;
     ctx.translate(c.width / 2, c.height / 2);
     ctx.rotate((rot * Math.PI) / 180);
-    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
 
-    this.posesCaptured[poseIndex] = c.toDataURL('image/jpeg', 0.92);
+    this.posesCaptured[poseIndex] = c.toDataURL('image/jpeg', 0.88);
     if (this.cachedPhotoImages) delete this.cachedPhotoImages[poseIndex];
     this.rawPosesSyncedForSession = null;
     this.renderFilmstripDock();

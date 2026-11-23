@@ -9,28 +9,75 @@ const __dirname = path.dirname(__filename);
 const DB_PATH = path.join(__dirname, '../../photobooth.db');
 
 // Universal SQLite driver: uses built-in node:sqlite on Node >= 22.5, or pure-WASM sql.js on Node 18/20
-async function createDatabase(dbPath) {
-  try {
-    const nodeSqlite = await import('node:sqlite');
-    if (nodeSqlite && nodeSqlite.DatabaseSync) {
-      return new nodeSqlite.DatabaseSync(dbPath);
-    }
-  } catch (e) {}
-
-  // Fallback for Node 18 / Node 20 (Zero native C++ dependencies via WebAssembly sql.js)
+export async function createSqlJsDatabase(dbPath, options = {}) {
+  const debounceMs = Number.isFinite(options.debounceMs) ? options.debounceMs : 250;
+  const maxWaitMs = Number.isFinite(options.maxWaitMs) ? options.maxWaitMs : 1500;
   const initSqlJs = (await import('sql.js')).default;
   const SQL = await initSqlJs();
   const fileBuffer = fs.existsSync(dbPath) ? fs.readFileSync(dbPath) : null;
   const wasmDb = fileBuffer && fileBuffer.length > 0 ? new SQL.Database(fileBuffer) : new SQL.Database();
 
-  const saveToDisk = () => {
+  let dirty = false;
+  let flushTimer = null;
+  let maxWaitTimer = null;
+  let inTransaction = false;
+
+  const clearTimers = () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    if (maxWaitTimer) {
+      clearTimeout(maxWaitTimer);
+      maxWaitTimer = null;
+    }
+  };
+
+  const saveToDiskNow = () => {
+    clearTimers();
+    dirty = false;
     try {
       const data = wasmDb.export();
-      fs.writeFileSync(dbPath, Buffer.from(data));
+      fs.writeFileSync(dbPath, Buffer.from(data.buffer, data.byteOffset, data.byteLength));
     } catch (err) {
       console.error('SQLite WASM disk sync error:', err.message);
     }
   };
+
+  const scheduleSaveToDisk = () => {
+    dirty = true;
+    if (inTransaction) return;
+    if (flushTimer) clearTimeout(flushTimer);
+    flushTimer = setTimeout(() => {
+      if (dirty) saveToDiskNow();
+    }, debounceMs);
+    if (flushTimer.unref) flushTimer.unref();
+
+    if (!maxWaitTimer) {
+      maxWaitTimer = setTimeout(() => {
+        if (dirty) saveToDiskNow();
+      }, maxWaitMs);
+      if (maxWaitTimer.unref) maxWaitTimer.unref();
+    }
+  };
+
+  const flush = () => {
+    if (dirty || flushTimer || maxWaitTimer) {
+      saveToDiskNow();
+    }
+  };
+
+  if (options.registerShutdownHooks !== false) {
+    process.on('exit', () => {
+      if (dirty) saveToDiskNow();
+    });
+    const handleSignal = (sig) => {
+      if (dirty) saveToDiskNow();
+      process.kill(process.pid, sig);
+    };
+    process.once('SIGINT', () => handleSignal('SIGINT'));
+    process.once('SIGTERM', () => handleSignal('SIGTERM'));
+  }
 
   const normalizeParams = (params) => {
     if (!params || params.length === 0) return [];
@@ -41,9 +88,19 @@ async function createDatabase(dbPath) {
   };
 
   return {
+    isWasm: true,
+    flush,
     exec(sql) {
       wasmDb.exec(sql);
-      saveToDisk();
+      const trimmed = String(sql || '').trim();
+      if (/^(BEGIN|SAVEPOINT)\b/i.test(trimmed)) {
+        inTransaction = true;
+        return;
+      }
+      if (/^(COMMIT|END|ROLLBACK)\b/i.test(trimmed)) {
+        inTransaction = false;
+      }
+      saveToDiskNow();
     },
     prepare(sql) {
       return {
@@ -78,7 +135,7 @@ async function createDatabase(dbPath) {
           const bound = normalizeParams(params);
           wasmDb.run(sql, bound);
           const changes = wasmDb.getRowsModified();
-          saveToDisk();
+          scheduleSaveToDisk();
           return { changes };
         }
       };
@@ -86,7 +143,36 @@ async function createDatabase(dbPath) {
   };
 }
 
+async function createDatabase(dbPath) {
+  try {
+    const nodeSqlite = await import('node:sqlite');
+    if (nodeSqlite && nodeSqlite.DatabaseSync) {
+      return new nodeSqlite.DatabaseSync(dbPath);
+    }
+  } catch (e) {}
+
+  // Fallback for Node 18 / Node 20 (Zero native C++ dependencies via WebAssembly sql.js)
+  return createSqlJsDatabase(dbPath);
+}
+
 export const db = await createDatabase(DB_PATH);
+
+/**
+ * Jalankan beberapa operasi tulis SQLite dalam satu transaksi atomik.
+ * Pada mode sql.js WASM, mengurangi export+writeFileSync menjadi 1 kali di akhir transaksi.
+ */
+export function runInTransaction(fn) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const res = fn();
+    db.exec('COMMIT');
+    if (typeof db.flush === 'function') db.flush();
+    return res;
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch (e) {}
+    throw err;
+  }
+}
 
 // Simple password hashing using SHA256 with salt for standalone zero-dep security
 export function hashPassword(password) {
@@ -99,6 +185,7 @@ export function initDatabase() {
   db.exec(schemaSql);
   runMigrations();
   seedDatabase();
+  if (typeof db.flush === 'function') db.flush();
   console.log('✅ Database initialized and verified at:', DB_PATH);
 }
 
