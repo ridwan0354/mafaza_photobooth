@@ -63,17 +63,51 @@ class MingleBoothEngine {
     this.setupCanvasPanAndZoom();
     this.setupLifecycleListeners();
 
+    // Tampilkan data event & frame dari cache lokal seketika (< 50ms) agar bebas lag meski sinyal lambat/mati
+    await this.hydrateCacheFirst();
+
+    this.updateCameraRotationUI();
+    this.applyTopLiveLayout();
+    this.startStatusPolling();
+    this.setUsbMingleListen(false);
+
     await Promise.allSettled([
       this.fetchEventConfig(),
       this.fetchTemplates()
     ]);
 
     this.renderFramesGrid();
-    this.updateCameraRotationUI();
-    this.applyTopLiveLayout();
-    this.startStatusPolling();
-    this.setUsbMingleListen(false);
     this.replenishGuestPassPool().catch(() => {});
+  }
+
+  async hydrateCacheFirst() {
+    if (!window.pbOfflineStore) return;
+    try {
+      const [cachedEv, cachedMingle, cachedAll] = await Promise.all([
+        window.pbOfflineStore.getCachedConfig('event_' + this.eventId),
+        window.pbOfflineStore.getCachedConfig('mingle_templates_' + this.eventId),
+        window.pbOfflineStore.getCachedConfig('mingle_all_templates_' + this.eventId)
+      ]);
+      if (cachedEv) {
+        this.tenantId = cachedEv.tenant_id || this.tenantId;
+        this.eventConfig = cachedEv.config || {};
+        if (this.eventConfig.shotsCount) {
+          this.eventShotsCount = parseInt(this.eventConfig.shotsCount, 10) || 1;
+        }
+        const titleEl = document.getElementById('mingleEventTitle');
+        if (titleEl) titleEl.innerText = `Event: ${cachedEv.name || 'Siap'}`;
+        this.applyEventPresentation(cachedEv.name);
+      }
+      if (Array.isArray(cachedMingle) && cachedMingle.length > 0) {
+        this.templates = cachedMingle;
+      }
+      if (Array.isArray(cachedAll) && cachedAll.length > 0) {
+        this.allTemplates = cachedAll;
+      }
+      if (this.templates.length > 0 || this.allTemplates.length > 0) {
+        this.renderFramesGrid();
+      }
+    } catch (e) {}
   }
 
   getGuestPassPoolKey() {
@@ -237,6 +271,11 @@ class MingleBoothEngine {
           }
           if (window.pbOfflineStore) {
             window.pbOfflineStore.cacheConfig('event_' + this.eventId, ev);
+          }
+          const bgUrl = this.eventConfig?.kioskBackground?.url;
+          if (bgUrl && (!this.eventConfig.kioskBackground.type || this.eventConfig.kioskBackground.type === 'image')) {
+            const bgWarm = new Image();
+            bgWarm.src = bgUrl;
           }
           if (titleEl) titleEl.innerText = `Event: ${ev.name || 'Aktif'}`;
           this.applyEventPresentation(ev.name);
@@ -629,6 +668,7 @@ class MingleBoothEngine {
   }
 
   resetSessionCaptureState() {
+    this._activeSessionToken = (this._activeSessionToken || 0) + 1;
     this.capturedPhotos = [];
     this.syncedCaptureCount = 0;
     this.slotAssignments = [];
@@ -1887,22 +1927,23 @@ class MingleBoothEngine {
     await this.syncFinalImageOnly();
   }
 
-  async saveMingleOfflineSession(finalBlob, { modeVal = 'single', printRequested = false, printCopies = 1 } = {}) {
+  async saveMingleOfflineSession(finalBlob, { sessionId = null, tenantId = null, eventId = null, guestPassId = undefined, templateId = undefined, photos = null, modeVal = 'single', printRequested = false, printCopies = 1 } = {}) {
     if (!window.pbOfflineStore) return false;
+    const srcPhotos = Array.isArray(photos) ? photos : (this.capturedPhotos || []);
     const offlineCaps = [];
-    for (let i = 0; i < this.capturedPhotos.length; i++) {
+    for (let i = 0; i < srcPhotos.length; i++) {
       try {
-        const b = await (await fetch(this.capturedPhotos[i])).blob();
+        const b = await (await fetch(srcPhotos[i])).blob();
         offlineCaps.push({ poseIndex: i + 1, blob: b });
       } catch (e) {}
     }
     await window.pbOfflineStore.saveSession({
-      id: this.sessionId,
-      tenantId: this.tenantId,
-      eventId: this.eventId,
+      id: sessionId || this.sessionId,
+      tenantId: tenantId || this.tenantId,
+      eventId: eventId || this.eventId,
       deviceId: this.deviceId,
-      guestPassId: this.guestPass ? this.guestPass.id : null,
-      templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+      guestPassId: guestPassId !== undefined ? guestPassId : (this.guestPass ? this.guestPass.id : null),
+      templateId: templateId !== undefined ? templateId : (this.selectedTemplate ? this.selectedTemplate.id : null),
       mode: modeVal,
       finalImageBlob: finalBlob,
       captures: offlineCaps,
@@ -1921,7 +1962,20 @@ class MingleBoothEngine {
     const isLocalMode = this.isLocalDirectMode();
     const canTryNetwork = !isLocalMode && navigator.onLine !== false;
 
-    if (!this.guestPass) {
+    const snapToken = this._activeSessionToken || 0;
+    const isStillCurrent = () => (this._activeSessionToken || 0) === snapToken;
+    const snap = {
+      sessionId: this.sessionId || null,
+      tenantId: this.tenantId,
+      eventId: this.eventId,
+      guestPass: this.guestPass || null,
+      templateId: this.selectedTemplate ? this.selectedTemplate.id : null,
+      photos: [...(this.capturedPhotos || [])],
+      filesOnlyMode: Boolean(this.filesOnlyMode),
+      syncedCaptureCount: this.syncedCaptureCount || 0
+    };
+
+    if (!snap.guestPass) {
       if (qrImg) qrImg.style.display = 'none';
       if (qrHint) qrHint.style.display = 'none';
       if (qrPh) {
@@ -1938,40 +1992,41 @@ class MingleBoothEngine {
 
       if (isLocalMode || navigator.onLine === false) {
         const cachedPass = this.popGuestPassFromPool();
-        if (cachedPass) this.guestPass = cachedPass;
+        if (cachedPass) snap.guestPass = cachedPass;
       }
 
-      if (!this.guestPass && navigator.onLine !== false) {
+      if (!snap.guestPass && navigator.onLine !== false) {
         try {
           const passRes = await this.fetchWithTimeout('/api/guest-passes/issue', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              tenantId: this.tenantId,
-              eventId: this.eventId,
+              tenantId: snap.tenantId,
+              eventId: snap.eventId,
               baseUrl: window.location.origin
             })
-          }, 2200);
+          }, 1400);
           if (passRes.ok) {
-            this.guestPass = await passRes.json();
+            snap.guestPass = await passRes.json();
           }
         } catch (e) {}
       }
 
-      if (!this.guestPass) {
+      if (!snap.guestPass) {
         const fallbackPass = this.popGuestPassFromPool();
-        if (fallbackPass) this.guestPass = fallbackPass;
+        if (fallbackPass) snap.guestPass = fallbackPass;
       }
 
-      if (this.guestPass) {
-        if (this.guestPass.qrDataUrl && qrImg) {
-          qrImg.src = this.guestPass.qrDataUrl;
+      if (snap.guestPass && isStillCurrent()) {
+        this.guestPass = snap.guestPass;
+        if (snap.guestPass.qrDataUrl && qrImg) {
+          qrImg.src = snap.guestPass.qrDataUrl;
           qrImg.style.display = 'block';
           if (qrPh) qrPh.style.display = 'none';
           if (qrHint) qrHint.style.display = 'block';
         }
-        const token = this.guestPass.token || this.guestPass.token_plain;
-        const gUrl = this.guestPass.galleryUrl || (token ? `/gallery/g/${token}` : null);
+        const token = snap.guestPass.token || snap.guestPass.token_plain;
+        const gUrl = snap.guestPass.galleryUrl || (token ? `/gallery/g/${token}` : null);
         if (linkEl && gUrl) {
           linkEl.href = gUrl;
           linkEl.style.display = 'inline-block';
@@ -1979,76 +2034,100 @@ class MingleBoothEngine {
       }
     }
 
-    if (!this.sessionId && canTryNetwork) {
+    if (!snap.sessionId && canTryNetwork) {
       try {
-        const modeVal = this.filesOnlyMode ? 'files_only' : (this.capturedPhotos.length > 1 ? 'multi' : 'single');
+        const modeVal = snap.filesOnlyMode ? 'files_only' : (snap.photos.length > 1 ? 'multi' : 'single');
         const sessRes = await this.fetchWithTimeout('/api/kiosk/sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            tenantId: this.tenantId,
-            eventId: this.eventId,
+            tenantId: snap.tenantId,
+            eventId: snap.eventId,
             deviceId: this.deviceId,
-            guestPassId: this.guestPass ? this.guestPass.id : null,
+            guestPassId: snap.guestPass ? snap.guestPass.id : null,
             mode: modeVal,
-            templateId: this.selectedTemplate ? this.selectedTemplate.id : null
+            templateId: snap.templateId
           })
-        }, 2500);
+        }, 1500);
         if (sessRes.ok) {
           const sData = await sessRes.json();
-          this.sessionId = sData.sessionId;
+          snap.sessionId = sData.sessionId;
         }
       } catch (e) {}
     }
 
-    if (!this.sessionId) {
-      this.sessionId = 'sess_mgl_off_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    if (!snap.sessionId) {
+      snap.sessionId = 'sess_mgl_off_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
     }
-    await this.syncFinalImageOnly(true);
+    if (isStillCurrent()) {
+      this.sessionId = snap.sessionId;
+    }
+    await this.syncFinalImageOnly(true, false, {}, snap);
   }
 
-  async syncFinalImageOnly(includeRaw = false, printRequested = false, printOpts = {}) {
+  async syncFinalImageOnly(includeRaw = false, printRequested = false, printOpts = {}, overrideSnap = null) {
     const canvas = document.getElementById('mingleFinalCanvas');
     const statusEl = document.getElementById('mingleSyncStatus');
     const qrPh = document.getElementById('mingleQrPlaceholder');
-    if (!this.sessionId) return null;
+    const snapSessionId = (overrideSnap && overrideSnap.sessionId) || this.sessionId;
+    if (!snapSessionId) return null;
+
+    // Snapshot seluruh state sesi saat ini agar klik "Tamu Berikutnya" saat sinyal lambat tidak menghapus foto tamu sebelumnya
+    const snapTenantId = (overrideSnap && overrideSnap.tenantId) || this.tenantId;
+    const snapEventId = (overrideSnap && overrideSnap.eventId) || this.eventId;
+    const snapPassId = overrideSnap
+      ? (overrideSnap.guestPass ? overrideSnap.guestPass.id : null)
+      : (this.guestPass ? this.guestPass.id : null);
+    const snapTemplateId = overrideSnap
+      ? overrideSnap.templateId
+      : (this.selectedTemplate ? this.selectedTemplate.id : null);
+    const snapPhotos = overrideSnap ? overrideSnap.photos : [...(this.capturedPhotos || [])];
+    const snapFilesOnly = overrideSnap ? overrideSnap.filesOnlyMode : Boolean(this.filesOnlyMode);
+    const snapSyncedOffset = overrideSnap ? (overrideSnap.syncedCaptureCount || 0) : (this.syncedCaptureCount || 0);
 
     let finalBlob = null;
-    if (!this.filesOnlyMode && canvas && canvas.width > 0) {
+    if (!snapFilesOnly && canvas && canvas.width > 0) {
       finalBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
     }
 
-    const totalPhotos = this.capturedPhotos.length;
-    const modeVal = this.filesOnlyMode ? 'files_only' : (totalPhotos > 1 ? 'multi' : 'single');
+    const totalPhotos = snapPhotos.length;
+    const modeVal = snapFilesOnly ? 'files_only' : (totalPhotos > 1 ? 'multi' : 'single');
     const printCopies = String(printOpts.copies || 1);
     const printPaperSize = printOpts.paperSize || '';
     const paperConfirmed = !!printOpts.paperConfirmed;
 
     if (!navigator.onLine || this.isLocalDirectMode()) {
       await this.saveMingleOfflineSession(finalBlob, {
+        sessionId: snapSessionId,
+        tenantId: snapTenantId,
+        eventId: snapEventId,
+        guestPassId: snapPassId,
+        templateId: snapTemplateId,
+        photos: snapPhotos,
         modeVal,
         printRequested: !this.isLocalDirectMode() && Boolean(printRequested),
         printCopies
       }).catch(() => {});
-      if (statusEl) {
-        statusEl.innerText = this.isLocalDirectMode()
-          ? `🔌 Mode Lokal: ${totalPhotos} foto aman tersimpan di perangkat.`
-          : `⚡ Disimpan offline (${totalPhotos} foto) — otomatis terkirim saat WiFi tersambung!`;
-      }
-      if (!this.guestPass && qrPh) {
-        qrPh.innerText = this.isLocalDirectMode()
-          ? '🔌 Mode Lokal Aktif — Foto disimpan di perangkat'
-          : '⚡ Offline — QR & galeri tersedia setelah WiFi tersambung';
+      if (this.sessionId === snapSessionId) {
+        if (statusEl) {
+          statusEl.innerText = this.isLocalDirectMode()
+            ? `🔌 Mode Lokal: ${totalPhotos} foto aman tersimpan di perangkat.`
+            : `⚡ Disimpan offline (${totalPhotos} foto) — otomatis terkirim saat WiFi tersambung!`;
+        }
+        if (!this.guestPass && qrPh) {
+          qrPh.innerText = this.isLocalDirectMode()
+            ? '🔌 Mode Lokal Aktif — Foto disimpan di perangkat'
+            : '⚡ Offline — QR & galeri tersedia setelah WiFi tersambung';
+        }
       }
       return { offlineSaved: true };
     }
 
     try {
-      const startOffset = includeRaw ? this.syncedCaptureCount : totalPhotos;
+      const startOffset = includeRaw ? snapSyncedOffset : totalPhotos;
       const unsyncedCount = Math.max(0, totalPhotos - startOffset);
       const batchSize = 5;
 
-      // Upload final framed image + first batch (or only finalImage if no raw batch pending)
       if (unsyncedCount === 0) {
         const formData = new FormData();
         if (finalBlob) formData.append('finalImage', finalBlob, `mingle_${Date.now()}.jpg`);
@@ -2059,12 +2138,14 @@ class MingleBoothEngine {
           if (paperConfirmed) formData.append('paperConfirmed', 'true');
         }
         formData.append('mode', modeVal);
-        if (this.guestPass && this.guestPass.id) formData.append('guestPassId', this.guestPass.id);
-        if (this.selectedTemplate && this.selectedTemplate.id) formData.append('templateId', this.selectedTemplate.id);
-        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${this.sessionId}/complete`, { method: 'POST', body: formData }, 10000);
+        formData.append('tenantId', snapTenantId);
+        formData.append('eventId', snapEventId);
+        if (snapPassId) formData.append('guestPassId', snapPassId);
+        if (snapTemplateId) formData.append('templateId', snapTemplateId);
+        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${snapSessionId}/complete`, { method: 'POST', body: formData }, 7500);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json().catch(() => null);
-        if (statusEl) {
+        if (this.sessionId === snapSessionId && statusEl) {
           const pj = data && data.printJob;
           if (printRequested) {
             statusEl.innerText = pj && pj.requiresPaperConfirm
@@ -2080,7 +2161,9 @@ class MingleBoothEngine {
       let lastData = null;
       for (let offset = startOffset; offset < totalPhotos; offset += batchSize) {
         const end = Math.min(totalPhotos, offset + batchSize);
-        if (statusEl) statusEl.innerText = `⏳ Mengunggah foto ${end}/${totalPhotos}...`;
+        if (this.sessionId === snapSessionId && statusEl) {
+          statusEl.innerText = `⏳ Mengunggah foto ${end}/${totalPhotos}...`;
+        }
 
         const formData = new FormData();
         if (offset === startOffset && finalBlob) {
@@ -2095,24 +2178,28 @@ class MingleBoothEngine {
           if (paperConfirmed) formData.append('paperConfirmed', 'true');
         }
         formData.append('mode', modeVal);
+        formData.append('tenantId', snapTenantId);
+        formData.append('eventId', snapEventId);
         formData.append('captureStartIndex', String(offset));
-        if (this.guestPass && this.guestPass.id) formData.append('guestPassId', this.guestPass.id);
-        if (this.selectedTemplate && this.selectedTemplate.id) formData.append('templateId', this.selectedTemplate.id);
+        if (snapPassId) formData.append('guestPassId', snapPassId);
+        if (snapTemplateId) formData.append('templateId', snapTemplateId);
 
         for (let i = offset; i < end; i++) {
           try {
-            const rawBlob = await (await fetch(this.capturedPhotos[i])).blob();
+            const rawBlob = await (await fetch(snapPhotos[i])).blob();
             formData.append('captures', rawBlob, `mingle_pose_${i + 1}_${Date.now()}.jpg`);
           } catch (e) {}
         }
 
-        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${this.sessionId}/complete`, { method: 'POST', body: formData }, 12000);
+        const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${snapSessionId}/complete`, { method: 'POST', body: formData }, 8500);
         if (!res.ok) throw new Error('Gagal mengunggah batch foto');
         lastData = await res.json().catch(() => lastData);
-        this.syncedCaptureCount = end;
+        if (this.sessionId === snapSessionId) {
+          this.syncedCaptureCount = end;
+        }
       }
 
-      if (statusEl) {
+      if (this.sessionId === snapSessionId && statusEl) {
         statusEl.innerText = printRequested
           ? `✅ ${totalPhotos} foto tersimpan & antrean cetak terkirim ke server!`
           : `✅ Siap! Semua ${totalPhotos} foto tersedia di QR Code.`;
@@ -2120,13 +2207,21 @@ class MingleBoothEngine {
       return lastData;
     } catch (e) {
       await this.saveMingleOfflineSession(finalBlob, {
+        sessionId: snapSessionId,
+        tenantId: snapTenantId,
+        eventId: snapEventId,
+        guestPassId: snapPassId,
+        templateId: snapTemplateId,
+        photos: snapPhotos,
         modeVal,
         printRequested: Boolean(printRequested),
         printCopies
       }).catch(() => {});
-      if (statusEl) statusEl.innerText = `⚡ WiFi terputus — ${totalPhotos} foto aman tersimpan lokal & otomatis terunggah saat ada sinyal!`;
-      if (!this.guestPass && qrPh) {
-        qrPh.innerText = '⚡ Sinyal hilang — foto disimpan di perangkat';
+      if (this.sessionId === snapSessionId) {
+        if (statusEl) statusEl.innerText = `⚡ Sinyal lambat/terputus — ${totalPhotos} foto aman tersimpan di tablet & otomatis terkirim!`;
+        if (!this.guestPass && qrPh) {
+          qrPh.innerText = '⚡ Sinyal lemah — foto aman tersimpan di tablet';
+        }
       }
       return { offlineSaved: true };
     }

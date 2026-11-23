@@ -535,7 +535,8 @@ public class MainActivity extends Activity {
             if (webView != null) {
                 webView.evaluateJavascript(
                         "if (window.kiosk && typeof window.kiosk.onNativeCameraInventoryChanged === 'function') { window.kiosk.onNativeCameraInventoryChanged(); } "
-                                + "else if (window.kiosk && typeof window.kiosk.startCamera === 'function') { window.kiosk.startCamera(null, true); }",
+                                + "else if (window.kiosk && typeof window.kiosk.startCamera === 'function') { window.kiosk.startCamera(null, true); } "
+                                + "if (window.mingle && typeof window.mingle.syncViewfinderForReadyScreen === 'function') { window.mingle.syncViewfinderForReadyScreen(); }",
                         null);
             }
         });

@@ -6,7 +6,7 @@
  * dan tetap bisa dibuka kembali saat di-refresh (F5 / reload).
  */
 
-const CACHE_NAME = 'mafaza-offline-v3.88';
+const CACHE_NAME = 'mafaza-offline-v3.90';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -146,12 +146,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // B. ENDPOINT API GET
+  // B. ENDPOINT API GET (gunakan batas waktu 2.5 detik agar sinyal lambat langsung memakai cache)
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       (async () => {
         try {
-          const netRes = await fetch(req, { cache: 'no-store' });
+          const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('API timeout')), 2500));
+          const netRes = await Promise.race([fetch(req, { cache: 'no-store' }), timeoutPromise]);
           if (netRes && netRes.ok) {
             // Cache respon API sukses untuk cadangan saat offline
             const cache = await caches.open(CACHE_NAME);
