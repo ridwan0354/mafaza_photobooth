@@ -44,6 +44,8 @@ class MingleBoothEngine {
     // USB PTP bridge state (127.0.0.1:19898)
     this.usbStatus = null;
     this.baselinePhysicalSeq = 0;
+    this._lastAcceptedPhysicalSeq = 0;
+    this._physicalReadyArmed = false;
     this.canonLiveViewInMingle = true;
     const savedRot = parseInt(localStorage.getItem('pb_camera_rotation') || '0', 10);
     this.cameraRotation = [0, 90, 180, 270].includes(savedRot) ? savedRot : 0;
@@ -223,13 +225,16 @@ class MingleBoothEngine {
     window.addEventListener('mafaza:physical-shutter', (ev) => {
       const detail = (ev && ev.detail) || {};
       const seq = Number(detail.seq || 0);
-      if (this.currentScreen === 'screenMingleReady' && seq > this.baselinePhysicalSeq && !this.isProcessingCapture) {
+      const minSeq = Math.max(this.baselinePhysicalSeq || 0, this._lastAcceptedPhysicalSeq || 0);
+      if (this._physicalReadyArmed && this.currentScreen === 'screenMingleReady' && seq > minSeq && !this.isProcessingCapture) {
         this.baselinePhysicalSeq = seq;
+        this._lastAcceptedPhysicalSeq = seq;
         this.handleIncomingPhysicalPhoto(detail.url || `http://127.0.0.1:19898/physical_capture.jpg?seq=${seq}`);
       }
     });
 
     const releaseResources = () => {
+      this._physicalReadyArmed = false;
       this.setUsbMingleListen(false);
       this.stopLiveViewLoop();
       this.stopWebcam();
@@ -701,13 +706,9 @@ class MingleBoothEngine {
     if (readySel) readySel.value = 'unlimited';
 
     this.applyOrientationLayout(1800, 1200);
-    if (this.usbStatus && typeof this.usbStatus.physicalCaptureSeq === 'number') {
-      this.baselinePhysicalSeq = this.usbStatus.physicalCaptureSeq;
-    }
-
     this.updateReadyCaptureUI();
     this.showScreen('screenMingleReady');
-    await this.setUsbMingleListen(true);
+    await this.armPhysicalCaptureBaseline();
     this.syncViewfinderForReadyScreen();
   }
 
@@ -733,14 +734,9 @@ class MingleBoothEngine {
     const h = parseInt(found.height, 10) || (this.isTemplateLandscape(found) ? 1200 : 1800);
     this.applyOrientationLayout(w, h);
 
-    // Sync baseline capture counter so older camera photos aren't picked up as new
-    if (this.usbStatus && typeof this.usbStatus.physicalCaptureSeq === 'number') {
-      this.baselinePhysicalSeq = this.usbStatus.physicalCaptureSeq;
-    }
-
     this.updateReadyCaptureUI();
     this.showScreen('screenMingleReady');
-    await this.setUsbMingleListen(true);
+    await this.armPhysicalCaptureBaseline();
     this.syncViewfinderForReadyScreen();
   }
 
@@ -788,20 +784,56 @@ class MingleBoothEngine {
   }
 
   openSelectScreen() {
+    this._physicalReadyArmed = false;
     this.setUsbMingleListen(false);
     this.stopLiveViewLoop();
     this.stopWebcam();
     this.showScreen('screenMingleSelect');
   }
 
+  appendBridgeCacheBuster(url) {
+    if (!url || !/^https?:\/\//i.test(url)) return url;
+    const cb = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    return `${url}${url.includes('?') ? '&' : '?'}_cb=${cb}`;
+  }
+
+  async readUsbStatusNow(timeoutMs = 450) {
+    let st = null;
+    try {
+      const res = await this.fetchWithTimeout('http://127.0.0.1:19898/status', { mode: 'cors', cache: 'no-store' }, timeoutMs);
+      if (res.ok) st = await res.json();
+    } catch (e) {}
+
+    if (!st && window.MafazaAndroidBridge && typeof window.MafazaAndroidBridge.getCameraStatus === 'function') {
+      try { st = JSON.parse(window.MafazaAndroidBridge.getCameraStatus()); } catch (e) {}
+    }
+    if (st) this.usbStatus = st;
+    return st;
+  }
+
+  async armPhysicalCaptureBaseline() {
+    this._physicalReadyArmed = false;
+    await this.setUsbMingleListen(true);
+    const st = await this.readUsbStatusNow(450);
+    const latestSeq = Math.max(
+      Number(this.baselinePhysicalSeq || 0),
+      Number(this._lastAcceptedPhysicalSeq || 0),
+      Number((st && st.physicalCaptureSeq) || 0),
+      Number((this.usbStatus && this.usbStatus.physicalCaptureSeq) || 0)
+    );
+    this.baselinePhysicalSeq = latestSeq;
+    this._lastAcceptedPhysicalSeq = latestSeq;
+    this._physicalReadyArmed = true;
+  }
+
   async setUsbMingleListen(enabled) {
     try {
       const lvParam = this.canonLiveViewInMingle ? '&mingle_lv=1' : '&mingle_lv=0';
-      await fetch(`http://127.0.0.1:19898/control?mingle=${enabled ? '1' : '0'}${lvParam}`, {
+      await this.fetchWithTimeout(`http://127.0.0.1:19898/control?mingle=${enabled ? '1' : '0'}${lvParam}&_t=${Date.now()}`, {
         method: 'GET',
         mode: 'cors',
         cache: 'no-store'
-      });
+      }, 500);
     } catch (e) {}
   }
 
@@ -924,16 +956,24 @@ class MingleBoothEngine {
       this.usbStatus = st;
       this.updateCameraStatusUI(st);
 
-      if (
-        st &&
-        this.currentScreen === 'screenMingleReady' &&
-        !this.isProcessingCapture &&
-        typeof st.physicalCaptureSeq === 'number' &&
-        st.physicalCaptureSeq > this.baselinePhysicalSeq
-      ) {
-        this.baselinePhysicalSeq = st.physicalCaptureSeq;
-        const photoUrl = st.physicalPhotoUrl || `http://127.0.0.1:19898/physical_capture.jpg?seq=${st.physicalCaptureSeq}`;
-        this.handleIncomingPhysicalPhoto(photoUrl);
+      if (st && typeof st.physicalCaptureSeq === 'number') {
+        if (this.currentScreen !== 'screenMingleReady' || !this._physicalReadyArmed) {
+          // Always sync baseline while not armed on Ready screen so older/pre-session camera shots are ignored
+          if (st.physicalCaptureSeq > this.baselinePhysicalSeq) {
+            this.baselinePhysicalSeq = st.physicalCaptureSeq;
+          }
+          if (st.physicalCaptureSeq > (this._lastAcceptedPhysicalSeq || 0)) {
+            this._lastAcceptedPhysicalSeq = st.physicalCaptureSeq;
+          }
+        } else {
+          const minSeq = Math.max(this.baselinePhysicalSeq || 0, this._lastAcceptedPhysicalSeq || 0);
+          if (!this.isProcessingCapture && st.physicalCaptureSeq > minSeq) {
+            this.baselinePhysicalSeq = st.physicalCaptureSeq;
+            this._lastAcceptedPhysicalSeq = st.physicalCaptureSeq;
+            const photoUrl = st.physicalPhotoUrl || `http://127.0.0.1:19898/physical_capture.jpg?seq=${st.physicalCaptureSeq}`;
+            this.handleIncomingPhysicalPhoto(photoUrl);
+          }
+        }
       }
     };
 
@@ -1123,17 +1163,20 @@ class MingleBoothEngine {
   async triggerBackupCapture() {
     if (this.isProcessingCapture) return;
     if (this.usbStatus && this.usbStatus.active) {
+      this.isProcessingCapture = true;
       this.setProcessingOverlay(true, 'Menekan shutter kamera USB...');
       try {
         const res = await fetch('http://127.0.0.1:19898/capture', { method: 'POST', mode: 'cors', cache: 'no-store' });
         const data = await res.json();
-        if (data && data.ok && data.imageUrl) {
-          await this.handleIncomingPhysicalPhoto(data.imageUrl);
+        if (data && data.ok && data.imageUrl && !/\/frame\.jpg/i.test(data.imageUrl)) {
+          await this.handleIncomingPhysicalPhoto(data.imageUrl, { fromCaptureLock: true });
           return;
         }
+        this.isProcessingCapture = false;
         this.setProcessingOverlay(false);
         this.showToast((data && data.error) || 'Gagal memotret dari kamera USB.', '⚠️', 3500);
       } catch (e) {
+        this.isProcessingCapture = false;
         this.setProcessingOverlay(false);
         this.showToast('Koneksi bridge USB terganggu.', '⚠️', 3200);
       }
@@ -1163,8 +1206,14 @@ class MingleBoothEngine {
     await this.finalizeCapturedDataUrl(c.toDataURL('image/jpeg', 0.92));
   }
 
-  async handleIncomingPhysicalPhoto(url) {
-    if (this.isProcessingCapture) return;
+  async handleIncomingPhysicalPhoto(url, opts = {}) {
+    if (!opts.fromCaptureLock && this.isProcessingCapture) return;
+    if (!url || /\/frame\.jpg/i.test(url)) {
+      this.isProcessingCapture = false;
+      this.setProcessingOverlay(false);
+      this.showToast('Foto kamera belum siap (masih frame preview). Silakan jepret ulang.', '⚠️', 3200);
+      return;
+    }
     this.isProcessingCapture = true;
     this.playShutterSound();
     this.stopLiveViewLoop();
@@ -1172,7 +1221,8 @@ class MingleBoothEngine {
     this.setProcessingOverlay(true, isMulti ? `Mengunduh foto #${this.capturedPhotos.length + 1} dari kamera...` : 'Mengunduh foto kamera beresolusi penuh...');
 
     try {
-      const res = await fetch(url, { mode: 'cors', cache: 'no-store' });
+      const fetchUrl = this.appendBridgeCacheBuster(url);
+      const res = await fetch(fetchUrl, { mode: 'cors', cache: 'no-store' });
       if (!res.ok) throw new Error('Foto dari kamera tidak ditemukan.');
       const blob = await res.blob();
       const dataUrl = await new Promise((resolve, reject) => {
@@ -1227,6 +1277,7 @@ class MingleBoothEngine {
       return;
     }
 
+    this._physicalReadyArmed = false;
     this.setProcessingOverlay(true, this.filesOnlyMode ? 'Menyiapkan galeri file HD & QR...' : 'Memasang bingkai & membuat QR...');
     try {
       await this.setUsbMingleListen(false);
@@ -2467,12 +2518,9 @@ class MingleBoothEngine {
       const readySel = document.getElementById('mingleReadyShotsSelect');
       if (readySel) readySel.value = 'unlimited';
     }
-    if (this.usbStatus && typeof this.usbStatus.physicalCaptureSeq === 'number') {
-      this.baselinePhysicalSeq = this.usbStatus.physicalCaptureSeq;
-    }
     this.updateReadyCaptureUI();
     this.showScreen('screenMingleReady');
-    await this.setUsbMingleListen(true);
+    await this.armPhysicalCaptureBaseline();
     this.syncViewfinderForReadyScreen();
     this.showToast('📸 Siap tambah foto ke QR Code yang sama!', '➕', 2400);
   }
@@ -2480,15 +2528,13 @@ class MingleBoothEngine {
   async retakeSameFrame() {
     this.resetSessionCaptureState();
     this.updateReadyCaptureUI();
-    if (this.usbStatus && typeof this.usbStatus.physicalCaptureSeq === 'number') {
-      this.baselinePhysicalSeq = this.usbStatus.physicalCaptureSeq;
-    }
     this.showScreen('screenMingleReady');
-    await this.setUsbMingleListen(true);
+    await this.armPhysicalCaptureBaseline();
     this.syncViewfinderForReadyScreen();
   }
 
   nextGuest() {
+    this._physicalReadyArmed = false;
     this.setUsbMingleListen(false);
     this.stopLiveViewLoop();
     this.stopWebcam();

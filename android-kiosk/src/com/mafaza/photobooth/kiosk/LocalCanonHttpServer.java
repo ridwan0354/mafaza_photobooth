@@ -138,8 +138,12 @@ public class LocalCanonHttpServer {
                     sendJson(out, 404, "{\"ok\":false,\"error\":\"No captured photo available\"}");
                 }
             } else if ("/physical_capture.jpg".equals(path)) {
+                Map<String, String> params = parseQueryParams(query);
+                String reqSeq = params.get("seq");
+                long currentSeq = canonEngine.getPhysicalCaptureSeq();
                 byte[] photo = canonEngine.getLastPhysicalCapturedJpeg();
-                if (canonEngine.isActive() && photo != null && photo.length > 0) {
+                boolean seqMatches = (reqSeq == null || reqSeq.isEmpty() || Long.toString(currentSeq).equals(reqSeq));
+                if (canonEngine.isActive() && currentSeq > 0 && seqMatches && photo != null && photo.length > 0) {
                     sendBinary(out, 200, "image/jpeg", photo);
                 } else {
                     sendJson(out, 404, "{\"ok\":false,\"error\":\"No physical shutter photo available\"}");

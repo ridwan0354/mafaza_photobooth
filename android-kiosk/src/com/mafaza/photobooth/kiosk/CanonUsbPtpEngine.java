@@ -24,6 +24,7 @@ import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -193,12 +194,13 @@ public class CanonUsbPtpEngine {
     private volatile long lastKeepAliveMs = 0;
     private volatile boolean mingleListenMode = false;
     private volatile boolean mingleCanonLiveView = false;
+    private volatile boolean mingleHandlesSeeded = false;
     private volatile long physicalCaptureSeq = 0;
     private volatile byte[] lastPhysicalCapturedJpeg = null;
     private volatile String lastPhysicalCaptureSource = "";
     private volatile long lastMinglePollMs = 0;
     private volatile long lastPhysicalCooldownMs = 0;
-    private final Set<Integer> mingleKnownHandles = new HashSet<>();
+    private final Set<Integer> mingleKnownHandles = new LinkedHashSet<>();
     private int transactionId = 0;
     private int canonEvfParamIndex = 0;
 
@@ -902,8 +904,7 @@ public class CanonUsbPtpEngine {
         requirePtpOk(sendPtpCommandLocked(PTP_OC_CANON_SET_REMOTE_MODE, new int[]{1}, null), "Canon Remote Mode");
         requirePtpOk(sendPtpCommandLocked(PTP_OC_CANON_SET_EVENT_MODE, new int[]{1}, null), "Canon Event Mode");
         try { Thread.sleep(80); } catch (InterruptedException ignored) {}
-        drainCanonEventsLocked();
-        drainCanonEventsLocked();
+        drainCanonEventsLocked(true);
         if (setCanonPropExLocked(PROP_CAPTURE_DESTINATION, 4) != PTP_RC_OK) {
             if (setCanonPropExLocked(PROP_CAPTURE_DESTINATION, 2) != PTP_RC_OK) {
                 requirePtpOk(setCanonPropExLocked(PROP_CAPTURE_DESTINATION, 6), "Tujuan penyimpanan foto Canon");
@@ -912,7 +913,7 @@ public class CanonUsbPtpEngine {
         // Advertise abundant host storage capacity so Canon DIGIC firmware emits
         // RequestObjectTransfer (0xC186) promptly instead of reporting full host buffer.
         sendPtpCommandLocked(PTP_OC_CANON_PCHDD_CAPACITY, new int[]{0x7FFFFFFF, 0x1000, 1}, null);
-        drainCanonEventsLocked();
+        drainCanonEventsLocked(true);
         if (mingleListenMode && !mingleCanonLiveView) {
             setCanonPropExLocked(PROP_EVF_OUTPUT_DEVICE, 0);
             setCanonPropExLocked(PROP_EVF_MODE, 0);
@@ -1067,6 +1068,7 @@ public class CanonUsbPtpEngine {
             latestFrameTimeMs = 0;
             lastCapturedFullJpeg = null;
             totalFramesReceived = 0;
+            mingleHandlesSeeded = false;
             synchronized (mingleKnownHandles) { mingleKnownHandles.clear(); }
             if (wasConnected && listener != null) {
                 listener.onCameraDisconnected();
@@ -1201,9 +1203,14 @@ public class CanonUsbPtpEngine {
 
     /** Enables Mingle roaming mode so pressing the camera body shutter button sends photos immediately. */
     public void setMingleListenMode(boolean enabled, boolean canonLiveView) {
+        boolean turningOn = enabled && !this.mingleListenMode;
         this.mingleListenMode = enabled;
         this.mingleCanonLiveView = canonLiveView;
         synchronized (usbLock) {
+            if (!enabled || turningOn) {
+                mingleHandlesSeeded = false;
+                synchronized (mingleKnownHandles) { mingleKnownHandles.clear(); }
+            }
             if (!isConnected) return;
             if (driverType == DriverType.CANON) {
                 if (enabled && !canonLiveView) {
@@ -1215,12 +1222,33 @@ public class CanonUsbPtpEngine {
                     enableCanonLiveViewOutputLocked();
                     supportsUsbLiveView = true;
                 }
+                if (turningOn) {
+                    drainCanonEventsLocked(true);
+                }
             } else if (enabled && (driverType == DriverType.NIKON || driverType == DriverType.GENERIC_PTP)) {
-                synchronized (mingleKnownHandles) {
-                    mingleKnownHandles.clear();
-                    mingleKnownHandles.addAll(queryAllJpegObjectHandlesLocked());
+                seedMingleKnownHandlesLocked();
+            } else if (turningOn && (driverType == DriverType.SONY || isSonyCamera)) {
+                drainSonyInterruptEventsLocked();
+                PtpTransactionResult propsRes = executePtpTransactionLocked(
+                        PTP_OC_SONY_GET_ALL_EXT_DEVICE_PROP_INFO, new int[0], null, 1200);
+                if (propsRes != null && propsRes.responseCode == PTP_RC_OK && propsRes.dataPayload != null
+                        && findSonyObjectInMemoryFlag(propsRes.dataPayload) >= 0x8000) {
+                    try {
+                        pollAndDownloadSonyMemoryPhotoLocked(true, 1500);
+                    } catch (Exception ignored) {}
+                    drainSonyInterruptEventsLocked();
                 }
             }
+        }
+    }
+
+    private void seedMingleKnownHandlesLocked() {
+        List<Integer> existing = queryAllJpegObjectHandlesOrderedLocked();
+        if (existing == null) return;
+        synchronized (mingleKnownHandles) {
+            mingleKnownHandles.clear();
+            mingleKnownHandles.addAll(existing);
+            mingleHandlesSeeded = true;
         }
     }
 
@@ -1267,25 +1295,44 @@ public class CanonUsbPtpEngine {
                 }
             } else if (driverType == DriverType.CANON) {
                 List<Integer> handles = pollCanonTransferHandlesLocked();
-                for (int objHandle : handles) {
-                    byte[] jpg = downloadCanonObjectJpegLocked(objHandle);
-                    if (jpg != null && jpg.length > 2048) {
-                        recordPhysicalShutterPhoto(jpg);
-                        break;
+                if (!handles.isEmpty()) {
+                    byte[] newestJpeg = null;
+                    for (int i = handles.size() - 1; i >= 0; i--) {
+                        int objHandle = handles.get(i);
+                        if (newestJpeg == null) {
+                            byte[] jpg = downloadCanonObjectJpegLocked(objHandle);
+                            if (jpg != null && jpg.length > 2048) {
+                                newestJpeg = jpg;
+                            }
+                        } else {
+                            sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objHandle}, null);
+                        }
+                    }
+                    if (newestJpeg != null) {
+                        recordPhysicalShutterPhoto(newestJpeg);
                     }
                 }
             } else if (driverType == DriverType.NIKON || driverType == DriverType.GENERIC_PTP) {
                 if (driverType == DriverType.NIKON) {
                     sendPtpCommandLocked(PTP_OC_NIKON_CHECK_EVENT, new int[0], null);
                 }
-                Set<Integer> nowHandles = queryAllJpegObjectHandlesLocked();
+                List<Integer> nowHandles = queryAllJpegObjectHandlesOrderedLocked();
+                if (nowHandles == null) return;
+                if (!mingleHandlesSeeded) {
+                    synchronized (mingleKnownHandles) {
+                        mingleKnownHandles.clear();
+                        mingleKnownHandles.addAll(nowHandles);
+                        mingleHandlesSeeded = true;
+                    }
+                    return;
+                }
                 int newHandle = 0;
                 synchronized (mingleKnownHandles) {
-                    for (int h : nowHandles) {
+                    for (int i = nowHandles.size() - 1; i >= 0; i--) {
+                        int h = nowHandles.get(i);
                         if (!mingleKnownHandles.contains(h)) {
-                            newHandle = h;
+                            if (newHandle == 0) newHandle = h;
                             mingleKnownHandles.add(h);
-                            break;
                         }
                     }
                 }
@@ -1349,7 +1396,7 @@ public class CanonUsbPtpEngine {
             setCanonPropExLocked(PROP_EVF_MODE, 0);
             sendPtpCommandLocked(PTP_OC_CANON_TERMINATE_VIEWFINDER, new int[0], null);
             Thread.sleep(320); // Ensures mechanical mirror drops completely into resting position
-            drainCanonEventsLocked();
+            drainCanonEventsLocked(true);
 
             // 2. Fire physical mechanical shutter with flash sync:
             // PTP_OC_CANON_CAPTURE (0x910F) is Canon's native remote release command (TakePicture).
@@ -1385,11 +1432,15 @@ public class CanonUsbPtpEngine {
             long deadline = System.currentTimeMillis() + 10000;
             while (System.currentTimeMillis() < deadline && lastCapturedFullJpeg == null) {
                 List<Integer> handles = pollCanonTransferHandlesLocked();
-                for (int objHandle : handles) {
-                    byte[] fullJpeg = downloadCanonObjectJpegLocked(objHandle);
-                    if (fullJpeg != null && fullJpeg.length > 2048) {
-                        lastCapturedFullJpeg = fullJpeg;
-                        break;
+                for (int i = handles.size() - 1; i >= 0; i--) {
+                    int objHandle = handles.get(i);
+                    if (lastCapturedFullJpeg == null) {
+                        byte[] fullJpeg = downloadCanonObjectJpegLocked(objHandle);
+                        if (fullJpeg != null && fullJpeg.length > 2048) {
+                            lastCapturedFullJpeg = fullJpeg;
+                        }
+                    } else {
+                        sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objHandle}, null);
                     }
                 }
                 if (lastCapturedFullJpeg != null) break;
@@ -1801,7 +1852,21 @@ public class CanonUsbPtpEngine {
     }
 
     private void drainCanonEventsLocked() {
-        pollCanonEventsInternalLocked(false);
+        drainCanonEventsLocked(false);
+    }
+
+    private void drainCanonEventsLocked(boolean cancelStaleTransfers) {
+        if (!cancelStaleTransfers) {
+            pollCanonEventsInternalLocked(false);
+            return;
+        }
+        for (int round = 0; round < 16; round++) {
+            List<Integer> staleHandles = pollCanonEventsInternalLocked(true);
+            if (staleHandles.isEmpty()) break;
+            for (int objHandle : staleHandles) {
+                sendPtpCommandLocked(PTP_OC_CANON_TRANSFER_COMPLETE, new int[]{objHandle}, null);
+            }
+        }
     }
 
     private List<Integer> pollCanonTransferHandlesLocked() {
@@ -2068,7 +2133,9 @@ public class CanonUsbPtpEngine {
                 pausedNikonLv = true;
                 Thread.sleep(150);
             }
-            Set<Integer> before = queryAllJpegObjectHandlesLocked();
+            List<Integer> beforeList = queryAllJpegObjectHandlesOrderedLocked();
+            Set<Integer> before = new LinkedHashSet<>();
+            if (beforeList != null) before.addAll(beforeList);
             int rc = sendPtpCommandLocked(PTP_OC_INITIATE_CAPTURE, new int[]{0, 0}, null);
             if (rc != PTP_RC_OK && driverType == DriverType.NIKON) {
                 rc = sendPtpCommandLocked(PTP_OC_NIKON_CAPTURE_SDRAM, new int[]{-1}, null);
@@ -2080,19 +2147,27 @@ public class CanonUsbPtpEngine {
                 if (driverType == DriverType.NIKON) {
                     sendPtpCommandLocked(PTP_OC_NIKON_CHECK_EVENT, new int[0], null);
                 }
-                Set<Integer> nowHandles = queryAllJpegObjectHandlesLocked();
-                for (int handle : nowHandles) {
-                    if (!before.contains(handle)) {
-                        PtpTransactionResult infoRes = executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{handle}, null, 600);
-                        if (infoRes != null && infoRes.responseCode == PTP_RC_OK
-                                && infoRes.dataPayload != null && infoRes.dataPayload.length >= 12
-                                && (readShortLE(infoRes.dataPayload, 4) & 0xffff) == 0x3801) {
-                            PtpTransactionResult imgRes = executePtpTransactionLocked(PTP_OC_GET_OBJECT, new int[]{handle}, null, 20000);
-                            if (imgRes != null && imgRes.responseCode == PTP_RC_OK && imgRes.dataPayload != null) {
-                                byte[] jpg = extractJpegFromBuffer(imgRes.dataPayload);
-                                if (jpg != null && jpg.length > 2048) {
-                                    lastCapturedFullJpeg = jpg;
-                                    break;
+                List<Integer> nowHandles = queryAllJpegObjectHandlesOrderedLocked();
+                if (nowHandles != null) {
+                    if (beforeList == null) {
+                        before.addAll(nowHandles);
+                        beforeList = nowHandles;
+                    } else {
+                        for (int i = nowHandles.size() - 1; i >= 0; i--) {
+                            int handle = nowHandles.get(i);
+                            if (!before.contains(handle)) {
+                                PtpTransactionResult infoRes = executePtpTransactionLocked(PTP_OC_GET_OBJECT_INFO, new int[]{handle}, null, 600);
+                                if (infoRes != null && infoRes.responseCode == PTP_RC_OK
+                                        && infoRes.dataPayload != null && infoRes.dataPayload.length >= 12
+                                        && (readShortLE(infoRes.dataPayload, 4) & 0xffff) == 0x3801) {
+                                    PtpTransactionResult imgRes = executePtpTransactionLocked(PTP_OC_GET_OBJECT, new int[]{handle}, null, 20000);
+                                    if (imgRes != null && imgRes.responseCode == PTP_RC_OK && imgRes.dataPayload != null) {
+                                        byte[] jpg = extractJpegFromBuffer(imgRes.dataPayload);
+                                        if (jpg != null && jpg.length > 2048) {
+                                            lastCapturedFullJpeg = jpg;
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2119,17 +2194,25 @@ public class CanonUsbPtpEngine {
     }
 
     private Set<Integer> queryAllJpegObjectHandlesLocked() {
-        Set<Integer> handles = new HashSet<>();
+        List<Integer> ordered = queryAllJpegObjectHandlesOrderedLocked();
+        Set<Integer> handles = new LinkedHashSet<>();
+        if (ordered != null) handles.addAll(ordered);
+        return handles;
+    }
+
+    private List<Integer> queryAllJpegObjectHandlesOrderedLocked() {
         PtpTransactionResult res = executePtpTransactionLocked(PTP_OC_GET_OBJECT_HANDLES, new int[]{0xFFFFFFFF, 0x3801, 0}, null, 1200);
         if (res == null || res.responseCode != PTP_RC_OK || res.dataPayload == null) {
             res = executePtpTransactionLocked(PTP_OC_GET_OBJECT_HANDLES, new int[]{0xFFFFFFFF, 0, 0}, null, 1200);
         }
-        if (res != null && res.responseCode == PTP_RC_OK && res.dataPayload != null && res.dataPayload.length >= 4) {
-            int count = readIntLE(res.dataPayload, 0);
-            int max = Math.min(Math.max(0, count), (res.dataPayload.length - 4) / 4);
-            for (int i = 0; i < max; i++) {
-                handles.add(readIntLE(res.dataPayload, 4 + i * 4));
-            }
+        if (res == null || res.responseCode != PTP_RC_OK || res.dataPayload == null || res.dataPayload.length < 4) {
+            return null;
+        }
+        List<Integer> handles = new ArrayList<>();
+        int count = readIntLE(res.dataPayload, 0);
+        int max = Math.min(Math.max(0, count), (res.dataPayload.length - 4) / 4);
+        for (int i = 0; i < max; i++) {
+            handles.add(readIntLE(res.dataPayload, 4 + i * 4));
         }
         return handles;
     }

@@ -44,6 +44,8 @@ namespace MafazaCanonBridge
         // High-res photo storage
         private static byte[] _capturedPhoto = null;
         private static long _capturedPhotoTime = 0;
+        private static long _captureSeq = 0;
+        private static long _capturedPhotoSeq = 0;
         private static readonly object _captureLock = new object();
         private static EdsObjectEventHandler _objectEventHandler = null;
         private static EdsCameraStateEventHandler _stateEventHandler = null;
@@ -235,7 +237,7 @@ namespace MafazaCanonBridge
                 }
                 else if (path == "/captured_pose.jpg")
                 {
-                    HandleCapturedPose(res);
+                    HandleCapturedPose(req, res);
                 }
                 else
                 {
@@ -354,18 +356,39 @@ namespace MafazaCanonBridge
             try
             {
                 Console.WriteLine("[HTTP] Menerima request /capture dari Kiosk...");
+                long reqId;
+                long reqStartMs = GetCurrentUnixTimeMs();
+                lock (_captureLock)
+                {
+                    _captureSeq++;
+                    reqId = _captureSeq;
+                    _capturedPhoto = null;
+                    _capturedPhotoTime = 0;
+                }
                 _captureDoneEvent.Reset();
                 _pendingCapture = true;
 
                 // Tunggu proses capture fisik & transfer foto resolusi penuh pada worker thread
-                bool completed = _captureDoneEvent.WaitOne(4800);
+                bool completed = _captureDoneEvent.WaitOne(4500);
                 if (!completed)
                 {
-                    Console.WriteLine("[CAPTURE] Peringatan: Proses capture melebihi batas waktu 4.8 detik.");
+                    Console.WriteLine("[CAPTURE] Peringatan: Proses capture melebihi batas waktu 4.5 detik.");
+                }
+
+                bool hasFreshPhoto = false;
+                lock (_captureLock)
+                {
+                    if (_capturedPhoto != null && _capturedPhoto.Length > 1000 && _capturedPhotoTime >= reqStartMs)
+                    {
+                        _capturedPhotoSeq = reqId;
+                        hasFreshPhoto = true;
+                    }
                 }
 
                 long ts = GetCurrentUnixTimeMs();
-                string json = string.Format("{{\"ok\":true,\"source\":\"canon-usb-windows\",\"captured\":true,\"imageUrl\":\"http://127.0.0.1:19898/captured_pose.jpg?t={0}\"}}", ts);
+                string json = hasFreshPhoto
+                    ? string.Format("{{\"ok\":true,\"source\":\"canon-usb-windows\",\"captured\":true,\"imageUrl\":\"http://127.0.0.1:19898/captured_pose.jpg?id={0}&t={1}\"}}", reqId, ts)
+                    : "{\"ok\":false,\"retryable\":true,\"captured\":false,\"error\":\"Foto asli Canon belum diterima. Periksa fokus/flash lalu coba lagi.\"}";
                 byte[] body = Encoding.UTF8.GetBytes(json);
                 res.ContentType = "application/json";
                 res.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate");
@@ -384,26 +407,16 @@ namespace MafazaCanonBridge
             }
         }
 
-        private static void HandleCapturedPose(HttpListenerResponse res)
+        private static void HandleCapturedPose(HttpListenerRequest req, HttpListenerResponse res)
         {
             byte[] photoCopy = null;
+            string reqIdStr = req != null ? req.QueryString["id"] : null;
             lock (_captureLock)
             {
-                // Prioritaskan foto asli hasil jepretan kamera Canon dengan flash
-                if (_capturedPhoto != null && _capturedPhoto.Length > 1000 && (GetCurrentUnixTimeMs() - _capturedPhotoTime) < 90000)
+                bool idMatches = string.IsNullOrEmpty(reqIdStr) || reqIdStr == _capturedPhotoSeq.ToString();
+                if (idMatches && _capturedPhoto != null && _capturedPhoto.Length > 1000 && (GetCurrentUnixTimeMs() - _capturedPhotoTime) < 90000)
                 {
                     photoCopy = (byte[])_capturedPhoto.Clone();
-                }
-            }
-
-            if (photoCopy == null)
-            {
-                lock (_frameLock)
-                {
-                    if (_latestJpeg != null && _latestJpeg.Length > 0)
-                    {
-                        photoCopy = (byte[])_latestJpeg.Clone();
-                    }
                 }
             }
 
@@ -418,7 +431,7 @@ namespace MafazaCanonBridge
             else
             {
                 res.StatusCode = 404;
-                byte[] msg = Encoding.UTF8.GetBytes("No captured photo available.");
+                byte[] msg = Encoding.UTF8.GetBytes("No fresh captured photo available.");
                 res.OutputStream.Write(msg, 0, msg.Length);
                 res.Close();
             }

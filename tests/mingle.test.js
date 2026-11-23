@@ -510,3 +510,132 @@ test('Audit security & parity fixes: no guest QR cross-leak, reprint baseUrl, au
     db.prepare('DELETE FROM guest_passes WHERE id IN (?, ?)').run(otherPassId, ownPassId);
   }
 });
+
+test('Service Worker never intercepts or caches local USB bridge photo/status requests', async () => {
+  const vm = await import('node:vm');
+  const swSrc = fs.readFileSync(path.join(process.cwd(), 'public/sw.js'), 'utf8');
+  const listeners = {};
+  let cacheMatchCalls = 0;
+  const ctx = vm.createContext({
+    URL,
+    self: {
+      location: { origin: 'https://mafaza.galipatsistem.com' },
+      addEventListener(name, fn) { listeners[name] = fn; },
+      skipWaiting() {},
+      clients: { claim() {} }
+    },
+    caches: {
+      async match() { cacheMatchCalls++; return null; },
+      async open() { return { async put() {}, async add() {} }; },
+      async keys() { return []; }
+    },
+    fetch: async () => ({ ok: true, clone() { return this; } }),
+    Promise, setTimeout, console
+  });
+  vm.runInContext(swSrc, ctx);
+  assert.equal(typeof listeners.fetch, 'function');
+
+  for (const url of [
+    'http://127.0.0.1:19898/physical_capture.jpg?seq=1',
+    'http://127.0.0.1:19898/captured_pose.jpg?id=1',
+    'http://127.0.0.1:19898/status',
+    'http://127.0.0.1:19898/control?mingle=1'
+  ]) {
+    let intercepted = false;
+    listeners.fetch({
+      request: { method: 'GET', url, mode: 'cors', destination: '' },
+      respondWith() { intercepted = true; }
+    });
+    assert.equal(intercepted, false, `SW must not intercept or cache ${url}`);
+  }
+  assert.equal(cacheMatchCalls, 0);
+});
+
+test('MingleBoothEngine arms baselinePhysicalSeq before accepting captures and busts bridge cache', async () => {
+  const vm = await import('node:vm');
+  const mingleSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const trimmed = mingleSrc.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
+
+  let bridgeSeq = 47; // Simulate stale seq left over from last night in APK memory
+  const fetchedUrls = [];
+  const docEl = () => ({
+    style: {}, value: '', innerText: '', innerHTML: '', src: '', width: 0, height: 0,
+    classList: { toggle() {}, add() {}, remove() {} },
+    addEventListener() {}, getContext: () => ({ drawImage() {}, fillRect() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {}, translate() {}, rotate() {}, save() {}, restore() {}, beginPath() {}, rect() {}, clip() {} })
+  });
+  const elements = new Map();
+  const intervals = [];
+  const winListeners = {};
+  const ctx = vm.createContext({
+    URL, URLSearchParams, AbortController, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    Blob: class {},
+    FileReader: class {
+      readAsDataURL() { this.result = 'data:image/jpeg;base64,bmV3'; this.onloadend?.(); }
+    },
+    Image: class { set src(v) { this.naturalWidth = 100; this.naturalHeight = 100; queueMicrotask(() => this.onload?.()); } },
+    localStorage: { getItem: () => null, setItem() {} },
+    navigator: { onLine: true, mediaDevices: null },
+    document: {
+      body: docEl(),
+      getElementById(id) { if (!elements.has(id)) elements.set(id, docEl()); return elements.get(id); },
+      querySelectorAll: () => [],
+      createElement: () => docEl()
+    },
+    window: {
+      location: { search: '' },
+      addEventListener(ev, fn) { winListeners[ev] = fn; }
+    },
+    fetch: async (url) => {
+      fetchedUrls.push(String(url));
+      if (String(url).includes('/status')) {
+        return {
+          ok: true,
+          json: async () => ({
+            active: true,
+            physicalCaptureSeq: bridgeSeq,
+            physicalPhotoUrl: `http://127.0.0.1:19898/physical_capture.jpg?seq=${bridgeSeq}`
+          })
+        };
+      }
+      if (String(url).includes('/control')) {
+        return { ok: true, json: async () => ({ ok: true }) };
+      }
+      if (String(url).includes('/physical_capture.jpg')) {
+        return { ok: true, blob: async () => ({ size: 4096 }) };
+      }
+      return { ok: false, json: async () => ({}) };
+    },
+    setInterval: (fn) => { intervals.push(fn); return intervals.length; },
+    clearInterval: () => {},
+    setTimeout, clearTimeout, requestAnimationFrame: (fn) => fn(), console
+  });
+  vm.runInContext(trimmed, ctx);
+
+  const engine = vm.runInContext('Object.create(MingleBoothEngine.prototype)', ctx);
+  Object.assign(engine, {
+    tenantId: 't1', eventId: 'e1', deviceId: 'd1',
+    templates: [{ id: 'tpl_1', name: 'Test', image_storage_key: '/a.png', width: 1200, height: 1800, shots_mode: '2', slots: [{ x: 0, y: 0, width: 100, height: 100, pose_index: 1 }, { x: 100, y: 0, width: 100, height: 100, pose_index: 2 }] }],
+    allTemplates: [], activeTargetShots: 2, currentScreen: 'screenMingleSelect',
+    capturedPhotos: [], slotAssignments: [], slotTransforms: [],
+    usbStatus: null, baselinePhysicalSeq: 0, _lastAcceptedPhysicalSeq: 0, _physicalReadyArmed: false,
+    isProcessingCapture: false
+  });
+  engine.setupLifecycleListeners();
+
+  // Even before selecting a frame or arming, a spurious physical shutter event MUST NOT capture old seq 47
+  winListeners['mafaza:physical-shutter']({ detail: { seq: 47, url: 'http://127.0.0.1:19898/physical_capture.jpg?seq=47' } });
+  assert.equal(engine.capturedPhotos.length, 0);
+
+  // Entering selectFrame while usbStatus was null arms baseline to 47 BEFORE enabling capture acceptance
+  await engine.selectFrame('tpl_1');
+  assert.equal(engine.baselinePhysicalSeq, 47);
+  assert.equal(engine._physicalReadyArmed, true);
+  assert.equal(engine.capturedPhotos.length, 0, 'Stale seq=47 from last night must NOT auto-capture on selectFrame');
+
+  // Now simulate a genuinely NEW shot seq=48
+  winListeners['mafaza:physical-shutter']({ detail: { seq: 48, url: 'http://127.0.0.1:19898/physical_capture.jpg?seq=48' } });
+  await new Promise(r => setTimeout(r, 30));
+  assert.equal(engine.capturedPhotos.length, 1, 'New seq=48 shot IS captured');
+  const photoFetch = fetchedUrls.find(u => u.includes('physical_capture.jpg?seq=48'));
+  assert.ok(photoFetch && photoFetch.includes('&_cb='), 'Fetched bridge photo URL includes unique _cb cache-buster');
+});

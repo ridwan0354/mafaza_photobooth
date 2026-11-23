@@ -3584,7 +3584,8 @@ class KioskEngine {
           }
           resolve(false);
         };
-        const url = data.imageUrl.includes('?') ? data.imageUrl : (data.imageUrl + '?t=' + Date.now());
+        const cb = `_cb=${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const url = data.imageUrl.includes('?') ? `${data.imageUrl}&${cb}` : `${data.imageUrl}?${cb}`;
         img.src = url;
       });
     }

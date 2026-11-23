@@ -68,6 +68,8 @@ public class CanonUsbPtpEngineTest {
         boolean requireTid1ForOpen;
         boolean requireResetBeforeOpen;
         boolean genericShotCaptured;
+        boolean useGenericHandlesList;
+        final List<Integer> genericHandles = new ArrayList<>();
         int mtpRejectOp = -1;
         int livePropertySize;
         byte[] customSonyPropsData = null;
@@ -111,9 +113,16 @@ public class CanonUsbPtpEngineTest {
                 data = (op == 0x9209 && customSonyPropsData != null) ? customSonyPropsData : new byte[16];
             }
             if (rc == 0x2001 && op == 0x1007) {
-                data = genericShotCaptured
-                        ? ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putInt(1).putInt(777).array()
-                        : ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(0).array();
+                if (useGenericHandlesList) {
+                    ByteBuffer hbuf = ByteBuffer.allocate(4 + genericHandles.size() * 4).order(ByteOrder.LITTLE_ENDIAN);
+                    hbuf.putInt(genericHandles.size());
+                    for (int h : genericHandles) hbuf.putInt(h);
+                    data = hbuf.array();
+                } else {
+                    data = genericShotCaptured
+                            ? ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putInt(1).putInt(777).array()
+                            : ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(0).array();
+                }
             }
             if (op == 0x100e && rc == 0x2001) genericShotCaptured = true;
             if (rc == 0x2001 && op == 0x1008) {
@@ -342,6 +351,66 @@ public class CanonUsbPtpEngineTest {
         CanonUsbPtpEngine canonBurst = connect(canonBurstUsb, false, new Listener());
         check(Arrays.equals(JPEG, canonBurst.capturePhotoWithFlash()),
                 "Canon multi-handle burst skips RAW (0xB101) and downloads JPEG object cleanly");
+
+        // Pre-existing SD card photos from last night must NOT be imported when Mingle turns on before USB connects
+        Listener sdGuardListener = new Listener();
+        USB sdGuardUsb = new USB();
+        sdGuardUsb.useGenericHandlesList = true;
+        sdGuardUsb.genericHandles.add(101);
+        sdGuardUsb.genericHandles.add(102);
+        CanonUsbPtpEngine sdGuard = new CanonUsbPtpEngine(new Context(), sdGuardListener);
+        sdGuard.setMingleListenMode(true, false); // enabled BEFORE camera connects
+        Method sdOpen = CanonUsbPtpEngine.class.getDeclaredMethod("openPtpConnection", UsbDevice.class);
+        sdOpen.setAccessible(true);
+        Context sdCtx = new Context();
+        sdCtx.manager.connection = sdGuardUsb;
+        sdCtx.manager.devices.put("camera", new Device(0x04cb, "X-T4", 6));
+        set(sdGuard, "usbManager", sdCtx.manager);
+        sdOpen.invoke(sdGuard, new Device(0x04cb, "X-T4", 6));
+        pollMingle.invoke(sdGuard); // Baseline seed pass on first poll
+        check(sdGuard.getPhysicalCaptureSeq() == 0 && sdGuardListener.physicalSeq == 0,
+                "Pre-existing SD card photos from last night are seeded as baseline, never treated as new captures");
+        sdGuardUsb.genericHandles.add(103); // New photo taken AFTER seeding
+        pollMingle.invoke(sdGuard);
+        check(sdGuard.getPhysicalCaptureSeq() == 1 && sdGuardListener.physicalSeq == 1
+                && Arrays.equals(JPEG, sdGuard.getLastPhysicalCapturedJpeg()),
+                "Only genuinely new SD card handle after seeding fires Mingle physical capture");
+
+        // Canon pre-Mingle queued shutter event is drained when entering Mingle mode
+        Listener canonDrainListener = new Listener();
+        USB canonDrainUsb = new USB();
+        canonDrainUsb.canonShot = true; // Queued BEFORE entering Mingle
+        CanonUsbPtpEngine canonDrain = connect(canonDrainUsb, false, canonDrainListener);
+        canonDrain.setMingleListenMode(true, false);
+        pollMingle.invoke(canonDrain);
+        check(canonDrain.getPhysicalCaptureSeq() == 0 && canonDrainListener.physicalSeq == 0,
+                "Stale pre-Mingle Canon event is drained when entering Mingle listen mode");
+
+        // LocalCanonHttpServer enforces ?seq= match on /physical_capture.jpg
+        LocalCanonHttpServer mingleHttp = new LocalCanonHttpServer(sdGuard);
+        Method handleClient = LocalCanonHttpServer.class.getDeclaredMethod("handleClient", java.net.Socket.class);
+        handleClient.setAccessible(true);
+        ByteArrayOutputStream mismatchOut = new ByteArrayOutputStream();
+        java.net.Socket mismatchSock = new java.net.Socket() {
+            @Override public java.io.InputStream getInputStream() {
+                return new java.io.ByteArrayInputStream("GET /physical_capture.jpg?seq=999 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            @Override public java.io.OutputStream getOutputStream() { return mismatchOut; }
+        };
+        handleClient.invoke(mingleHttp, mismatchSock);
+        check(mismatchOut.toString("UTF-8").contains("404 Not Found"),
+                "Mismatched ?seq= on /physical_capture.jpg returns 404 instead of stale photo");
+
+        ByteArrayOutputStream matchOut = new ByteArrayOutputStream();
+        java.net.Socket matchSock = new java.net.Socket() {
+            @Override public java.io.InputStream getInputStream() {
+                return new java.io.ByteArrayInputStream("GET /physical_capture.jpg?seq=1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            @Override public java.io.OutputStream getOutputStream() { return matchOut; }
+        };
+        handleClient.invoke(mingleHttp, matchSock);
+        check(matchOut.toString("UTF-8").contains("200 OK"),
+                "Matching ?seq=1 on /physical_capture.jpg serves captured JPEG");
 
         System.out.println("Sony/Canon camera failures and JPEG paths: " + passed + " checks passed");
     }

@@ -6,7 +6,7 @@
  * dan tetap bisa dibuka kembali saat di-refresh (F5 / reload).
  */
 
-const CACHE_NAME = 'mafaza-offline-v3.90';
+const CACHE_NAME = 'mafaza-offline-v3.91';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -91,8 +91,20 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Hanya proses method GET dan skema protokol HTTP/HTTPS (abaikan chrome-extension dll.)
+  // Hanya proses method GET, skema HTTP/HTTPS, dan origin aplikasi sendiri.
+  // Permintaan ke USB Camera Bridge lokal (127.0.0.1:19898 / 19899 / 5513) atau origin lain
+  // TIDAK boleh di-intercept atau disimpan di cache (mencegah foto lama muncul lagi saat seq=1 berulang).
   if (req.method !== 'GET' || !url.protocol.startsWith('http')) return;
+  if (url.origin !== self.location.origin) return;
+  if (
+    url.hostname === '127.0.0.1' ||
+    (url.hostname === 'localhost' && ['19898', '19899', '5513'].includes(url.port)) ||
+    url.pathname === '/physical_capture.jpg' ||
+    url.pathname === '/captured_pose.jpg' ||
+    url.pathname === '/frame.jpg'
+  ) {
+    return;
+  }
 
   // Installer APK harus selalu diunduh dari server, termasuk saat dibuka lewat QR.
   if (url.pathname.endsWith('.apk')) return;

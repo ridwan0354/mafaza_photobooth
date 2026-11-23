@@ -74,7 +74,10 @@
         clearTimeout(timer);
         reject(new Error('Foto asli kamera tidak dapat dimuat. Silakan ambil ulang.'));
       };
-      img.src = url;
+      const rawUrl = String(url || '');
+      img.src = /^https?:\/\//i.test(rawUrl)
+        ? (rawUrl + (rawUrl.indexOf('?') >= 0 ? '&' : '?') + '_cb=' + Date.now() + '_' + Math.random().toString(36).slice(2, 7))
+        : rawUrl;
     });
   }
 
