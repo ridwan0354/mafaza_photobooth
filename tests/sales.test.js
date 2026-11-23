@@ -20,7 +20,11 @@ test('Sales Catalog, Ad-hoc Products, Daily Reports, CSV Export, and Tenant Isol
   assert.match(adminHtml, /id="salesTransactionsTableBody"/);
   assert.match(adminHtml, /id="salesPinModal"/);
   assert.match(adminHtml, /id="editSaleModal"/);
+  assert.match(adminHtml, /id="btnAddToSalesCart"/);
+  assert.match(adminHtml, /id="salesCartBox"/);
   assert.match(adminJs, /function loadSalesDashboard\(/);
+  assert.match(adminJs, /function addCurrentItemToSalesCart\(/);
+  assert.match(adminJs, /function renderSalesCart\(/);
   assert.match(adminJs, /function submitSalesProduct\(/);
   assert.match(adminJs, /function submitSalesTransaction\(/);
   assert.match(adminJs, /function openSalesPinModal\(/);
@@ -328,6 +332,42 @@ test('Sales Catalog, Ad-hoc Products, Daily Reports, CSV Export, and Tenant Isol
     assert.equal(repAfterDel.summary.totalRevenue, 135000);
     assert.equal(repAfterDel.summary.totalItemsSold, 3);
     assert.equal(repAfterDel.summary.totalTransactions, 1);
+
+    // 9. Multi-product cart checkout on day3 counts as 1 transaction/receipt while reporting each product
+    const day3 = '2026-11-24';
+    const cartRes = await fetch(`${baseUrl}/api/sales/transactions`, {
+      method: 'POST',
+      headers: headersB,
+      body: JSON.stringify({
+        paymentMethod: 'QRIS',
+        soldDate: day3,
+        soldTime: '11:45',
+        notes: 'Pembelian Paket Keluarga',
+        items: [
+          { productId: prod1.id, quantity: 2 }, // 2 x 40,000 = 80,000
+          { productName: 'Softcopy Bonus', category: 'Digital', unit: 'sesi', unitPrice: 15000, quantity: 1 },
+          { productName: 'Air Mineral Booth', category: 'Minuman', unit: 'botol', unitPrice: 5000, quantity: 3 }
+        ]
+      })
+    });
+    assert.equal(cartRes.status, 201);
+    const cartData = await cartRes.json();
+    assert.ok(cartData.receiptId);
+    assert.equal(cartData.itemsCount, 3);
+    assert.equal(cartData.totalQuantity, 6);
+    assert.equal(cartData.totalAmount, 110000);
+
+    const day3Rep = await (await fetch(`${baseUrl}/api/sales/report?date=${day3}`, { headers: headersB })).json();
+    assert.equal(day3Rep.summary.totalRevenue, 110000);
+    assert.equal(day3Rep.summary.totalItemsSold, 6);
+    assert.equal(day3Rep.summary.totalTransactions, 1, '3 products purchased together in 1 cart share 1 receipt/transaction');
+    assert.equal(day3Rep.summary.totalLineItems, 3);
+    assert.equal(day3Rep.itemsSold.length, 3);
+    assert.ok(day3Rep.transactions.every(t => t.receipt_id === cartData.receiptId && t.receipt_item_count === 3));
+
+    const csvDay3 = await (await fetch(`${baseUrl}/api/sales/report/export?date=${day3}`, { headers: headersB })).text();
+    assert.match(csvDay3, /"No\. Nota"/);
+    assert.match(csvDay3, new RegExp(cartData.receiptId));
   } finally {
     db.prepare('DELETE FROM tenants WHERE id = ?').run(otherTenantId);
     srv.closeAllConnections?.();

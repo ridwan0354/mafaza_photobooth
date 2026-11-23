@@ -229,6 +229,9 @@ function runMigrations() {
   // Catatan pesanan cetak dari mode keliling / offline (ukuran kertas & jumlah lembar sebelum cetak di tenda)
   ensureColumn('photo_sessions', 'requested_print_paper', 'TEXT');
   ensureColumn('photo_sessions', 'requested_print_copies', 'INTEGER DEFAULT 0');
+  // ID nota bersama agar 1 pembeli bisa membeli beberapa produk sekaligus dalam 1 transaksi
+  ensureColumn('sales_transactions', 'receipt_id', 'TEXT');
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_sales_tx_receipt ON sales_transactions(receipt_id)'); } catch (e) {}
 
   ensureStarterLandscapeTemplates();
   ensureStarterSalesProducts();

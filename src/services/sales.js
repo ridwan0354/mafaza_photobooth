@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { db } from '../db/database.js';
+import { db, runInTransaction } from '../db/database.js';
 
 const VALID_PAYMENT_METHODS = new Set(['Tunai', 'QRIS', 'Transfer', 'Lainnya']);
 const SALES_ACTION_PIN = String(process.env.SALES_ACTION_PIN || '1318');
@@ -134,71 +134,113 @@ function normalizeTimeString(raw) {
   return /^\d{2}:\d{2}$/.test(str) ? str : null;
 }
 
-export function recordSale(tenantId, data = {}, actorName = 'Admin') {
+function resolveSaleEventId(tenantId, rawEventId) {
+  if (rawEventId && String(rawEventId).trim() && String(rawEventId).trim() !== 'all') {
+    const ev = db.prepare('SELECT id FROM events WHERE id = ? AND tenant_id = ?').get(String(rawEventId).trim(), tenantId);
+    if (!ev) throw new Error('Event tidak ditemukan.');
+    return ev.id;
+  }
+  return null;
+}
+
+function normalizeSaleItemInput(tenantId, item = {}) {
   let product = null;
-  if (data.productId) {
-    product = db.prepare('SELECT * FROM sales_products WHERE id = ? AND tenant_id = ?').get(String(data.productId), tenantId);
+  if (item.productId) {
+    product = db.prepare('SELECT * FROM sales_products WHERE id = ? AND tenant_id = ?').get(String(item.productId), tenantId);
     if (!product) throw new Error('Produk yang dipilih tidak ditemukan.');
   }
 
-  const productName = String(data.productName || (product && product.name) || '').trim();
+  const productName = String(item.productName || (product && product.name) || '').trim();
   if (!productName) {
     throw new Error('Pilih produk atau ketik nama produk yang terjual.');
   }
 
-  const category = String(data.category || (product && product.category) || 'Umum').trim() || 'Umum';
-  const unit = String(data.unit || (product && product.unit) || 'pcs').trim() || 'pcs';
+  const category = String(item.category || (product && product.category) || 'Umum').trim() || 'Umum';
+  const unit = String(item.unit || (product && product.unit) || 'pcs').trim() || 'pcs';
 
-  const rawUnitPrice = data.unitPrice !== undefined && data.unitPrice !== '' && data.unitPrice !== null
-    ? Number(data.unitPrice)
+  const rawUnitPrice = item.unitPrice !== undefined && item.unitPrice !== '' && item.unitPrice !== null
+    ? Number(item.unitPrice)
     : (product ? Number(product.price) : NaN);
   if (!Number.isFinite(rawUnitPrice) || rawUnitPrice < 0) {
-    throw new Error('Harga satuan penjualan tidak valid.');
+    throw new Error(`Harga satuan untuk "${productName}" tidak valid.`);
   }
   const unitPrice = Math.round(rawUnitPrice);
 
-  const rawQty = Number(data.quantity ?? 1);
+  const rawQty = Number(item.quantity ?? 1);
   if (!Number.isFinite(rawQty) || rawQty < 1 || rawQty > 10000) {
-    throw new Error('Jumlah terjual minimal 1.');
+    throw new Error(`Jumlah terjual untuk "${productName}" minimal 1.`);
   }
   const quantity = Math.round(rawQty);
-  const totalAmount = unitPrice * quantity;
 
-  let eventId = null;
-  if (data.eventId && String(data.eventId).trim() && String(data.eventId).trim() !== 'all') {
-    const ev = db.prepare('SELECT id FROM events WHERE id = ? AND tenant_id = ?').get(String(data.eventId).trim(), tenantId);
-    if (!ev) throw new Error('Event tidak ditemukan.');
-    eventId = ev.id;
-  }
+  return {
+    product,
+    productName,
+    category,
+    unit,
+    unitPrice,
+    quantity,
+    totalAmount: unitPrice * quantity,
+    saveToCatalog: !product && Boolean(item.saveToCatalog)
+  };
+}
 
-  // Optional: save ad-hoc typed product directly into catalog so cashier can reuse it immediately
-  let savedProductId = product ? product.id : null;
-  if (!product && data.saveToCatalog) {
-    const created = createProduct(tenantId, { name: productName, category, price: unitPrice, unit });
+function insertNormalizedSaleRow(tenantId, normalizedItem, sharedMeta) {
+  let savedProductId = normalizedItem.product ? normalizedItem.product.id : null;
+  if (normalizedItem.saveToCatalog) {
+    const created = createProduct(tenantId, {
+      name: normalizedItem.productName,
+      category: normalizedItem.category,
+      price: normalizedItem.unitPrice,
+      unit: normalizedItem.unit
+    });
     savedProductId = created.id;
   }
 
+  const id = 'sale_' + crypto.randomBytes(6).toString('hex');
+  db.prepare(`
+    INSERT INTO sales_transactions (
+      id, tenant_id, receipt_id, event_id, product_id, product_name, category, unit,
+      unit_price, quantity, total_amount, payment_method, customer_name, notes,
+      sold_date, sold_time, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, tenantId, sharedMeta.receiptId, sharedMeta.eventId, savedProductId,
+    normalizedItem.productName, normalizedItem.category, normalizedItem.unit,
+    normalizedItem.unitPrice, normalizedItem.quantity, normalizedItem.totalAmount,
+    sharedMeta.paymentMethod, sharedMeta.customerName, sharedMeta.notes,
+    sharedMeta.soldDate, sharedMeta.soldTime, sharedMeta.actorName
+  );
+  return id;
+}
+
+function resolveSharedReceiptMeta(tenantId, data = {}, actorName = 'Admin') {
+  const eventId = resolveSaleEventId(tenantId, data.eventId);
   const rawMethod = String(data.paymentMethod || 'Tunai').trim();
   const paymentMethod = VALID_PAYMENT_METHODS.has(rawMethod) ? rawMethod : 'Tunai';
   const customerName = String(data.customerName || '').trim().slice(0, 120);
   const notes = String(data.notes || '').trim().slice(0, 300);
-
   const localNow = getTenantLocalDateInfo(tenantId, eventId);
   const soldDate = normalizeDateString(data.soldDate) || localNow.date;
   const soldTime = normalizeTimeString(data.soldTime) || localNow.time;
-  const id = 'sale_' + crypto.randomBytes(6).toString('hex');
+  const rawReceipt = String(data.receiptId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
+  const receiptId = rawReceipt || ('rcp_' + crypto.randomBytes(6).toString('hex'));
 
-  db.prepare(`
-    INSERT INTO sales_transactions (
-      id, tenant_id, event_id, product_id, product_name, category, unit,
-      unit_price, quantity, total_amount, payment_method, customer_name, notes,
-      sold_date, sold_time, created_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id, tenantId, eventId, savedProductId, productName, category, unit,
-    unitPrice, quantity, totalAmount, paymentMethod, customerName, notes,
-    soldDate, soldTime, String(actorName || 'Admin').slice(0, 80)
-  );
+  return {
+    receiptId,
+    eventId,
+    paymentMethod,
+    customerName,
+    notes,
+    soldDate,
+    soldTime,
+    actorName: String(actorName || 'Admin').slice(0, 80)
+  };
+}
+
+export function recordSale(tenantId, data = {}, actorName = 'Admin') {
+  const item = normalizeSaleItemInput(tenantId, data);
+  const meta = resolveSharedReceiptMeta(tenantId, data, actorName);
+  const id = runInTransaction(() => insertNormalizedSaleRow(tenantId, item, meta));
 
   return db.prepare(`
     SELECT s.*, e.name as event_name
@@ -206,6 +248,40 @@ export function recordSale(tenantId, data = {}, actorName = 'Admin') {
     LEFT JOIN events e ON e.id = s.event_id
     WHERE s.id = ? AND s.tenant_id = ?
   `).get(id, tenantId);
+}
+
+export function recordSaleBatch(tenantId, data = {}, actorName = 'Admin') {
+  const rawItems = Array.isArray(data.items) ? data.items : [];
+  if (rawItems.length === 0) {
+    throw new Error('Keranjang belanja kosong. Tambahkan minimal 1 produk.');
+  }
+  if (rawItems.length > 50) {
+    throw new Error('Maksimal 50 produk dalam 1 nota penjualan.');
+  }
+
+  const normalizedItems = rawItems.map((it) => normalizeSaleItemInput(tenantId, it));
+  const meta = resolveSharedReceiptMeta(tenantId, data, actorName);
+
+  const insertedIds = runInTransaction(() =>
+    normalizedItems.map((item) => insertNormalizedSaleRow(tenantId, item, meta))
+  );
+
+  const placeholders = insertedIds.map(() => '?').join(', ');
+  const items = db.prepare(`
+    SELECT s.*, e.name as event_name
+    FROM sales_transactions s
+    LEFT JOIN events e ON e.id = s.event_id
+    WHERE s.tenant_id = ? AND s.id IN (${placeholders})
+    ORDER BY s.created_at ASC, s.id ASC
+  `).all(tenantId, ...insertedIds);
+
+  return {
+    receiptId: meta.receiptId,
+    itemsCount: items.length,
+    totalQuantity: items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0),
+    totalAmount: items.reduce((sum, it) => sum + (Number(it.total_amount) || 0), 0),
+    items
+  };
 }
 
 export function updateSale(tenantId, saleId, data = {}, actorName = 'Admin') {
@@ -342,11 +418,17 @@ export function getSalesReport(tenantId, filters = {}) {
 
   let totalRevenue = 0;
   let totalItemsSold = 0;
+  const receiptIds = new Set();
+  const receiptCounts = new Map();
   const byPaymentMethod = {};
   const productMap = new Map();
   const dailyMap = new Map();
 
   for (const row of rows) {
+    const receiptKey = row.receipt_id || row.id;
+    receiptIds.add(receiptKey);
+    receiptCounts.set(receiptKey, (receiptCounts.get(receiptKey) || 0) + 1);
+
     const qty = Number(row.quantity) || 0;
     const rev = Number(row.total_amount) || 0;
     totalRevenue += rev;
@@ -354,9 +436,10 @@ export function getSalesReport(tenantId, filters = {}) {
 
     const method = row.payment_method || 'Tunai';
     if (!byPaymentMethod[method]) {
-      byPaymentMethod[method] = { method, transactionsCount: 0, totalQty: 0, totalRevenue: 0 };
+      byPaymentMethod[method] = { method, _receipts: new Set(), transactionsCount: 0, totalQty: 0, totalRevenue: 0 };
     }
-    byPaymentMethod[method].transactionsCount += 1;
+    byPaymentMethod[method]._receipts.add(receiptKey);
+    byPaymentMethod[method].transactionsCount = byPaymentMethod[method]._receipts.size;
     byPaymentMethod[method].totalQty += qty;
     byPaymentMethod[method].totalRevenue += rev;
 
@@ -382,17 +465,21 @@ export function getSalesReport(tenantId, filters = {}) {
     if (!dailyMap.has(dKey)) {
       dailyMap.set(dKey, {
         date: dKey,
-        transactionsCount: 0,
+        _receipts: new Set(),
         totalQty: 0,
         totalRevenue: 0,
         itemCounts: new Map()
       });
     }
     const dAgg = dailyMap.get(dKey);
-    dAgg.transactionsCount += 1;
+    dAgg._receipts.add(receiptKey);
     dAgg.totalQty += qty;
     dAgg.totalRevenue += rev;
     dAgg.itemCounts.set(row.product_name, (dAgg.itemCounts.get(row.product_name) || 0) + qty);
+  }
+
+  for (const m of Object.values(byPaymentMethod)) {
+    delete m._receipts;
   }
 
   const itemsSold = Array.from(productMap.values()).sort((a, b) =>
@@ -403,7 +490,7 @@ export function getSalesReport(tenantId, filters = {}) {
     .sort((a, b) => b.date.localeCompare(a.date))
     .map((d) => ({
       date: d.date,
-      transactionsCount: d.transactionsCount,
+      transactionsCount: d._receipts.size,
       totalQty: d.totalQty,
       totalRevenue: d.totalRevenue,
       itemsSummary: Array.from(d.itemCounts.entries())
@@ -412,6 +499,14 @@ export function getSalesReport(tenantId, filters = {}) {
         .join(', ')
     }));
 
+  const annotatedTransactions = rows.map((row) => {
+    const key = row.receipt_id || row.id;
+    return {
+      ...row,
+      receipt_item_count: receiptCounts.get(key) || 1
+    };
+  });
+
   return {
     todayDate: localNow.date,
     timeZone: localNow.timeZone,
@@ -419,12 +514,13 @@ export function getSalesReport(tenantId, filters = {}) {
     summary: {
       totalRevenue,
       totalItemsSold,
-      totalTransactions: rows.length,
+      totalTransactions: receiptIds.size,
+      totalLineItems: rows.length,
       byPaymentMethod
     },
     itemsSold,
     dailyBreakdown,
-    transactions: rows
+    transactions: annotatedTransactions
   };
 }
 
@@ -440,6 +536,7 @@ export function buildSalesCsv(report) {
   const header = [
     'Tanggal',
     'Jam',
+    'No. Nota',
     'Event',
     'Nama Produk',
     'Kategori',
@@ -457,6 +554,7 @@ export function buildSalesCsv(report) {
     lines.push([
       row.sold_date,
       row.sold_time,
+      row.receipt_id || row.id,
       row.event_name || '-',
       row.product_name,
       row.category || 'Umum',

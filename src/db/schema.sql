@@ -294,6 +294,7 @@ CREATE TABLE IF NOT EXISTS sales_products (
 CREATE TABLE IF NOT EXISTS sales_transactions (
   id TEXT PRIMARY KEY,
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  receipt_id TEXT,
   event_id TEXT REFERENCES events(id) ON DELETE SET NULL,
   product_id TEXT REFERENCES sales_products(id) ON DELETE SET NULL,
   product_name TEXT NOT NULL,

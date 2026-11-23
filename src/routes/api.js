@@ -2271,6 +2271,10 @@ apiRouter.post('/sales/transactions', authMiddleware(), (req, res) => {
   try {
     const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
     const actor = req.user.email || req.user.role || 'Admin';
+    if (Array.isArray(req.body?.items)) {
+      const batchResult = salesService.recordSaleBatch(tenantId, req.body, actor);
+      return res.status(201).json(batchResult);
+    }
     const created = salesService.recordSale(tenantId, req.body || {}, actor);
     res.status(201).json(created);
   } catch (err) {

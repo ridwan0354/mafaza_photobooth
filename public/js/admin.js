@@ -6020,11 +6020,142 @@ function adjustSalesTxQty(delta) {
 }
 window.adjustSalesTxQty = adjustSalesTxQty;
 
+let salesCart = [];
+
+function getCurrentSalesFormItem() {
+  const productName = (document.getElementById('salesTxProductName')?.value || '').trim();
+  if (!productName) return null;
+  const productId = document.getElementById('salesTxProductId')?.value || null;
+  const category = (document.getElementById('salesTxCategory')?.value || '').trim() || 'Umum';
+  const unit = (document.getElementById('salesTxUnit')?.value || '').trim() || 'pcs';
+  const quantity = Math.max(1, parseInt(document.getElementById('salesTxQty')?.value || '1', 10) || 1);
+  const rawPrice = document.getElementById('salesTxUnitPrice')?.value;
+  const unitPrice = Math.max(0, parseInt(rawPrice === '' ? '0' : rawPrice, 10) || 0);
+  const saveToCatalog = !productId && Boolean(document.getElementById('salesTxSaveCatalog')?.checked);
+  return { productId, productName, category, unit, quantity, unitPrice, saveToCatalog };
+}
+
+function clearSalesTxItemInputs() {
+  const idEl = document.getElementById('salesTxProductId');
+  const nameEl = document.getElementById('salesTxProductName');
+  const catEl = document.getElementById('salesTxCategory');
+  const unitEl = document.getElementById('salesTxUnit');
+  const qtyEl = document.getElementById('salesTxQty');
+  const priceEl = document.getElementById('salesTxUnitPrice');
+  const saveCheck = document.getElementById('salesTxSaveCatalog');
+  const saveRow = document.getElementById('salesSaveCatalogRow');
+  if (idEl) idEl.value = '';
+  if (nameEl) nameEl.value = '';
+  if (catEl) catEl.value = 'Umum';
+  if (unitEl) unitEl.value = 'pcs';
+  if (qtyEl) qtyEl.value = '1';
+  if (priceEl) priceEl.value = '';
+  if (saveCheck) saveCheck.checked = false;
+  if (saveRow) saveRow.style.display = 'flex';
+  renderSalesProducts();
+}
+
+function addCurrentItemToSalesCart() {
+  const item = getCurrentSalesFormItem();
+  if (!item) {
+    salesNotify('Pilih produk di atas atau ketik nama produk dulu.', 'error');
+    document.getElementById('salesTxProductName')?.focus();
+    return;
+  }
+  const existing = salesCart.find((c) =>
+    (c.productId || '') === (item.productId || '') &&
+    c.productName === item.productName &&
+    c.unitPrice === item.unitPrice &&
+    c.unit === item.unit
+  );
+  if (existing) {
+    existing.quantity += item.quantity;
+  } else {
+    salesCart.push(item);
+  }
+  clearSalesTxItemInputs();
+  renderSalesCart();
+  updateSalesTxTotalPreview();
+  salesNotify(`${item.productName} (${item.quantity}×) masuk keranjang! Pilih produk lain lagi bila perlu.`, 'info');
+}
+window.addCurrentItemToSalesCart = addCurrentItemToSalesCart;
+
+function adjustSalesCartItemQty(idx, delta) {
+  const item = salesCart[idx];
+  if (!item) return;
+  const next = item.quantity + delta;
+  if (next <= 0) {
+    salesCart.splice(idx, 1);
+  } else {
+    item.quantity = next;
+  }
+  renderSalesCart();
+  updateSalesTxTotalPreview();
+}
+window.adjustSalesCartItemQty = adjustSalesCartItemQty;
+
+function removeSalesCartItem(idx) {
+  salesCart.splice(idx, 1);
+  renderSalesCart();
+  updateSalesTxTotalPreview();
+}
+window.removeSalesCartItem = removeSalesCartItem;
+
+function clearSalesCart() {
+  salesCart = [];
+  renderSalesCart();
+  updateSalesTxTotalPreview();
+}
+window.clearSalesCart = clearSalesCart;
+
+function renderSalesCart() {
+  const box = document.getElementById('salesCartBox');
+  const listEl = document.getElementById('salesCartItemsList');
+  const countEl = document.getElementById('salesCartCountBadge');
+  if (!box || !listEl) return;
+
+  if (salesCart.length === 0) {
+    box.style.display = 'none';
+    listEl.innerHTML = '';
+    return;
+  }
+
+  box.style.display = 'block';
+  const totalQty = salesCart.reduce((acc, it) => acc + it.quantity, 0);
+  if (countEl) {
+    countEl.textContent = `🧺 Keranjang Belanja (${salesCart.length} produk · ${totalQty} item)`;
+  }
+
+  listEl.innerHTML = salesCart.map((item, idx) => `
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; background: #fff; border: 1.5px solid var(--border-soft); border-radius: 10px; padding: 8px 10px;">
+      <div style="min-width: 120px; flex: 1;">
+        <div style="font-size: 13px; font-weight: 800; color: var(--charcoal);">${escapeHtml(item.productName)}</div>
+        <div style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">${formatRupiah(item.unitPrice)} / ${escapeHtml(item.unit)}</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <button type="button" class="btn btn-secondary" style="padding: 4px 9px; font-size: 12px; font-weight: 800; background: var(--cream-bg);" onclick="adjustSalesCartItemQty(${idx}, -1)">-</button>
+        <span style="min-width: 22px; text-align: center; font-size: 13px; font-weight: 800;">${item.quantity}</span>
+        <button type="button" class="btn btn-secondary" style="padding: 4px 9px; font-size: 12px; font-weight: 800; background: var(--cream-bg);" onclick="adjustSalesCartItemQty(${idx}, 1)">+</button>
+        <span style="min-width: 78px; text-align: right; font-size: 13px; font-weight: 800; color: var(--coral);">${formatRupiah(item.quantity * item.unitPrice)}</span>
+        <button type="button" class="btn btn-secondary" style="padding: 4px 8px; font-size: 11.5px; color: #B3402F; background: #fff; border-color: rgba(179,64,47,0.3);" onclick="removeSalesCartItem(${idx})" title="Hapus dari keranjang">✕</button>
+      </div>
+    </div>
+  `).join('');
+}
+
 function updateSalesTxTotalPreview() {
-  const qty = Math.max(1, parseInt(document.getElementById('salesTxQty')?.value || '1', 10) || 1);
-  const price = Math.max(0, parseInt(document.getElementById('salesTxUnitPrice')?.value || '0', 10) || 0);
+  const cartTotal = salesCart.reduce((acc, it) => acc + (it.quantity * it.unitPrice), 0);
+  const currentItem = getCurrentSalesFormItem();
+  const currentTotal = currentItem ? (currentItem.quantity * currentItem.unitPrice) : 0;
+  const combinedTotal = cartTotal + currentTotal;
+  const totalLines = salesCart.length + (currentItem ? 1 : 0);
+
   const el = document.getElementById('salesTxTotalPreview');
-  if (el) el.textContent = formatRupiah(qty * price);
+  const noteEl = document.getElementById('salesTxItemsCountNote');
+  if (el) el.textContent = formatRupiah(combinedTotal);
+  if (noteEl) {
+    noteEl.textContent = totalLines > 1 ? `(${totalLines} produk dalam 1 nota)` : '';
+  }
 }
 window.updateSalesTxTotalPreview = updateSalesTxTotalPreview;
 
@@ -6106,21 +6237,28 @@ window.deleteSalesProduct = deleteSalesProduct;
 
 async function submitSalesTransaction(e) {
   e.preventDefault();
-  const productId = document.getElementById('salesTxProductId')?.value || '';
-  const payload = {
-    productId: productId || null,
-    productName: document.getElementById('salesTxProductName')?.value.trim(),
-    category: document.getElementById('salesTxCategory')?.value.trim() || 'Umum',
-    unit: document.getElementById('salesTxUnit')?.value.trim() || 'pcs',
-    quantity: parseInt(document.getElementById('salesTxQty')?.value || '1', 10) || 1,
-    unitPrice: parseInt(document.getElementById('salesTxUnitPrice')?.value || '0', 10) || 0,
+  const itemsToSubmit = salesCart.map(it => ({ ...it }));
+  const currentItem = getCurrentSalesFormItem();
+  if (currentItem) {
+    itemsToSubmit.push(currentItem);
+  }
+  if (itemsToSubmit.length === 0) {
+    salesNotify('Pilih produk atau tambah minimal 1 produk ke keranjang.', 'error');
+    document.getElementById('salesTxProductName')?.focus();
+    return;
+  }
+
+  const sharedMeta = {
     paymentMethod: document.getElementById('salesTxPaymentMethod')?.value || 'Tunai',
     eventId: document.getElementById('salesTxEventId')?.value || null,
     notes: document.getElementById('salesTxNotes')?.value.trim() || '',
     soldDate: document.getElementById('salesTxDate')?.value || getLocalTodayIso(),
-    soldTime: document.getElementById('salesTxTime')?.value || getLocalTimeHm(),
-    saveToCatalog: !productId && Boolean(document.getElementById('salesTxSaveCatalog')?.checked)
+    soldTime: document.getElementById('salesTxTime')?.value || getLocalTimeHm()
   };
+
+  const payload = { ...sharedMeta, items: itemsToSubmit };
+  const hadSaveToCatalog = itemsToSubmit.some(it => it.saveToCatalog);
+
   try {
     const res = await fetch('/api/sales/transactions', {
       method: 'POST',
@@ -6129,15 +6267,20 @@ async function submitSalesTransaction(e) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Gagal mencatat penjualan');
-    document.getElementById('salesTxQty').value = '1';
+    salesCart = [];
+    renderSalesCart();
+    clearSalesTxItemInputs();
     document.getElementById('salesTxNotes').value = '';
     document.getElementById('salesTxTime').value = getLocalTimeHm();
-    const saveCheck = document.getElementById('salesTxSaveCatalog');
-    if (saveCheck) saveCheck.checked = false;
     updateSalesTxTotalPreview();
-    if (payload.saveToCatalog) await loadSalesProducts();
+    if (hadSaveToCatalog) await loadSalesProducts();
     await loadSalesReport();
-    salesNotify(`Penjualan tercatat: ${data.product_name} (${data.quantity}×) = ${formatRupiah(data.total_amount)}`);
+    if (data.itemsCount > 1) {
+      salesNotify(`Nota tercatat: ${data.itemsCount} produk (${data.totalQuantity} item) = ${formatRupiah(data.totalAmount)}`);
+    } else {
+      const one = (data.items && data.items[0]) || data;
+      salesNotify(`Penjualan tercatat: ${one.product_name} (${one.quantity}×) = ${formatRupiah(one.total_amount)}`);
+    }
   } catch (err) {
     salesNotify(err.message, 'error');
   }
@@ -6481,16 +6624,26 @@ async function loadSalesReport() {
     const txBody = document.getElementById('salesTransactionsTableBody');
     const txBadge = document.getElementById('salesTransactionsBadge');
     const txs = report.transactions || [];
-    if (txBadge) txBadge.textContent = `${txs.length} transaksi`;
+    const totalLineItems = summary.totalLineItems ?? txs.length;
+    if (txBadge) {
+      txBadge.textContent = summary.totalTransactions !== totalLineItems
+        ? `${summary.totalTransactions} transaksi · ${totalLineItems} baris item`
+        : `${txs.length} transaksi`;
+    }
     if (txBody) {
       if (txs.length === 0) {
         txBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 26px;">Belum ada transaksi penjualan pada periode ini.</td></tr>';
       } else {
-        txBody.innerHTML = txs.map(tx => `
+        txBody.innerHTML = txs.map(tx => {
+          const receiptBadge = (tx.receipt_item_count > 1 && tx.receipt_id)
+            ? `<div style="margin-top: 3px;"><span style="display:inline-block;padding:1px 7px;border-radius:99px;background:rgba(95,143,138,0.14);color:var(--dusty-teal);font-size:10.5px;font-weight:800;">🧾 Nota #${escapeHtml(tx.receipt_id.slice(-4).toUpperCase())} (${tx.receipt_item_count} item)</span></div>`
+            : '';
+          return `
           <tr>
             <td style="white-space: nowrap;">
               <div style="font-weight: 800; color: var(--caramel-brown);">${escapeHtml(tx.sold_date)}</div>
               <div style="font-size: 11.5px; color: var(--text-muted);">${escapeHtml(tx.sold_time || '')}</div>
+              ${receiptBadge}
             </td>
             <td>
               <div style="font-weight: 800; color: var(--charcoal);">${escapeHtml(tx.product_name)}</div>
@@ -6512,7 +6665,8 @@ async function loadSalesReport() {
               </div>
             </td>
           </tr>
-        `).join('');
+        `;
+        }).join('');
       }
     }
   } catch (e) {
