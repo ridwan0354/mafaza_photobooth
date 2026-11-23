@@ -2,6 +2,20 @@ import crypto from 'node:crypto';
 import { db } from '../db/database.js';
 
 const VALID_PAYMENT_METHODS = new Set(['Tunai', 'QRIS', 'Transfer', 'Lainnya']);
+const SALES_ACTION_PIN = String(process.env.SALES_ACTION_PIN || '1318');
+
+export function verifySalesActionPin(pin) {
+  const input = String(pin ?? '').trim();
+  const expected = SALES_ACTION_PIN;
+  const bufIn = Buffer.from(input, 'utf8');
+  const bufExp = Buffer.from(expected, 'utf8');
+  if (!input || bufIn.length !== bufExp.length || !crypto.timingSafeEqual(bufIn, bufExp)) {
+    const err = new Error('PIN salah! Masukkan PIN 1318 untuk mengedit atau menghapus penjualan.');
+    err.statusCode = 403;
+    throw err;
+  }
+  return true;
+}
 
 /**
  * Resolves the tenant's local calendar date (YYYY-MM-DD) and time (HH:MM)
@@ -194,10 +208,97 @@ export function recordSale(tenantId, data = {}, actorName = 'Admin') {
   `).get(id, tenantId);
 }
 
+export function updateSale(tenantId, saleId, data = {}, actorName = 'Admin') {
+  const current = db.prepare('SELECT * FROM sales_transactions WHERE id = ? AND tenant_id = ?').get(saleId, tenantId);
+  if (!current) {
+    const err = new Error('Transaksi penjualan tidak ditemukan.');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const productName = data.productName !== undefined
+    ? String(data.productName).trim()
+    : current.product_name;
+  if (!productName) {
+    throw new Error('Nama produk tidak boleh kosong.');
+  }
+
+  const category = data.category !== undefined
+    ? (String(data.category).trim() || 'Umum')
+    : current.category;
+  const unit = data.unit !== undefined
+    ? (String(data.unit).trim() || 'pcs')
+    : current.unit;
+
+  const unitPrice = data.unitPrice !== undefined && data.unitPrice !== '' && data.unitPrice !== null
+    ? Math.round(Number(data.unitPrice))
+    : Number(current.unit_price);
+  if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+    throw new Error('Harga satuan penjualan tidak valid.');
+  }
+
+  const quantity = data.quantity !== undefined && data.quantity !== '' && data.quantity !== null
+    ? Math.round(Number(data.quantity))
+    : Number(current.quantity);
+  if (!Number.isFinite(quantity) || quantity < 1 || quantity > 10000) {
+    throw new Error('Jumlah terjual minimal 1.');
+  }
+  const totalAmount = unitPrice * quantity;
+
+  let eventId = current.event_id;
+  if (data.eventId !== undefined) {
+    const rawEv = String(data.eventId || '').trim();
+    if (!rawEv || rawEv === 'all') {
+      eventId = null;
+    } else {
+      const ev = db.prepare('SELECT id FROM events WHERE id = ? AND tenant_id = ?').get(rawEv, tenantId);
+      if (!ev) throw new Error('Event tidak ditemukan.');
+      eventId = ev.id;
+    }
+  }
+
+  const rawMethod = data.paymentMethod !== undefined ? String(data.paymentMethod).trim() : current.payment_method;
+  const paymentMethod = VALID_PAYMENT_METHODS.has(rawMethod) ? rawMethod : 'Tunai';
+  const customerName = data.customerName !== undefined
+    ? String(data.customerName || '').trim().slice(0, 120)
+    : (current.customer_name || '');
+  const notes = data.notes !== undefined
+    ? String(data.notes || '').trim().slice(0, 300)
+    : (current.notes || '');
+  const soldDate = data.soldDate !== undefined
+    ? (normalizeDateString(data.soldDate) || current.sold_date)
+    : current.sold_date;
+  const soldTime = data.soldTime !== undefined
+    ? (normalizeTimeString(data.soldTime) || current.sold_time)
+    : current.sold_time;
+
+  db.prepare(`
+    UPDATE sales_transactions
+    SET event_id = ?, product_name = ?, category = ?, unit = ?,
+        unit_price = ?, quantity = ?, total_amount = ?, payment_method = ?,
+        customer_name = ?, notes = ?, sold_date = ?, sold_time = ?
+    WHERE id = ? AND tenant_id = ?
+  `).run(
+    eventId, productName, category, unit,
+    unitPrice, quantity, totalAmount, paymentMethod,
+    customerName, notes, soldDate, soldTime,
+    saleId, tenantId
+  );
+
+  return db.prepare(`
+    SELECT s.*, e.name as event_name
+    FROM sales_transactions s
+    LEFT JOIN events e ON e.id = s.event_id
+    WHERE s.id = ? AND s.tenant_id = ?
+  `).get(saleId, tenantId);
+}
+
 export function deleteSale(tenantId, saleId) {
   const res = db.prepare('DELETE FROM sales_transactions WHERE id = ? AND tenant_id = ?').run(saleId, tenantId);
   if (!res.changes) {
-    throw new Error('Transaksi penjualan tidak ditemukan.');
+    const err = new Error('Transaksi penjualan tidak ditemukan.');
+    err.statusCode = 404;
+    throw err;
   }
   return { deleted: true, id: saleId };
 }

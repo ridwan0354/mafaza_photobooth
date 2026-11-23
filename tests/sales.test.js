@@ -18,9 +18,13 @@ test('Sales Catalog, Ad-hoc Products, Daily Reports, CSV Export, and Tenant Isol
   assert.match(adminHtml, /id="salesItemsSoldTableBody"/);
   assert.match(adminHtml, /id="salesDailyBreakdownTableBody"/);
   assert.match(adminHtml, /id="salesTransactionsTableBody"/);
+  assert.match(adminHtml, /id="salesPinModal"/);
+  assert.match(adminHtml, /id="editSaleModal"/);
   assert.match(adminJs, /function loadSalesDashboard\(/);
   assert.match(adminJs, /function submitSalesProduct\(/);
   assert.match(adminJs, /function submitSalesTransaction\(/);
+  assert.match(adminJs, /function openSalesPinModal\(/);
+  assert.match(adminJs, /function submitEditSale\(/);
   assert.match(adminJs, /function exportSalesCsv\(/);
 
   const app = express();
@@ -199,15 +203,89 @@ test('Sales Catalog, Ad-hoc Products, Daily Reports, CSV Export, and Tenant Isol
     assert.match(csvText, /"Es Kopi Susu Booth"/);
     assert.match(csvText, /"'=SUM\(1\+1\) Formula Safe Check"/);
 
-    // 8. Delete one transaction and verify totals update
-    const delTxRes = await fetch(`${baseUrl}/api/sales/transactions/${sale2.id}`, {
+    // 8. Verify PIN 1318 requirement for BOTH Editing and Deleting sales
+    const verifyBadPin = await fetch(`${baseUrl}/api/sales/verify-pin`, {
+      method: 'POST',
+      headers: headersB,
+      body: JSON.stringify({ pin: '0000' })
+    });
+    assert.equal(verifyBadPin.status, 403);
+
+    const verifyGoodPin = await fetch(`${baseUrl}/api/sales/verify-pin`, {
+      method: 'POST',
+      headers: headersB,
+      body: JSON.stringify({ pin: '1318' })
+    });
+    assert.equal(verifyGoodPin.status, 200);
+    assert.equal((await verifyGoodPin.json()).valid, true);
+
+    // Edit sale blocked without PIN or with wrong PIN
+    const editNoPin = await fetch(`${baseUrl}/api/sales/transactions/${sale1.id}`, {
+      method: 'PATCH',
+      headers: headersB,
+      body: JSON.stringify({ quantity: 5 })
+    });
+    assert.equal(editNoPin.status, 403);
+
+    const editBadPin = await fetch(`${baseUrl}/api/sales/transactions/${sale1.id}`, {
+      method: 'PATCH',
+      headers: headersB,
+      body: JSON.stringify({ pin: '1234', quantity: 5 })
+    });
+    assert.equal(editBadPin.status, 403);
+
+    // Cross-tenant edit blocked even with PIN 1318
+    const editCross = await fetch(`${baseUrl}/api/sales/transactions/${sale1.id}`, {
+      method: 'PATCH',
+      headers: headersA,
+      body: JSON.stringify({ pin: '1318', quantity: 9 })
+    });
+    assert.equal(editCross.status, 404);
+
+    // Edit sale succeeds with PIN 1318 & recalculates total_amount
+    const editOk = await fetch(`${baseUrl}/api/sales/transactions/${sale1.id}`, {
+      method: 'PATCH',
+      headers: headersB,
+      body: JSON.stringify({
+        pin: '1318',
+        quantity: 3,
+        unitPrice: 45000,
+        paymentMethod: 'Transfer',
+        notes: 'Diedit Owner'
+      })
+    });
+    assert.equal(editOk.status, 200);
+    const updatedSale1 = await editOk.json();
+    assert.equal(updatedSale1.quantity, 3);
+    assert.equal(updatedSale1.unit_price, 45000);
+    assert.equal(updatedSale1.total_amount, 135000);
+    assert.equal(updatedSale1.payment_method, 'Transfer');
+
+    // Delete sale blocked without PIN or with wrong PIN
+    const delNoPin = await fetch(`${baseUrl}/api/sales/transactions/${sale2.id}`, {
       method: 'DELETE',
       headers: headersB
     });
+    assert.equal(delNoPin.status, 403);
+
+    const delBadPin = await fetch(`${baseUrl}/api/sales/transactions/${sale2.id}`, {
+      method: 'DELETE',
+      headers: headersB,
+      body: JSON.stringify({ pin: '9999' })
+    });
+    assert.equal(delBadPin.status, 403);
+
+    // Delete succeeds with PIN 1318 and totals reflect updated sale1 (135000) without sale2
+    const delTxRes = await fetch(`${baseUrl}/api/sales/transactions/${sale2.id}`, {
+      method: 'DELETE',
+      headers: headersB,
+      body: JSON.stringify({ pin: '1318' })
+    });
     assert.equal(delTxRes.status, 200);
     const repAfterDel = await (await fetch(`${baseUrl}/api/sales/report?date=${day2}`, { headers: headersB })).json();
-    assert.equal(repAfterDel.summary.totalRevenue, 80000);
-    assert.equal(repAfterDel.summary.totalItemsSold, 2);
+    assert.equal(repAfterDel.summary.totalRevenue, 135000);
+    assert.equal(repAfterDel.summary.totalItemsSold, 3);
+    assert.equal(repAfterDel.summary.totalTransactions, 1);
   } finally {
     db.prepare('DELETE FROM tenants WHERE id = ?').run(otherTenantId);
     srv.closeAllConnections?.();

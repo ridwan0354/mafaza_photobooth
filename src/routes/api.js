@@ -2254,6 +2254,15 @@ apiRouter.get('/sales/report/export', authMiddleware(), (req, res) => {
   }
 });
 
+apiRouter.post('/sales/verify-pin', authMiddleware(), (req, res) => {
+  try {
+    salesService.verifySalesActionPin(req.body?.pin);
+    res.json({ valid: true });
+  } catch (err) {
+    res.status(err.statusCode || 403).json({ valid: false, error: err.message });
+  }
+});
+
 apiRouter.post('/sales/transactions', authMiddleware(), (req, res) => {
   try {
     const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
@@ -2265,11 +2274,26 @@ apiRouter.post('/sales/transactions', authMiddleware(), (req, res) => {
   }
 });
 
+apiRouter.patch('/sales/transactions/:id', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    salesService.verifySalesActionPin(req.body?.pin ?? req.headers['x-sales-pin']);
+    const actor = req.user.email || req.user.role || 'Admin';
+    const updated = salesService.updateSale(tenantId, req.params.id, req.body || {}, actor);
+    res.json(updated);
+  } catch (err) {
+    const code = err.statusCode || (/tidak ditemukan/i.test(err.message) ? 404 : 400);
+    res.status(code).json({ error: err.message });
+  }
+});
+
 apiRouter.delete('/sales/transactions/:id', authMiddleware(), (req, res) => {
   try {
     const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    salesService.verifySalesActionPin(req.body?.pin ?? req.headers['x-sales-pin']);
     res.json(salesService.deleteSale(tenantId, req.params.id));
   } catch (err) {
-    res.status(/tidak ditemukan/i.test(err.message) ? 404 : 400).json({ error: err.message });
+    const code = err.statusCode || (/tidak ditemukan/i.test(err.message) ? 404 : 400);
+    res.status(code).json({ error: err.message });
   }
 });

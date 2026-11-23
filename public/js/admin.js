@@ -6141,17 +6141,203 @@ async function submitSalesTransaction(e) {
 }
 window.submitSalesTransaction = submitSalesTransaction;
 
-async function deleteSalesTransaction(saleId) {
-  if (!confirm('Hapus transaksi penjualan ini dari laporan?')) return;
+let salesPinGateState = { mode: null, saleId: null, verifiedPin: '' };
+
+function openSalesPinModal(mode, saleId) {
+  const tx = (salesLastReport?.transactions || []).find(t => t.id === saleId);
+  if (!tx) {
+    salesNotify('Data transaksi tidak ditemukan. Segarkan laporan terlebih dahulu.', 'error');
+    return;
+  }
+  salesPinGateState = { mode, saleId, verifiedPin: '' };
+  const modal = document.getElementById('salesPinModal');
+  const titleEl = document.getElementById('salesPinModalTitle');
+  const subEl = document.getElementById('salesPinModalSubtitle');
+  const summaryEl = document.getElementById('salesPinSummaryBox');
+  const pinInput = document.getElementById('salesPinInput');
+  const errEl = document.getElementById('salesPinError');
+  const btnEl = document.getElementById('salesPinSubmitBtn');
+
+  if (titleEl) {
+    titleEl.textContent = mode === 'delete'
+      ? '🔐 Konfirmasi PIN Hapus Penjualan'
+      : '🔐 Konfirmasi PIN Edit Penjualan';
+  }
+  if (subEl) {
+    subEl.textContent = mode === 'delete'
+      ? 'Masukkan PIN untuk menghapus transaksi ini dari laporan penjualan.'
+      : 'Masukkan PIN untuk membuka form edit transaksi penjualan ini.';
+  }
+  if (summaryEl) {
+    summaryEl.textContent = `${tx.product_name} · ${tx.quantity} ${tx.unit || 'pcs'} = ${formatRupiah(tx.total_amount)} (${tx.sold_date})`;
+  }
+  if (pinInput) pinInput.value = '';
+  if (errEl) {
+    errEl.style.display = 'none';
+    errEl.textContent = '';
+  }
+  if (btnEl) {
+    btnEl.disabled = false;
+    btnEl.textContent = mode === 'delete' ? '🗑️ Verifikasi & Hapus' : '🔓 Verifikasi & Edit';
+  }
+  if (modal) modal.style.display = 'flex';
+  setTimeout(() => pinInput?.focus(), 60);
+}
+window.openSalesPinModal = openSalesPinModal;
+
+function closeSalesPinModal() {
+  const modal = document.getElementById('salesPinModal');
+  if (modal) modal.style.display = 'none';
+  if (salesPinGateState.mode !== 'editing') {
+    salesPinGateState = { mode: null, saleId: null, verifiedPin: '' };
+  }
+  const pinInput = document.getElementById('salesPinInput');
+  if (pinInput) pinInput.value = '';
+}
+window.closeSalesPinModal = closeSalesPinModal;
+
+async function submitSalesPinVerify(e) {
+  e.preventDefault();
+  const pinInput = document.getElementById('salesPinInput');
+  const errEl = document.getElementById('salesPinError');
+  const btnEl = document.getElementById('salesPinSubmitBtn');
+  const pin = (pinInput?.value || '').trim();
+  const { mode, saleId } = salesPinGateState;
+  if (!pin || !saleId || !mode) return;
+
+  if (errEl) errEl.style.display = 'none';
+  if (btnEl) btnEl.disabled = true;
+
   try {
-    const res = await fetch(`/api/sales/transactions/${encodeURIComponent(saleId)}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menghapus transaksi');
+    const vRes = await fetch('/api/sales/verify-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin })
+    });
+    const vData = await vRes.json().catch(() => ({}));
+    if (!vRes.ok || !vData.valid) {
+      throw new Error(vData.error || 'PIN salah! Masukkan PIN 1318.');
+    }
+
+    if (mode === 'delete') {
+      const delRes = await fetch(`/api/sales/transactions/${encodeURIComponent(saleId)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
+      });
+      const delData = await delRes.json().catch(() => ({}));
+      if (!delRes.ok) throw new Error(delData.error || 'Gagal menghapus transaksi');
+      closeSalesPinModal();
+      await loadSalesReport();
+      salesNotify('Transaksi penjualan berhasil dihapus.');
+    } else if (mode === 'edit') {
+      const tx = (salesLastReport?.transactions || []).find(t => t.id === saleId);
+      salesPinGateState = { mode: 'editing', saleId, verifiedPin: pin };
+      closeSalesPinModal();
+      if (tx) openEditSaleModal(tx);
+    }
+  } catch (err) {
+    if (errEl) {
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+    }
+    if (pinInput) {
+      pinInput.select();
+      pinInput.focus();
+    }
+  } finally {
+    if (btnEl) btnEl.disabled = false;
+  }
+}
+window.submitSalesPinVerify = submitSalesPinVerify;
+
+function openEditSaleModal(tx) {
+  const modal = document.getElementById('editSaleModal');
+  if (!modal) return;
+  document.getElementById('editSaleId').value = tx.id;
+  document.getElementById('editSaleProductName').value = tx.product_name || '';
+  document.getElementById('editSaleCategory').value = tx.category || 'Umum';
+  document.getElementById('editSaleUnit').value = tx.unit || 'pcs';
+  document.getElementById('editSaleQty').value = Number(tx.quantity) || 1;
+  document.getElementById('editSaleUnitPrice').value = Number(tx.unit_price) || 0;
+  document.getElementById('editSalePaymentMethod').value = tx.payment_method || 'Tunai';
+  document.getElementById('editSaleNotes').value = tx.notes || '';
+  document.getElementById('editSaleDate').value = tx.sold_date || getLocalTodayIso();
+  document.getElementById('editSaleTime').value = tx.sold_time || getLocalTimeHm();
+
+  const evSel = document.getElementById('editSaleEventId');
+  if (evSel) {
+    evSel.innerHTML = '<option value="">Umum (Tanpa Event)</option>' +
+      (eventsList || []).map(ev => `<option value="${escapeHtml(ev.id)}">${escapeHtml(ev.name)}</option>`).join('');
+    evSel.value = tx.event_id || '';
+  }
+  updateEditSaleTotalPreview();
+  modal.style.display = 'flex';
+}
+window.openEditSaleModal = openEditSaleModal;
+
+function closeEditSaleModal() {
+  const modal = document.getElementById('editSaleModal');
+  if (modal) modal.style.display = 'none';
+  salesPinGateState = { mode: null, saleId: null, verifiedPin: '' };
+}
+window.closeEditSaleModal = closeEditSaleModal;
+
+function updateEditSaleTotalPreview() {
+  const qty = Math.max(1, parseInt(document.getElementById('editSaleQty')?.value || '1', 10) || 1);
+  const price = Math.max(0, parseInt(document.getElementById('editSaleUnitPrice')?.value || '0', 10) || 0);
+  const el = document.getElementById('editSaleTotalPreview');
+  if (el) el.textContent = formatRupiah(qty * price);
+}
+window.updateEditSaleTotalPreview = updateEditSaleTotalPreview;
+
+async function submitEditSale(e) {
+  e.preventDefault();
+  const saleId = document.getElementById('editSaleId')?.value;
+  const pin = salesPinGateState.verifiedPin;
+  const btn = document.getElementById('editSaleSubmitBtn');
+  if (!saleId || !pin) {
+    salesNotify('Verifikasi PIN diperlukan untuk menyimpan edit penjualan.', 'error');
+    closeEditSaleModal();
+    return;
+  }
+
+  const payload = {
+    pin,
+    productName: document.getElementById('editSaleProductName')?.value.trim(),
+    category: document.getElementById('editSaleCategory')?.value.trim() || 'Umum',
+    unit: document.getElementById('editSaleUnit')?.value.trim() || 'pcs',
+    quantity: parseInt(document.getElementById('editSaleQty')?.value || '1', 10) || 1,
+    unitPrice: parseInt(document.getElementById('editSaleUnitPrice')?.value || '0', 10) || 0,
+    paymentMethod: document.getElementById('editSalePaymentMethod')?.value || 'Tunai',
+    eventId: document.getElementById('editSaleEventId')?.value || '',
+    notes: document.getElementById('editSaleNotes')?.value.trim() || '',
+    soldDate: document.getElementById('editSaleDate')?.value || '',
+    soldTime: document.getElementById('editSaleTime')?.value || ''
+  };
+
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch(`/api/sales/transactions/${encodeURIComponent(saleId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Gagal memperbarui penjualan');
+    closeEditSaleModal();
     await loadSalesReport();
-    salesNotify('Transaksi dihapus dari laporan.');
+    salesNotify(`Penjualan diperbarui: ${data.product_name} = ${formatRupiah(data.total_amount)}`);
   } catch (err) {
     salesNotify(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
+}
+window.submitEditSale = submitEditSale;
+
+async function deleteSalesTransaction(saleId) {
+  openSalesPinModal('delete', saleId);
 }
 window.deleteSalesTransaction = deleteSalesTransaction;
 
@@ -6286,7 +6472,10 @@ async function loadSalesReport() {
               ${tx.notes ? `<div style="margin-top: 2px;">${escapeHtml(tx.notes)}</div>` : ''}
             </td>
             <td>
-              <button type="button" class="btn btn-secondary" style="padding: 5px 10px; font-size: 11.5px; color: #B3402F; background: #fff; border-color: rgba(179,64,47,0.3);" onclick="deleteSalesTransaction('${escapeHtml(tx.id)}')">Hapus</button>
+              <div style="display: flex; gap: 6px; white-space: nowrap;">
+                <button type="button" class="btn btn-secondary" style="padding: 5px 10px; font-size: 11.5px; background: var(--cream-bg);" onclick="openSalesPinModal('edit', '${escapeHtml(tx.id)}')">✏️ Edit</button>
+                <button type="button" class="btn btn-secondary" style="padding: 5px 10px; font-size: 11.5px; color: #B3402F; background: #fff; border-color: rgba(179,64,47,0.3);" onclick="openSalesPinModal('delete', '${escapeHtml(tx.id)}')">🗑️ Hapus</button>
+              </div>
             </td>
           </tr>
         `).join('');
