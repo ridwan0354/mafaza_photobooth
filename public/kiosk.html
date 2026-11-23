@@ -459,7 +459,10 @@
     </div>
 
     <!-- Persistent Global Controls (Selalu Tampil di Pojok Kanan Atas Semua Layar Kiosk) -->
-    <div id="kioskGlobalControls" style="position: absolute; top: 80px; right: 28px; z-index: 1000; display: flex; gap: 10px; align-items: center;">
+    <div id="kioskGlobalControls" style="position: absolute; top: 80px; right: 28px; z-index: 1000; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end;">
+      <button id="btnKioskEventPhotos" type="button" onclick="kiosk.openEventPhotosModal()" style="background: var(--cream-card); padding: 8px 14px; border-radius: var(--radius-pill); border: 2px solid #7B482E; font-size: 13px; font-weight: 800; color: #7B482E; cursor: pointer; box-shadow: 0 4px 12px rgba(123,72,46,0.06);">
+        🖼️ Hasil Foto
+      </button>
       <button id="btnKioskOfflineGallery" type="button" onclick="window.pbOfflineStore && window.pbOfflineStore.openLocalGallery()" style="background: var(--cream-card); padding: 8px 14px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 800; color: var(--caramel-brown); cursor: pointer; box-shadow: 0 4px 12px rgba(123,72,46,0.06);">
         📂 Galeri Lokal
       </button>
@@ -1494,6 +1497,7 @@
 
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.5"></script>
+  <script src="/js/event-gallery-viewer.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.7"></script>
   <script src="/js/photo-filters.js?v=1.0"></script>
   <script src="/js/kiosk.js?v=warm-retro-v9.29"></script>

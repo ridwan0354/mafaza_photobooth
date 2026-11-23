@@ -1414,6 +1414,14 @@ class KioskEngine {
     if (modal) modal.style.display = 'none';
   }
 
+  openEventPhotosModal() {
+    if (!window.MafazaEventGalleryViewer) return;
+    window.MafazaEventGalleryViewer.open({
+      eventId: this.eventId || null,
+      onToast: (msg, icon, ms) => this.showToast(msg, icon, ms)
+    });
+  }
+
   returnToCameraFromPreview() {
     if (this.autoReturnTimerId) clearInterval(this.autoReturnTimerId);
     const tplSlotsCount = (this.selectedTemplate && this.selectedTemplate.slots && this.selectedTemplate.slots.length > 0)
@@ -1896,6 +1904,8 @@ class KioskEngine {
       if (photoModal && photoModal.style.display === 'flex') return false;
       const pinModal = document.getElementById('operatorPinModal');
       if (pinModal && pinModal.style.display === 'flex') return false;
+      const evModal = document.getElementById('pbEventPhotosModal');
+      if (evModal && evModal.style.display === 'flex') return false;
 
       // Debounce 350ms untuk mencegah double trigger dari keydown + keyup / mouse click remote bluetooth
       const now = Date.now();

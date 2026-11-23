@@ -1752,11 +1752,17 @@ test('Split Local Print vs Local Storage per-device isolation, Admin 313354 / se
   assert.equal(kEng.isLocalPrintMode(), true);
   assert.equal(kEng.isLocalStorageMode(), false);
 
-  // 3. Mingle UI has Hasil Foto gallery viewer buttons & modal on both Welcome (?fullscreen=1) and Topbar
+  // 3. Both Mingle and Kiosk have Hasil Foto gallery viewer buttons + shared event-gallery-viewer.js
+  const kioskHtml = fs.readFileSync(path.join(process.cwd(), 'public/kiosk.html'), 'utf8');
+  const galleryViewerJs = fs.readFileSync(path.join(process.cwd(), 'public/js/event-gallery-viewer.js'), 'utf8');
   assert.match(mingleHtml, /id="btnMingleEventPhotos"[^>]*openEventPhotosModal\(\)/);
   assert.match(mingleHtml, /id="btnMingleWelcomeEventPhotos"[^>]*openEventPhotosModal\(\)/);
-  assert.match(mingleHtml, /id="mingleEventPhotosModal"/);
-  assert.match(mingleJs, /async loadEventFramedPhotos\s*\(/);
+  assert.match(kioskHtml, /id="btnKioskEventPhotos"[^>]*openEventPhotosModal\(\)/);
+  assert.match(mingleHtml, /src="\/js\/event-gallery-viewer\.js/);
+  assert.match(kioskHtml, /src="\/js\/event-gallery-viewer\.js/);
+  assert.match(galleryViewerJs, /pbEventPhotosModal/);
+  assert.match(mingleJs, /MafazaEventGalleryViewer\.open\(/);
+  assert.match(kioskJs, /MafazaEventGalleryViewer\.open\(/);
 
   // 4. Express endpoints: /kiosk/admin-session, /kiosk/verify-operator-pin (accepts 313354 + authed cookie), /kiosk/gallery/recent
   const app = express();
@@ -1835,15 +1841,15 @@ test('Split Local Print vs Local Storage per-device isolation, Admin 313354 / se
     assert.equal(found.requested_print_paper, '5x7');
     assert.equal(found.requested_print_copies, 2);
 
-    // Mingle scannable QR popup endpoint returns QR PNG data URL without Admin login
+    // Shared scannable QR popup endpoint returns QR PNG data URL without Admin login
     const qrRes = await fetch(`http://127.0.0.1:${port}/api/kiosk/gallery/qr?sessionId=${encodeURIComponent(sessId)}`);
     assert.equal(qrRes.status, 200);
     const qrJson = await qrRes.json();
     assert.match(qrJson.qrDataUrl || '', /^data:image\/png;base64,/);
     assert.equal(qrJson.galleryUrl, found.galleryUrl);
-    assert.match(mingleHtml, /id="mingleQrZoomModal"[^>]*z-index:\s*10065/);
-    assert.match(mingleHtml, /id="mingleEventPhotoZoomQrBtn"[^>]*openEventPhotoQr/);
-    assert.match(mingleJs, /async openEventPhotoQr\s*\(/);
+    assert.match(galleryViewerJs, /pbEventPhotoQrModal[\s\S]*z-index:\s*10065/);
+    assert.match(galleryViewerJs, /pbEventPhotoZoomQrBtn[\s\S]*Tampilkan QR/);
+    assert.match(galleryViewerJs, /\/api\/kiosk\/gallery\/qr/);
   } finally {
     srv.closeAllConnections?.();
     srv.close();

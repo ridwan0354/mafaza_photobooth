@@ -6,7 +6,7 @@
  * dan tetap bisa dibuka kembali saat di-refresh (F5 / reload).
  */
 
-const CACHE_NAME = 'mafaza-offline-v4.05';
+const CACHE_NAME = 'mafaza-offline-v4.06';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -26,6 +26,7 @@ const PRECACHE_ASSETS = [
   '/js/notify.js',
   '/js/print-client.js',
   '/js/offline-store.js',
+  '/js/event-gallery-viewer.js',
   '/js/photo-filters.js',
   '/js/landing.js',
   '/css/styles.css',
