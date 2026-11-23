@@ -3970,7 +3970,18 @@ class KioskEngine {
   }
 
   startPoseLiveRecording(poseIndex) {
-    if (!this.mediaStream) return;
+    let recStream = this.mediaStream;
+    let isCanvasClone = false;
+    if (!recStream && this.canonUsbStreamActive) {
+      const usbCanvas = document.getElementById('canonUsbLiveCanvas');
+      if (usbCanvas && typeof usbCanvas.captureStream === 'function' && usbCanvas.width > 0) {
+        try {
+          recStream = usbCanvas.captureStream(15);
+          isCanvasClone = true;
+        } catch (e) {}
+      }
+    }
+    if (!recStream) return;
     try {
       if (this.activeLiveRecorder && this.activeLiveRecorder.state !== 'inactive') {
         try { this.activeLiveRecorder.stop(); } catch(e){}
@@ -3979,10 +3990,11 @@ class KioskEngine {
       const mimeTypes = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
       const mime = mimeTypes.find(t => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
       
-      const recorder = new MediaRecorder(this.mediaStream, mime ? { mimeType: mime } : {});
+      const recorder = new MediaRecorder(recStream, mime ? { mimeType: mime } : {});
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) this.activeLiveChunks.push(e.data);
       };
+      this._liveTempStream = isCanvasClone ? recStream : null;
       this.activeLiveRecorder = recorder;
       recorder.start(100);
     } catch (e) {
@@ -3994,10 +4006,15 @@ class KioskEngine {
     if (this.activeLiveRecorder && this.activeLiveRecorder.state !== 'inactive') {
       const rec = this.activeLiveRecorder;
       const chunks = this.activeLiveChunks;
+      const tempStream = this._liveTempStream;
+      this._liveTempStream = null;
       rec.onstop = () => {
         const mime = rec.mimeType || 'video/webm';
         const blob = new Blob(chunks, { type: mime });
         this.liveClips[poseIndex] = blob;
+        if (tempStream) {
+          try { tempStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+        }
       };
       try {
         rec.stop();
@@ -5458,11 +5475,13 @@ class KioskEngine {
           // 2. Render each slot with framed photo animation
           for (let sIdx = 0; sIdx < slots.length; sIdx++) {
             const slot = slots[sIdx];
+            const slotPoseIdx = (slot.pose_index && parseInt(slot.pose_index, 10) > 0)
+              ? ((parseInt(slot.pose_index, 10) - 1) % validImgs.length)
+              : (sIdx % validImgs.length);
             const basePhotoIdx = (this.slotAssignments && this.slotAssignments[sIdx] !== undefined)
               ? this.slotAssignments[sIdx]
-              : (sIdx % validImgs.length);
+              : slotPoseIdx;
             
-            // In boomerang mode: animate pose index cycling or subtle dynamic zoom
             const activePhotoIdx = (basePhotoIdx + stepOffset) % validImgs.length;
             const pImg = validImgs[activePhotoIdx] || validImgs[0];
 
@@ -5479,9 +5498,7 @@ class KioskEngine {
               ctx.clip();
 
               const transform = (this.slotTransforms && this.slotTransforms[sIdx]) || { panX: 0, panY: 0, zoom: 1.0 };
-              // Subtle pulse zoom (+0.04) on odd frames for organic vitality
-              const pulse = (frameIdx % 2 === 1) ? 1.02 : 1.0;
-              const zoom = Math.max(0.35, Math.min(3.5, (transform.zoom || 1.0) * pulse));
+              const zoom = Math.max(0.35, Math.min(3.5, transform.zoom || 1.0));
 
               const baseScale = Math.max(clipW / pImg.width, clipH / pImg.height);
               const finalScale = baseScale * zoom;
@@ -5506,7 +5523,7 @@ class KioskEngine {
           }
 
           frameIdx++;
-        }, 130);
+        }, 240);
       });
     } catch (e) {
       console.warn('Could not generate framed boomerang blob:', e);

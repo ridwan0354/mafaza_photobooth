@@ -951,3 +951,24 @@ test('Mingle Ready screen places captured thumbnails in right column below Jumla
   assert.equal(engine.capturedPhotos.length, 1);
   assert.equal(elements.get('minglePhotoZoomImg').src, 'data:image/jpeg;base64,ONE');
 });
+
+test('Gallery hides fake Boomerang/Live Photo modes on single still session and aligns Boomerang by pose_index', () => {
+  const galleryHtml = fs.readFileSync(path.join(process.cwd(), 'public/gallery.html'), 'utf8');
+  const kioskSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/kiosk.js'), 'utf8');
+
+  // Honest mode gates in gallery
+  assert.match(galleryHtml, /const hasRealBoomerang = poseImages\.length >= 2 \|\| Boolean\(boomerangAsset && boomerangAsset\.filePath\)/);
+  assert.match(galleryHtml, /const hasRealLivePhoto = Boolean\(mainLiveVideoSrc \|\| liveClips\.length > 0\)/);
+  assert.match(galleryHtml, /const showModeToggle = hasRealBoomerang \|\| hasRealLivePhoto/);
+  assert.match(galleryHtml, /\$\{clipSrc \? `[\s\S]*?apple-live-badge-mini/);
+  assert.match(galleryHtml, /object-fit: contain;/);
+
+  // Asynchronous slotVideos initialization & pose_index alignment
+  assert.match(galleryHtml, /function ensureSlotVideosLoaded\s*\(/);
+  assert.match(galleryHtml, /const basePoseIdx = \(slot\.pose_index && parseInt\(slot\.pose_index, 10\) > 0\)/);
+  assert.match(galleryHtml, /if \(mode === 'boomerang' && boomerangAsset && boomerangAsset\.filePath\)/);
+
+  // Kiosk USB LiveView canvas fallback recording & pose_index alignment
+  assert.match(kioskSrc, /canonUsbLiveCanvas[\s\S]*captureStream/);
+  assert.match(kioskSrc, /const slotPoseIdx = \(slot\.pose_index && parseInt\(slot\.pose_index, 10\) > 0\)/);
+});
