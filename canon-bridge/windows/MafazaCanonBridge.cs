@@ -879,70 +879,70 @@ namespace MafazaCanonBridge
                     @"C:\Program Files\digiCamControl\EDSDK.dll"
                 };
 
-                string foundDll = null;
+                List<string> candidates = new List<string>();
+                HashSet<string> seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
                 foreach (var p in possiblePaths)
                 {
-                    if (File.Exists(p))
-                    {
-                        foundDll = p;
-                        break;
-                    }
+                    if (File.Exists(p) && seenPaths.Add(p)) candidates.Add(p);
                 }
 
-                // Jika belum ketemu di path standar, scan folder instalasi
-                if (foundDll == null)
+                string[] scanRoots = new string[] {
+                    @"C:\Program Files\Canon",
+                    @"C:\Program Files (x86)\Canon",
+                    @"C:\Program Files\digiCamControl",
+                    @"C:\Program Files (x86)\digiCamControl"
+                };
+                foreach (var root in scanRoots)
                 {
-                    string[] scanRoots = new string[] {
-                        @"C:\Program Files\Canon",
-                        @"C:\Program Files (x86)\Canon",
-                        @"C:\Program Files\digiCamControl",
-                        @"C:\Program Files (x86)\digiCamControl"
-                    };
-                    foreach (var root in scanRoots)
+                    if (Directory.Exists(root))
                     {
-                        if (Directory.Exists(root))
+                        try
                         {
-                            try
+                            string[] matches = Directory.GetFiles(root, "EDSDK.dll", SearchOption.AllDirectories);
+                            if (matches != null)
                             {
-                                string[] matches = Directory.GetFiles(root, "EDSDK.dll", SearchOption.AllDirectories);
-                                if (matches != null && matches.Length > 0)
+                                foreach (var m in matches)
                                 {
-                                    foundDll = matches[0];
-                                    break;
+                                    if (File.Exists(m) && seenPaths.Add(m)) candidates.Add(m);
                                 }
                             }
-                            catch { }
                         }
+                        catch { }
                     }
                 }
 
-                if (foundDll != null)
+                if (candidates.Count > 0)
                 {
-                    Console.WriteLine("[EDSDK] Menemukan EDSDK.dll di: " + foundDll);
-                    string dllDir = Path.GetDirectoryName(foundDll);
-                    try { SetDllDirectory(dllDir); } catch { }
-
-                    IntPtr hLib = LoadLibrary(foundDll);
-                    if (hLib != IntPtr.Zero)
+                    foreach (var dllPath in candidates)
                     {
-                        uint err = EdsInitializeSDK();
-                        if (err == 0)
+                        Console.WriteLine("[EDSDK] Mencoba EDSDK.dll di: " + dllPath);
+                        string dllDir = Path.GetDirectoryName(dllPath);
+                        try { SetDllDirectory(dllDir); } catch { }
+
+                        IntPtr hLib = LoadLibrary(dllPath);
+                        if (hLib != IntPtr.Zero)
                         {
-                            _edsdkLoaded = true;
-                            Console.ForegroundColor = ConsoleColor.Green;
-                            Console.WriteLine("[EDSDK] Canon EDSDK berhasil diinisialisasi.");
-                            Console.ResetColor();
-                            TryConnectEdsdkCamera();
+                            uint err = EdsInitializeSDK();
+                            if (err == 0)
+                            {
+                                _edsdkLoaded = true;
+                                Console.ForegroundColor = ConsoleColor.Green;
+                                Console.WriteLine("[EDSDK] Canon EDSDK berhasil diinisialisasi.");
+                                Console.ResetColor();
+                                TryConnectEdsdkCamera();
+                                break;
+                            }
+                            else
+                            {
+                                Console.WriteLine("[EDSDK] EdsInitializeSDK error: 0x" + err.ToString("X"));
+                            }
                         }
                         else
                         {
-                            Console.WriteLine("[EDSDK] EdsInitializeSDK error: 0x" + err.ToString("X"));
+                            int winErr = Marshal.GetLastWin32Error();
+                            Console.WriteLine("[EDSDK] LoadLibrary gagal (Win32 Error: " + winErr + "), cek kandidat berikutnya...");
                         }
-                    }
-                    else
-                    {
-                        int winErr = Marshal.GetLastWin32Error();
-                        Console.WriteLine("[EDSDK] LoadLibrary gagal (Win32 Error: " + winErr + ").");
                     }
                 }
                 else

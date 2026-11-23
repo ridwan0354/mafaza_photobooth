@@ -1535,12 +1535,14 @@ apiRouter.post('/print-agent/regenerate', authMiddleware(), (req, res) => {
 apiRouter.post('/print-agent/poll', agentAuth, (req, res) => {
   try {
     const body = req.body || {};
+    const canClaim = body.canClaim !== false;
     printService.touchAgent(req.agentTenantId, {
       host: String(body.host || '').slice(0, 80),
       platform: String(body.platform || '').slice(0, 20),
-      printers: Array.isArray(body.printers) ? body.printers.slice(0, 40) : undefined
+      printers: Array.isArray(body.printers) ? body.printers.slice(0, 40) : undefined,
+      canClaim
     });
-    res.json({ jobs: printService.claimAgentJobs(req.agentTenantId) });
+    res.json({ jobs: canClaim ? printService.claimAgentJobs(req.agentTenantId) : [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

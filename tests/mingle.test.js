@@ -1950,3 +1950,98 @@ test('Windows All-in-One Suite bundles Kiosk, Print Agent, Canon Bridge, and Aut
     srv.close();
   }
 });
+
+test('All-in-One Windows Print Agent stays safe in camera-only mode without claiming remote jobs or using PDF virtual printer', async () => {
+  const express = (await import('express')).default;
+  const { apiRouter } = await import('../src/routes/api.js');
+  const printService = await import('../src/services/print.js');
+  const agent = await import('../print-agent/mafaza-print-agent.mjs');
+
+  const virtualPdf = { id: 'Microsoft Print to PDF', name: 'Microsoft Print to PDF', driverName: 'Microsoft Print To PDF', status: 'idle', isDefault: true };
+  const virtualXps = { id: 'Microsoft XPS Document Writer', name: 'Microsoft XPS Document Writer', status: 'idle', isDefault: false };
+  const offlineEpson = { id: 'Epson L8050 Series', name: 'Epson L8050 Series', status: 'offline', isDefault: false };
+  const onlineEpson = { id: 'Epson L8050 Series', name: 'Epson L8050 Series', status: 'idle', isDefault: false };
+
+  assert.equal(agent.isVirtualPrinter(virtualPdf), true);
+  assert.equal(agent.isVirtualPrinter(virtualXps), true);
+  assert.equal(agent.isVirtualPrinter(onlineEpson), false);
+
+  assert.equal(agent.getReadyPhysicalPrinters([virtualPdf, virtualXps]).length, 0);
+  assert.equal(agent.getReadyPhysicalPrinters([virtualPdf, offlineEpson]).length, 0);
+  assert.equal(agent.getReadyPhysicalPrinters([virtualPdf, onlineEpson]).length, 1);
+  assert.equal(agent.resolvePrinter([virtualPdf, virtualXps], {}), null, 'Never falls back to Microsoft Print to PDF when no physical printer exists');
+  assert.equal(agent.resolvePrinter([virtualPdf, onlineEpson], {})?.name, 'Epson L8050 Series');
+
+  const canonCs = fs.readFileSync(path.join(process.cwd(), 'canon-bridge/windows/MafazaCanonBridge.cs'), 'utf8');
+  assert.match(canonCs, /List<string>\s+candidates\s*=\s*new\s+List<string>\(\)/, 'Canon Bridge retries across all discovered EDSDK.dll candidates');
+
+  const app = express();
+  app.use((req, res, next) => { req.cookies = {}; next(); });
+  app.use(express.json());
+  app.use('/api', apiRouter);
+  const srv = app.listen(0);
+  const port = srv.address().port;
+  const tenantId = 'tenant_studiokeren_01';
+  const eventId = 'event_wedding_dimas_sarah';
+  const agentKey = printService.getOrCreateAgentKey(tenantId);
+  const ts = Date.now();
+  const sessId = `sess_cam_iso_${ts}`;
+  const assetId = `asset_cam_iso_${ts}`;
+  const jobId = `job_cam_only_${ts}`;
+
+  try {
+    db.prepare(`
+      INSERT INTO photo_sessions (id, tenant_id, event_id, mode, status)
+      VALUES (?, ?, ?, 'single', 'completed')
+    `).run(sessId, tenantId, eventId);
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
+      VALUES (?, ?, ?, ?, 'final_photo', 'framed', 'uploads/test_cam_iso.jpg', 'ready')
+    `).run(assetId, tenantId, eventId, sessId);
+    db.prepare(`
+      INSERT INTO print_jobs (id, tenant_id, event_id, photo_session_id, media_asset_id, copies, state, options_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 1, 'queued', '{"printerName":"Epson L8050 Series"}', datetime('now'), datetime('now'))
+    `).run(jobId, tenantId, eventId, sessId, assetId);
+
+    // Camera-only poll FIRST (no physical printer connected -> canClaim: false)
+    const camFirst = await fetch(`http://127.0.0.1:${port}/api/print-agent/poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-agent-key': agentKey },
+      body: JSON.stringify({ host: 'LAPTOP-KAMERA', platform: 'win32', printers: [], canClaim: false })
+    });
+    assert.equal(camFirst.status, 200);
+    assert.equal((await camFirst.json()).jobs.length, 0, 'Camera-only laptop with no physical printer must NOT claim remote jobs');
+    assert.equal(printService.getAgentStatus(tenantId).online, false, 'Camera-only laptop without physical printer is standby (not reported as ready printer agent)');
+
+    // Tenda laptop with Epson L8050 Series connected (canClaim: true) claims the job cleanly
+    const tendaPoll = await fetch(`http://127.0.0.1:${port}/api/print-agent/poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-agent-key': agentKey },
+      body: JSON.stringify({ host: 'LAPTOP-TENDA', platform: 'win32', printers: [onlineEpson], canClaim: true })
+    });
+    assert.equal(tendaPoll.status, 200);
+    const tendaJson = await tendaPoll.json();
+    assert.ok(tendaJson.jobs.some(j => j.id === jobId), 'Tenda laptop with ready Epson printer claims the queued print job');
+
+    // Reset job back to queued and verify camera-only poll afterward neither steals jobs nor clobbers Tenda status
+    db.prepare("UPDATE print_jobs SET state = 'queued' WHERE id = ?").run(jobId);
+    const camSecond = await fetch(`http://127.0.0.1:${port}/api/print-agent/poll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-agent-key': agentKey },
+      body: JSON.stringify({ host: 'LAPTOP-KAMERA', platform: 'win32', printers: [], canClaim: false })
+    });
+    assert.equal(camSecond.status, 200);
+    assert.equal((await camSecond.json()).jobs.length, 0);
+
+    const status = printService.getAgentStatus(tenantId);
+    assert.equal(status.online, true);
+    assert.equal(status.host, 'LAPTOP-TENDA', 'Camera-only poll does not overwrite active Tenda printer host');
+    assert.equal(status.printers[0]?.name, 'Epson L8050 Series');
+  } finally {
+    db.prepare('DELETE FROM print_jobs WHERE id = ?').run(jobId);
+    db.prepare('DELETE FROM media_assets WHERE id = ?').run(assetId);
+    db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(sessId);
+    srv.closeAllConnections?.();
+    srv.close();
+  }
+});

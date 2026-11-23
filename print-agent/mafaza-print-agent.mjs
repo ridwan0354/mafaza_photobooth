@@ -56,6 +56,17 @@ function run(cmd, args, opts = {}) {
 
 const norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+const VIRTUAL_PRINTER_RE = /^(microsoft\s+print\s+to\s+pdf|microsoft\s+xps\s+document\s+writer|fax|onenote|send\s+to\s+onenote|adobe\s+pdf|foxit.*pdf)/i;
+export function isVirtualPrinter(printer) {
+  const name = String(printer?.name || printer?.id || '').trim();
+  const driver = String(printer?.driverName || '').trim();
+  return VIRTUAL_PRINTER_RE.test(name) || VIRTUAL_PRINTER_RE.test(driver);
+}
+
+export function getReadyPhysicalPrinters(printers) {
+  return (Array.isArray(printers) ? printers : []).filter((p) => !isVirtualPrinter(p) && p.status !== 'offline');
+}
+
 // ---------------------------------------------------------------------------
 // Deteksi printer
 // ---------------------------------------------------------------------------
@@ -118,13 +129,18 @@ async function listPrinters() {
   return printers;
 }
 
-function resolvePrinter(printers, options) {
+export function resolvePrinter(printers, options = {}) {
+  const allPrinters = Array.isArray(printers) ? printers : [];
   const wantedName = norm(options.printerName);
   const wantedDriver = norm(options.driverName);
-  const online = printers.filter((p) => p.status !== 'offline');
-  const pool = online.length ? online : printers;
 
-  const exact = pool.find((p) => norm(p.id) === wantedDriver || norm(p.name) === wantedName);
+  // Kecualikan printer virtual bawaan Windows (Microsoft Print to PDF, XPS, Fax, OneNote)
+  // kecuali user memang secara eksplisit memilih nama printer tersebut.
+  const physical = allPrinters.filter((p) => !isVirtualPrinter(p));
+  const physicalOnline = physical.filter((p) => p.status !== 'offline');
+  const pool = physicalOnline.length ? physicalOnline : physical;
+
+  const exact = pool.find((p) => (wantedDriver && norm(p.id) === wantedDriver) || (wantedName && norm(p.name) === wantedName));
   if (exact) return exact;
   const fuzzy = pool.find((p) => {
     const id = norm(p.id);
@@ -133,6 +149,12 @@ function resolvePrinter(printers, options) {
       (wantedName && (nm.includes(wantedName) || wantedName.includes(nm)));
   });
   if (fuzzy) return fuzzy;
+
+  if (wantedName || wantedDriver) {
+    const explicitVirtual = allPrinters.find((p) => (wantedDriver && norm(p.id) === wantedDriver) || (wantedName && norm(p.name) === wantedName));
+    if (explicitVirtual) return explicitVirtual;
+  }
+
   return pool.find((p) => p.isDefault) || pool[0] || null;
 }
 
@@ -570,7 +592,9 @@ async function tick() {
   if (busy) return;
   busy = true;
   try {
-    if (Date.now() - lastPrinterScan > 120000) {
+    const hadReadyPhysical = getReadyPhysicalPrinters(printersCache).length > 0;
+    const scanIntervalMs = hadReadyPhysical ? 120000 : 15000;
+    if (Date.now() - lastPrinterScan > scanIntervalMs) {
       printersCache = await listPrinters();
       lastPrinterScan = Date.now();
       const nextHash = JSON.stringify(printersCache.map(p => [p.id, p.status, p.isDefault]));
@@ -579,10 +603,13 @@ async function tick() {
         printersNeedSend = true;
       }
     }
-    const printersPayload = printersNeedSend ? printersCache : undefined;
+    const readyPhysical = getReadyPhysicalPrinters(printersCache);
+    const canClaim = readyPhysical.length > 0;
+    const physicalPrinters = printersCache.filter((p) => !isVirtualPrinter(p));
+    const printersPayload = printersNeedSend ? physicalPrinters : undefined;
     const res = await api('/api/print-agent/poll', {
       method: 'POST',
-      body: { host: os.hostname(), platform: PLATFORM, printers: printersPayload }
+      body: { host: os.hostname(), platform: PLATFORM, printers: printersPayload, canClaim }
     });
     if (printersPayload) printersNeedSend = false;
     if (lastError) {
@@ -733,7 +760,8 @@ async function main() {
   console.log('==============================================================');
   printersCache = await listPrinters();
   lastPrinterScan = Date.now();
-  log(`Printer terdeteksi: ${printersCache.length ? printersCache.map((p) => p.name + (p.isDefault ? ' (default)' : '')).join(', ') : 'tidak ada'}`);
+  const readyPhysical = getReadyPhysicalPrinters(printersCache);
+  log(`Printer fisik siap: ${readyPhysical.length ? readyPhysical.map((p) => p.name + (p.isDefault ? ' (default)' : '')).join(', ') : 'tidak ada (mode standby aman — tidak mengambil antrean printer laptop lain)'}`);
 
   startLocalPrintBridge();
   if (!localOnly && CONFIG.server && CONFIG.key) {
@@ -742,4 +770,7 @@ async function main() {
   }
 }
 
-main();
+const isDirectEntry = process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
+if (isDirectEntry) {
+  main();
+}

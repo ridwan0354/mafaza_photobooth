@@ -450,17 +450,26 @@ export function findTenantByAgentKey(key) {
 }
 
 export function touchAgent(tenantId, info = {}) {
+  const existing = agentSeen.get(tenantId);
+  const incomingCanClaim = info.canClaim !== false;
+  const existingFreshPrinter = !!existing && existing.canClaim !== false && (Date.now() - existing.at < AGENT_ONLINE_WINDOW_MS);
+  // Jika ada laptop kamera-only yang tidak punya printer online ikut menyalakan layanan,
+  // jangan timpa daftar printer & host milik laptop printer yang sedang aktif.
+  if (!incomingCanClaim && existingFreshPrinter && existing.host && existing.host !== (info.host || '')) {
+    return;
+  }
   agentSeen.set(tenantId, {
     at: Date.now(),
     host: info.host || '',
     platform: info.platform || '',
-    printers: info.printers ?? agentSeen.get(tenantId)?.printers ?? []
+    printers: info.printers ?? existing?.printers ?? [],
+    canClaim: incomingCanClaim
   });
 }
 
 export function getAgentStatus(tenantId) {
   const seen = agentSeen.get(tenantId);
-  const online = !!seen && Date.now() - seen.at < AGENT_ONLINE_WINDOW_MS;
+  const online = !!seen && seen.canClaim !== false && Date.now() - seen.at < AGENT_ONLINE_WINDOW_MS;
   return {
     online,
     host: seen?.host || null,
