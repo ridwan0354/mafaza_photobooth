@@ -488,6 +488,9 @@
     }
 
     .mingle-filter-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
       padding: 6px 11px;
       border-radius: 999px;
       font-size: 11.5px;
@@ -502,6 +505,30 @@
       background: var(--coral, #E6786B);
       color: #FFF;
       border-color: var(--coral, #E6786B);
+    }
+
+    .mingle-filter-btn .filter-pill-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 6px;
+      object-fit: cover;
+      border: 1.5px solid rgba(255, 255, 255, 0.85);
+      box-shadow: 0 1px 3px rgba(56, 30, 17, 0.22);
+      flex-shrink: 0;
+    }
+
+    .mingle-filter-intensity-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 6px 10px;
+      background: #FFF8EE;
+      border: 1px dashed var(--border-soft, #EAD8C7);
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--caramel-brown, #7B482E);
     }
 
     .mingle-qr-box {
@@ -1008,13 +1035,21 @@
             <div id="mingleFilesThumbsGrid" class="mingle-files-thumbs-grid"></div>
           </div>
 
-          <div class="mingle-filter-row" id="mingleFilterRow">
-            <button type="button" class="mingle-filter-btn active" data-filter="normal" onclick="mingle.setFilter('normal')">🌿 Normal</button>
-            <button type="button" class="mingle-filter-btn" data-filter="glowing" onclick="mingle.setFilter('glowing')">✨ Glowing</button>
-            <button type="button" class="mingle-filter-btn" data-filter="korean" onclick="mingle.setFilter('korean')">🌸 Soft</button>
-            <button type="button" class="mingle-filter-btn" data-filter="warm_retro" onclick="mingle.setFilter('warm_retro')">🧡 Retro</button>
-            <button type="button" class="mingle-filter-btn" data-filter="vivid" onclick="mingle.setFilter('vivid')">🎨 Vivid</button>
-            <button type="button" class="mingle-filter-btn" data-filter="bw" onclick="mingle.setFilter('bw')">🖤 B&amp;W</button>
+          <div id="mingleFilterPanel" style="display: flex; flex-direction: column;">
+            <div class="mingle-filter-row" id="mingleFilterRow">
+              <button type="button" class="mingle-filter-btn active" data-filter="normal" onclick="mingle.setFilter('normal')">🌿 Normal</button>
+              <button type="button" class="mingle-filter-btn" data-filter="glowing" onclick="mingle.setFilter('glowing')">✨ Glowing</button>
+              <button type="button" class="mingle-filter-btn" data-filter="korean" onclick="mingle.setFilter('korean')">🌸 Soft</button>
+              <button type="button" class="mingle-filter-btn" data-filter="warm_retro" onclick="mingle.setFilter('warm_retro')">🧡 Retro</button>
+              <button type="button" class="mingle-filter-btn" data-filter="vivid" onclick="mingle.setFilter('vivid')">🎨 Vivid</button>
+              <button type="button" class="mingle-filter-btn" data-filter="bw" onclick="mingle.setFilter('bw')">🖤 B&amp;W</button>
+              <button type="button" class="mingle-filter-btn" data-filter="cinematic" onclick="mingle.setFilter('cinematic')">🎬 Cinematic</button>
+            </div>
+            <div id="mingleFilterIntensityRow" class="mingle-filter-intensity-row" style="display: none;">
+              <span style="white-space: nowrap;">🎚️ Intensitas Filter:</span>
+              <input type="range" id="mingleFilterIntensityRange" min="30" max="100" step="5" value="100" oninput="mingle.setFilterIntensity(this.value)" style="flex: 1; accent-color: var(--coral, #E6786B); cursor: pointer;">
+              <span id="mingleFilterIntensityLabel" style="min-width: 34px; text-align: right;">100%</span>
+            </div>
           </div>
         </div>
 
@@ -1179,8 +1214,9 @@
   </div>
 
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
-  <script src="/js/offline-store.js?v=1.3"></script>
+  <script src="/js/offline-store.js?v=1.4"></script>
   <script src="/js/print-client.js?v=1.7"></script>
-  <script src="/js/mingle.js?v=3.3"></script>
+  <script src="/js/photo-filters.js?v=1.0"></script>
+  <script src="/js/mingle.js?v=3.4"></script>
 </body>
 </html>

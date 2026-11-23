@@ -261,11 +261,31 @@
       box-shadow: 0 3px 10px rgba(230, 120, 107, 0.35);
     }
     .filter-pill-dot {
-      width: 8px;
-      height: 8px;
+      width: 10px;
+      height: 10px;
       border-radius: 50%;
       display: inline-block;
       flex-shrink: 0;
+    }
+    .filter-pill-thumb {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      object-fit: cover;
+      border: 1.5px solid rgba(255, 255, 255, 0.85);
+      box-shadow: 0 1px 4px rgba(56, 30, 17, 0.2);
+      flex-shrink: 0;
+    }
+    .filter-intensity-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 8px;
+      padding-top: 6px;
+      border-top: 1px dashed var(--border-soft);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--caramel-brown);
     }
     .preview-pan-toolbar {
       display: flex;
@@ -1109,6 +1129,11 @@
                 <span class="filter-pill-dot" style="background: #854d0e;"></span> 🎬 Cinematic
               </button>
             </div>
+            <div id="kioskFilterIntensityRow" class="filter-intensity-row" style="display: none;">
+              <span style="white-space: nowrap;">🎚️ Intensitas Filter:</span>
+              <input type="range" id="kioskFilterIntensityRange" min="30" max="100" step="5" value="100" oninput="kiosk.setPhotoFilterIntensity(this.value)" style="flex: 1; accent-color: var(--coral); cursor: pointer;">
+              <span id="kioskFilterIntensityLabel" style="min-width: 34px; text-align: right;">100%</span>
+            </div>
           </div>
 
           <div style="margin-top: 10px; padding-top: 8px; border-top: 1.5px dashed var(--border-soft); display: flex; justify-content: space-between; align-items: center; gap: 6px;">
@@ -1468,8 +1493,9 @@
   </div>
 
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
-  <script src="/js/offline-store.js?v=1.3"></script>
+  <script src="/js/offline-store.js?v=1.4"></script>
   <script src="/js/print-client.js?v=1.7"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v9.27"></script>
+  <script src="/js/photo-filters.js?v=1.0"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v9.28"></script>
 </body>
 </html>

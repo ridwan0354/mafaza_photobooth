@@ -660,6 +660,8 @@ function populateSelectedEventConfig() {
   if (document.getElementById('cfgMaxCopies')) document.getElementById('cfgMaxCopies').value = cfg.maxCopiesPerSession || 2;
   if (document.getElementById('cfgQrRequirement')) document.getElementById('cfgQrRequirement').value = cfg.qrRequirement || 'disabled';
   if (document.getElementById('cfgPinLock')) document.getElementById('cfgPinLock').value = cfg.pinLock || '1234';
+  if (document.getElementById('cfgDefaultPhotoFilter')) document.getElementById('cfgDefaultPhotoFilter').value = cfg.defaultPhotoFilter || 'normal';
+  if (document.getElementById('cfgLivePhotoFilter')) document.getElementById('cfgLivePhotoFilter').checked = Boolean(cfg.livePhotoFilter);
 
   // Set Masa Berlaku Galeri Foto & QR
   const expSelect = document.getElementById('cfgGalleryExpiry');
@@ -1265,6 +1267,8 @@ async function saveEventConfig() {
     pinLock: document.getElementById('cfgPinLock').value,
     welcomeHeadline: welcomeHeadline,
     welcomeBtnText: welcomeBtnText,
+    defaultPhotoFilter: document.getElementById('cfgDefaultPhotoFilter')?.value || 'normal',
+    livePhotoFilter: Boolean(document.getElementById('cfgLivePhotoFilter')?.checked),
     localPrintMode: Boolean(document.getElementById('cfgLocalPrintMode')?.checked ?? getStoredKioskLocalMode()),
     kioskBackground: {
       type: bgType,

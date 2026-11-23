@@ -149,12 +149,49 @@
       return new Promise((resolve, reject) => {
         const tx = db.transaction(STORE_SESSIONS, 'readwrite');
         const store = tx.objectStore(STORE_SESSIONS);
-        const req = store.put(record);
-        req.onsuccess = () => {
-          this.notifyChange();
-          resolve(record);
+        const existingReq = store.get(sessionId);
+        existingReq.onsuccess = () => {
+          const existing = existingReq.result;
+          if (existing) {
+            if (!record.finalImage && existing.finalImage) record.finalImage = existing.finalImage;
+            if ((!record.captures || record.captures.length === 0) && Array.isArray(existing.captures) && existing.captures.length > 0) {
+              record.captures = existing.captures;
+            }
+            if ((!record.liveClips || record.liveClips.length === 0) && Array.isArray(existing.liveClips) && existing.liveClips.length > 0) {
+              record.liveClips = existing.liveClips;
+            }
+            if (!record.boomerang && existing.boomerang) record.boomerang = existing.boomerang;
+            if (!record.guestPassId && existing.guestPassId) record.guestPassId = existing.guestPassId;
+            if (!record.guestPassToken && existing.guestPassToken) record.guestPassToken = existing.guestPassToken;
+            if (!record.guestPassGalleryUrl && existing.guestPassGalleryUrl) record.guestPassGalleryUrl = existing.guestPassGalleryUrl;
+            if (!record.guestPassQrDataUrl && existing.guestPassQrDataUrl) record.guestPassQrDataUrl = existing.guestPassQrDataUrl;
+            if (!record.templateId && existing.templateId) record.templateId = existing.templateId;
+            if (!record.templateName && existing.templateName) record.templateName = existing.templateName;
+
+            const shouldPreservePrint = sessionData.preservePrintFlags
+              || (existing.printRequested && !sessionData.printRequested && !sessionData.forceClearPrint);
+            if (shouldPreservePrint && existing.printRequested) {
+              record.printRequested = true;
+              record.printCopies = existing.printCopies || record.printCopies;
+              record.printPaperSize = existing.printPaperSize || record.printPaperSize;
+              record.paperConfirmed = Boolean(existing.paperConfirmed);
+            }
+          }
+          const putReq = store.put(record);
+          putReq.onsuccess = () => {
+            this.notifyChange();
+            resolve(record);
+          };
+          putReq.onerror = () => reject(putReq.error);
         };
-        req.onerror = () => reject(req.error);
+        existingReq.onerror = () => {
+          const putReq = store.put(record);
+          putReq.onsuccess = () => {
+            this.notifyChange();
+            resolve(record);
+          };
+          putReq.onerror = () => reject(putReq.error);
+        };
       });
     },
 

@@ -53,6 +53,8 @@ class KioskEngine {
     this.slotTransforms = [];
     this.selectedPreviewSlotIndex = 0;
     this.activePhotoFilter = 'normal';
+    this.activePhotoFilterIntensity = 1.0;
+    this._sessionFilterManuallyChosen = false;
     this.cachedPhotoImages = {};
     this.cachedKeyedFrame = null;
     this.isDraggingPhoto = false;
@@ -401,6 +403,8 @@ class KioskEngine {
         }
         this.applyKioskWelcomeText();
         this.applyKioskBackground();
+        this.syncDefaultEventPhotoFilter(false);
+        this.applyCameraImageAdjustToLiveVideo();
         this.renderStepProgressBars();
       }
     } catch (e) {
@@ -419,6 +423,8 @@ class KioskEngine {
           }
           this.applyKioskWelcomeText();
           this.applyKioskBackground();
+          this.syncDefaultEventPhotoFilter(false);
+          this.applyCameraImageAdjustToLiveVideo();
           this.renderStepProgressBars();
         }
       }
@@ -1074,6 +1080,8 @@ class KioskEngine {
     this.activePoseIndex = 0;
     this.guestPass = null;
     this.sessionId = null;
+    this._sessionFilterManuallyChosen = false;
+    this.syncDefaultEventPhotoFilter(true);
     if (this.autoReturnTimerId) clearInterval(this.autoReturnTimerId);
 
     // Refresh event config & event frames (skip remote wait when Mode Lokal is active; cap timeout when online)
@@ -1090,6 +1098,8 @@ class KioskEngine {
         console.warn('Config refresh skipped on startSession:', e);
       }
     }
+    this.syncDefaultEventPhotoFilter(true);
+    this.applyCameraImageAdjustToLiveVideo();
 
     // Jika Mode Lokal aktif atau event diatur Tidak Pakai Pindai QR, langsung masuk ke Pilih Frame (No. 1)
     if (this.isLocalDirectMode() || this.isQrScanDisabled()) {
@@ -2257,6 +2267,20 @@ class KioskEngine {
     if (lblS) lblS.innerText = `${s}%`;
   }
 
+  getDefaultEventPhotoFilter() {
+    const raw = (this.eventConfig && this.eventConfig.defaultPhotoFilter) || 'normal';
+    return window.MafazaPhotoFilters ? window.MafazaPhotoFilters.normalizeFilterKey(raw) : raw;
+  }
+
+  syncDefaultEventPhotoFilter(forceReset = false) {
+    if (!forceReset && this._sessionFilterManuallyChosen) return;
+    this.activePhotoFilter = this.getDefaultEventPhotoFilter();
+    this.activePhotoFilterIntensity = 1.0;
+    if (typeof this.syncFilterControlsUI === 'function') {
+      this.syncFilterControlsUI();
+    }
+  }
+
   getCameraCssFilterString() {
     this.loadSavedCameraImageAdjust();
     const { brightness, contrast, saturation } = this.cameraImageAdjust;
@@ -2264,6 +2288,17 @@ class KioskEngine {
       return '';
     }
     return `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
+  }
+
+  getLiveViewfinderCssFilterString() {
+    const hw = this.getCameraCssFilterString();
+    const liveArtEnabled = Boolean(this.eventConfig && this.eventConfig.livePhotoFilter);
+    const artKey = liveArtEnabled ? (this.activePhotoFilter || this.getDefaultEventPhotoFilter()) : 'normal';
+    if (liveArtEnabled && artKey !== 'normal' && window.MafazaPhotoFilters) {
+      const combined = window.MafazaPhotoFilters.getScaledCssFilter(artKey, this.activePhotoFilterIntensity || 1.0, hw);
+      return combined !== 'none' ? combined : '';
+    }
+    return hw;
   }
 
   updateCameraImageAdjust(key, val) {
@@ -2289,7 +2324,7 @@ class KioskEngine {
 
   applyCameraImageAdjustToLiveVideo() {
     const video = document.getElementById('videoFeed');
-    const f = this.getCameraCssFilterString();
+    const f = this.getLiveViewfinderCssFilterString();
     [video, this.canonUsbCanvas].forEach(el => {
       if (!el) return;
       if (f) {
@@ -3565,11 +3600,15 @@ class KioskEngine {
             c.width = img.naturalWidth || 1920;
             c.height = img.naturalHeight || 1280;
             const ctx = c.getContext('2d');
+            const camCss = this.getCameraCssFilterString();
+            const drawSource = (camCss && window.MafazaPhotoFilters)
+              ? (window.MafazaPhotoFilters.renderStyledCanvas(img, 'normal', { extraCssFilter: camCss, skipCache: true }) || img)
+              : img;
             const zoom = Math.max(0.5, Math.min(3.0, this.cameraZoom || 1.0));
             const panX = Math.max(-1, Math.min(1, this.cameraPanX || 0));
             const panY = Math.max(-1, Math.min(1, this.cameraPanY || 0));
-            const iw = img.naturalWidth || c.width;
-            const ih = img.naturalHeight || c.height;
+            const iw = drawSource.naturalWidth || drawSource.width || c.width;
+            const ih = drawSource.naturalHeight || drawSource.height || c.height;
             if (zoom < 1.0) {
               ctx.fillStyle = '#000000';
               ctx.fillRect(0, 0, c.width, c.height);
@@ -3577,7 +3616,7 @@ class KioskEngine {
               const dh = c.height * zoom;
               const dx = (c.width - dw) / 2 + (panX * (c.width - dw) / 2);
               const dy = (c.height - dh) / 2 - (panY * (c.height - dh) / 2);
-              ctx.drawImage(img, 0, 0, iw, ih, dx, dy, dw, dh);
+              ctx.drawImage(drawSource, 0, 0, iw, ih, dx, dy, dw, dh);
             } else {
               const cropW = iw / zoom;
               const cropH = ih / zoom;
@@ -3585,7 +3624,7 @@ class KioskEngine {
               const maxOffY = (ih - cropH) / 2;
               const cropX = Math.max(0, Math.min(iw - cropW, maxOffX - (panX * maxOffX)));
               const cropY = Math.max(0, Math.min(ih - cropH, maxOffY + (panY * maxOffY)));
-              ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height);
+              ctx.drawImage(drawSource, cropX, cropY, cropW, cropH, 0, 0, c.width, c.height);
             }
             const flashDataUrl = c.toDataURL('image/jpeg', 0.90);
             this.posesCaptured[poseIndex] = flashDataUrl;
@@ -3748,7 +3787,7 @@ class KioskEngine {
     const transformStr = rot
       ? `scaleX(-1) rotate(${rot}deg) scale(${totalScale}) translate(${tx}%, ${ty}%)`
       : `scaleX(-1) scale(${totalScale}) translate(${tx}%, ${ty}%)`;
-    const cssFilter = this.getCameraCssFilterString();
+    const cssFilter = this.getLiveViewfinderCssFilterString();
     // When rotated 90/270 degrees, keep base element uncropped ('contain') so CSS scale(rotScale) handles full cover cleanly
     const appliedObjectFit = (rot === 90 || rot === 270) ? 'contain' : fitMode;
     [video, this.canonUsbCanvas].forEach(el => {
@@ -4077,6 +4116,14 @@ class KioskEngine {
 
     // Tampilkan hasil foto barusan secara penuh di layar kamera
     if (holdOverlay && holdImg && capturedSrc) {
+      const liveArt = (this.eventConfig && this.eventConfig.livePhotoFilter && this.activePhotoFilter !== 'normal' && window.MafazaPhotoFilters)
+        ? window.MafazaPhotoFilters.getScaledCssFilter(this.activePhotoFilter, this.activePhotoFilterIntensity || 1.0)
+        : 'none';
+      if (liveArt && liveArt !== 'none') {
+        holdImg.style.filter = liveArt;
+      } else {
+        holdImg.style.removeProperty('filter');
+      }
       holdImg.src = capturedSrc;
       holdOverlay.style.display = 'flex';
     }
@@ -4415,6 +4462,17 @@ class KioskEngine {
 
     await this.loadAndKeySelectedTemplate(false);
 
+    // Gunakan filter bawaan event sebelum render & Auto-Print bila tamu belum memilih manual
+    if (!this._sessionFilterManuallyChosen) {
+      this.activePhotoFilter = this.getDefaultEventPhotoFilter();
+      this.activePhotoFilterIntensity = 1.0;
+    }
+    this.syncFilterControlsUI();
+    const firstValidPose = (this.posesCaptured || []).find(p => p && typeof p === 'string');
+    if (firstValidPose && window.MafazaPhotoFilters) {
+      window.MafazaPhotoFilters.updateFilterPillThumbnails('#previewFiltersRow', firstValidPose).catch(() => {});
+    }
+
     // Render composited final canvas
     await this.renderFinalCanvas();
 
@@ -4720,19 +4778,25 @@ class KioskEngine {
   }
 
   getPhotoFilterString(filterKey) {
+    if (window.MafazaPhotoFilters) {
+      return window.MafazaPhotoFilters.getScaledCssFilter(filterKey, this.activePhotoFilterIntensity || 1.0);
+    }
     const filters = {
       normal: 'none',
-      glowing: 'brightness(107%) contrast(104%) saturate(108%)',
-      korean: 'brightness(112%) contrast(96%) saturate(106%)',
-      warm_retro: 'sepia(24%) contrast(108%) brightness(102%) saturate(112%)',
-      vivid: 'contrast(114%) saturate(135%) brightness(102%)',
-      bw: 'grayscale(100%) contrast(120%) brightness(104%)',
-      cinematic: 'contrast(118%) saturate(90%) brightness(98%) sepia(12%)'
+      glowing: 'brightness(105%) contrast(102%) saturate(106%)',
+      korean: 'brightness(108%) contrast(95%) saturate(103%)',
+      warm_retro: 'sepia(22%) contrast(106%) brightness(102%) saturate(110%)',
+      vivid: 'contrast(111%) saturate(126%) brightness(102%)',
+      bw: 'grayscale(100%) contrast(114%) brightness(105%)',
+      cinematic: 'contrast(112%) saturate(92%) brightness(100%) sepia(10%)'
     };
     return filters[filterKey] || 'none';
   }
 
   getPhotoFilterLabel(filterKey) {
+    if (window.MafazaPhotoFilters) {
+      return window.MafazaPhotoFilters.getLabel(filterKey, false);
+    }
     const labels = {
       normal: '🌿 Normal',
       glowing: '✨ Glowing',
@@ -4742,32 +4806,57 @@ class KioskEngine {
       bw: '🖤 B&W Estetik',
       cinematic: '🎬 Cinematic'
     };
-    return labels[filterKey] || 'Normal';
+    return labels[filterKey] || '🌿 Normal';
+  }
+
+  syncFilterControlsUI() {
+    const activeKey = this.activePhotoFilter || 'normal';
+    const pct = Math.round((typeof this.activePhotoFilterIntensity === 'number' ? this.activePhotoFilterIntensity : 1.0) * 100);
+    const pills = document.querySelectorAll('#previewFiltersRow .preview-filter-pill');
+    pills.forEach(p => {
+      p.classList.toggle('active', p.getAttribute('data-filter') === activeKey);
+    });
+    const badge = document.getElementById('activeFilterNameBadge');
+    if (badge) {
+      badge.innerText = activeKey !== 'normal' && pct < 100
+        ? `${this.getPhotoFilterLabel(activeKey)} (${pct}%)`
+        : this.getPhotoFilterLabel(activeKey);
+    }
+    const intRow = document.getElementById('kioskFilterIntensityRow');
+    const intRange = document.getElementById('kioskFilterIntensityRange');
+    const intLabel = document.getElementById('kioskFilterIntensityLabel');
+    if (intRow) intRow.style.display = activeKey !== 'normal' ? 'flex' : 'none';
+    if (intRange) intRange.value = String(pct);
+    if (intLabel) intLabel.innerText = `${pct}%`;
   }
 
   async setPhotoFilter(filterKey) {
-    this.activePhotoFilter = filterKey || 'normal';
-
-    const pills = document.querySelectorAll('.preview-filter-pill');
-    pills.forEach(p => {
-      if (p.getAttribute('data-filter') === this.activePhotoFilter) {
-        p.classList.add('active');
-      } else {
-        p.classList.remove('active');
-      }
-    });
-
-    const badge = document.getElementById('activeFilterNameBadge');
-    if (badge) {
-      badge.innerText = this.getPhotoFilterLabel(this.activePhotoFilter);
-    }
-
+    this.activePhotoFilter = window.MafazaPhotoFilters
+      ? window.MafazaPhotoFilters.normalizeFilterKey(filterKey)
+      : (filterKey || 'normal');
+    this._sessionFilterManuallyChosen = true;
+    this.syncFilterControlsUI();
     await this.renderFinalCanvas();
 
     if (this.syncDebounceTimer) clearTimeout(this.syncDebounceTimer);
     this.syncDebounceTimer = setTimeout(() => {
-      this.syncFinalPhotoToBackend();
-    }, 450);
+      const validPoses = (this.posesCaptured || []).filter(p => p !== null);
+      this.syncFinalPhotoToBackend({ forceRegenerateBoomerang: validPoses.length >= 2 });
+    }, 650);
+  }
+
+  async setPhotoFilterIntensity(percentVal) {
+    const pct = Math.max(30, Math.min(100, parseInt(percentVal, 10) || 100));
+    this.activePhotoFilterIntensity = pct / 100;
+    this._sessionFilterManuallyChosen = true;
+    this.syncFilterControlsUI();
+    await this.renderFinalCanvas();
+
+    if (this.syncDebounceTimer) clearTimeout(this.syncDebounceTimer);
+    this.syncDebounceTimer = setTimeout(() => {
+      const validPoses = (this.posesCaptured || []).filter(p => p !== null);
+      this.syncFinalPhotoToBackend({ forceRegenerateBoomerang: validPoses.length >= 2 });
+    }, 750);
   }
 
   async renderFinalCanvas() {
@@ -4816,12 +4905,6 @@ class KioskEngine {
         ctx.rect(clipX, clipY, clipW, clipH);
         ctx.clip();
 
-        // Terapkan filter foto estetik pilihan pelanggan (Glowing, Korean Soft, Warm Retro, dll.)
-        const filterStr = this.getPhotoFilterString(this.activePhotoFilter);
-        if (filterStr && filterStr !== 'none') {
-          ctx.filter = filterStr;
-        }
-
         const transform = (this.slotTransforms && this.slotTransforms[i]) || { panX: 0, panY: 0, zoom: 1.0 };
         const zoom = Math.max(0.35, Math.min(3.5, transform.zoom || 1.0));
 
@@ -4851,7 +4934,16 @@ class KioskEngine {
           ctx.translate(slotCenterX * 2, 0);
           ctx.scale(-1, 1);
         }
-        ctx.drawImage(pImg, drawX, drawY, drawW, drawH);
+        if (window.MafazaPhotoFilters) {
+          window.MafazaPhotoFilters.drawFilteredImage(ctx, pImg, drawX, drawY, drawW, drawH, this.activePhotoFilter, {
+            intensity: this.activePhotoFilterIntensity || 1.0,
+            cacheKey: `${this.sessionId || 'k'}_pose_${photoIdx}`
+          });
+        } else {
+          const filterStr = this.getPhotoFilterString(this.activePhotoFilter);
+          if (filterStr && filterStr !== 'none') ctx.filter = filterStr;
+          ctx.drawImage(pImg, drawX, drawY, drawW, drawH);
+        }
         ctx.restore();
       }
     }
@@ -5512,7 +5604,14 @@ class KioskEngine {
               const drawX = slotCenterX - (drawW / 2) + (transform.panX || 0);
               const drawY = slotCenterY - (drawH / 2) + (transform.panY || 0);
 
-              ctx.drawImage(pImg, drawX, drawY, drawW, drawH);
+              if (window.MafazaPhotoFilters) {
+                window.MafazaPhotoFilters.drawFilteredImage(ctx, pImg, drawX, drawY, drawW, drawH, this.activePhotoFilter, {
+                  intensity: this.activePhotoFilterIntensity || 1.0,
+                  cacheKey: `${this.sessionId || 'k'}_bm_${activePhotoIdx}`
+                });
+              } else {
+                ctx.drawImage(pImg, drawX, drawY, drawW, drawH);
+              }
               ctx.restore();
             }
           }
@@ -5634,7 +5733,12 @@ class KioskEngine {
 
   saveOfflineSessionBackup(finalImageBlob, opts = {}) {
     if (!window.pbOfflineStore) return;
-    const captures = opts.captures || (this.posesCaptured || []).map((p, idx) => ({ poseIndex: idx + 1, blob: p }));
+    const rawOptsCaptures = Array.isArray(opts.captures) ? opts.captures : [];
+    const captures = rawOptsCaptures.length > 0
+      ? rawOptsCaptures
+      : (this.posesCaptured || [])
+          .map((p, idx) => (p ? { poseIndex: idx + 1, blob: p } : null))
+          .filter(Boolean);
     window.pbOfflineStore.saveSession({
       id: this.sessionId,
       tenantId: this.tenantId,
@@ -5655,7 +5759,8 @@ class KioskEngine {
       printRequested: Boolean(opts.printRequested),
       printCopies: parseInt(opts.printCopies, 10) || 1,
       printPaperSize: opts.printPaperSize || null,
-      paperConfirmed: Boolean(opts.paperConfirmed)
+      paperConfirmed: Boolean(opts.paperConfirmed),
+      preservePrintFlags: opts.preservePrintFlags !== undefined ? Boolean(opts.preservePrintFlags) : !opts.printRequested
     }).catch(err => console.warn('Offline session save error:', err));
   }
 
@@ -6181,17 +6286,11 @@ class KioskEngine {
     this.activePoseIndex = 0;
     this.guestPass = null;
     this.sessionId = null;
-    this.activePhotoFilter = 'normal';
-    const activeBadge = document.getElementById('activeFilterNameBadge');
-    if (activeBadge) activeBadge.innerText = '🌿 Normal';
-    const filterPills = document.querySelectorAll('.preview-filter-pill');
-    filterPills.forEach(p => {
-      if (p.getAttribute('data-filter') === 'normal') {
-        p.classList.add('active');
-      } else {
-        p.classList.remove('active');
-      }
-    });
+    this._sessionFilterManuallyChosen = false;
+    this.activePhotoFilter = this.getDefaultEventPhotoFilter ? this.getDefaultEventPhotoFilter() : 'normal';
+    this.activePhotoFilterIntensity = 1.0;
+    if (window.MafazaPhotoFilters) window.MafazaPhotoFilters.clearCache();
+    this.syncFilterControlsUI();
 
     const thumbs = document.getElementById('poseThumbnails');
     if (thumbs) thumbs.innerHTML = '';

@@ -978,3 +978,173 @@ test('Gallery hides fake Boomerang/Live Photo modes on single still session and 
   assert.match(kioskSrc, /canonUsbLiveCanvas[\s\S]*captureStream/);
   assert.match(kioskSrc, /const slotPoseIdx = \(slot\.pose_index && parseInt\(slot\.pose_index, 10\) > 0\)/);
 });
+
+test('Shared print-safe photo filter engine, Kiosk/Mingle parity, offline print preservation & Admin event defaults work end-to-end', async () => {
+  const vm = (await import('node:vm')).default;
+  const eventService = await import('../src/services/event.js');
+
+  const filtersSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/photo-filters.js'), 'utf8');
+  const offlineSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/offline-store.js'), 'utf8');
+  const kioskHtml = fs.readFileSync(path.join(process.cwd(), 'public/kiosk.html'), 'utf8');
+  const mingleHtml = fs.readFileSync(path.join(process.cwd(), 'public/mingle.html'), 'utf8');
+  const adminHtml = fs.readFileSync(path.join(process.cwd(), 'public/admin.html'), 'utf8');
+  const kioskSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/kiosk.js'), 'utf8');
+  const mingleSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const adminSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/admin.js'), 'utf8');
+  const swSrc = fs.readFileSync(path.join(process.cwd(), 'public/sw.js'), 'utf8');
+
+  // 1. Execute MafazaPhotoFilters in VM and verify all 7 print-calibrated presets & intensity scaling
+  const fCtx = vm.createContext({ Math, Number, String, Array, Map, RegExp, module: { exports: {} }, console });
+  vm.runInContext(filtersSrc, fCtx);
+  const filters = fCtx.MafazaPhotoFilters;
+  assert.deepEqual(Array.from(filters.PRESET_ORDER), ['normal', 'glowing', 'korean', 'warm_retro', 'vivid', 'bw', 'cinematic']);
+  assert.equal(filters.getScaledCssFilter('normal', 1.0), 'none');
+  assert.equal(filters.getScaledCssFilter('bw', 1.0), 'brightness(105%) contrast(114%) saturate(0%) grayscale(100%)');
+  assert.equal(filters.getScaledCssFilter('bw', 0.5), 'brightness(102%) contrast(107%) saturate(50%) grayscale(50%)');
+  assert.ok(filters.getPreset('glowing').glowAlpha > 0, 'Glowing includes real diffusion bloom');
+  assert.ok(Array.isArray(filters.getPreset('bw').shadowLiftRgb), 'B&W lifts pure black shadows for Epson paper');
+
+  // 2. Verify pixel-level Canvas fallback (Safari/older WebKit) mutates pixels accurately
+  const mockCanvasData = new Uint8ClampedArray([100, 150, 200, 255]);
+  let createdCanvasCtx = null;
+  const mockDoc = {
+    createElement() {
+      return {
+        width: 1,
+        height: 1,
+        getContext() {
+          createdCanvasCtx = {
+            imageSmoothingEnabled: true,
+            filter: 123, // non-string forces pixel fallback path
+            fillStyle: '',
+            globalAlpha: 1,
+            globalCompositeOperation: 'source-over',
+            save() {},
+            restore() {},
+            fillRect() {},
+            drawImage() {},
+            getImageData: () => ({ data: mockCanvasData }),
+            putImageData(imgData) { createdCanvasCtx._out = Array.from(imgData.data); }
+          };
+          return createdCanvasCtx;
+        }
+      };
+    }
+  };
+  const pCtx = vm.createContext({ Math, Number, String, Array, Map, RegExp, document: mockDoc, module: { exports: {} }, console });
+  vm.runInContext(filtersSrc, pCtx);
+  const pFilters = pCtx.MafazaPhotoFilters;
+  assert.equal(pFilters.supportsCanvasFilter(), false);
+  pFilters.renderStyledCanvas({ naturalWidth: 10, naturalHeight: 10, src: 'mem://1' }, 'bw', { intensity: 1.0, skipCache: true });
+  assert.ok(createdCanvasCtx && createdCanvasCtx._out, 'Pixel fallback wrote graded pixels when ctx.filter is unsupported');
+  assert.equal(createdCanvasCtx._out[0], createdCanvasCtx._out[1], 'B&W pixel fallback produces monochrome R==G');
+  assert.equal(createdCanvasCtx._out[1], createdCanvasCtx._out[2], 'B&W pixel fallback produces monochrome G==B');
+
+  // 3. Verify offline-store preserves printRequested & captures across filter re-saves
+  const storedRecords = new Map();
+  const mockIdb = {
+    open() {
+      const req = {};
+      setTimeout(() => {
+        const dbObj = {
+          objectStoreNames: { contains: () => true },
+          transaction() {
+            const tx = { oncomplete: null };
+            const objStore = {
+              get(id) {
+                const r = {};
+                setTimeout(() => { r.result = storedRecords.get(id) || null; if (r.onsuccess) r.onsuccess(); }, 0);
+                return r;
+              },
+              getAll() {
+                const r = {};
+                setTimeout(() => { r.result = Array.from(storedRecords.values()); if (r.onsuccess) r.onsuccess(); }, 0);
+                return r;
+              },
+              put(rec) {
+                const r = {};
+                storedRecords.set(rec.id, rec);
+                setTimeout(() => { if (r.onsuccess) r.onsuccess(); if (tx.oncomplete) tx.oncomplete(); }, 0);
+                return r;
+              }
+            };
+            tx.objectStore = () => objStore;
+            return tx;
+          }
+        };
+        req.result = dbObj;
+        if (req.onsuccess) req.onsuccess();
+      }, 0);
+      return req;
+    }
+  };
+  const oCtx = vm.createContext({
+    indexedDB: mockIdb,
+    window: { addEventListener() {} },
+    document: { addEventListener() {} },
+    localStorage: { getItem: () => null, setItem() {} },
+    navigator: { onLine: false },
+    Blob: globalThis.Blob,
+    FileReader: class { readAsDataURL() { setTimeout(() => { this.result = 'data:image/jpeg;base64,QQ=='; if (this.onloadend) this.onloadend(); }, 0); } },
+    atob: globalThis.atob,
+    Uint8Array, Promise, Math, Date, JSON, Array, Number, String, Boolean, setTimeout, setInterval: () => 1, console
+  });
+  vm.runInContext(offlineSrc, oCtx);
+  const store = oCtx.window.pbOfflineStore;
+
+  await store.saveSession({
+    id: 'sess_filter_offline_1',
+    finalImageBlob: 'data:image/jpeg;base64,FINAL1',
+    captures: [{ poseIndex: 1, blob: 'data:image/jpeg;base64,RAW1' }],
+    printRequested: true,
+    printCopies: 3,
+    printPaperSize: '5x7',
+    paperConfirmed: true
+  });
+  // Now simulate filter change while offline (printRequested: false, captures: [])
+  await store.saveSession({
+    id: 'sess_filter_offline_1',
+    finalImageBlob: 'data:image/jpeg;base64,FINAL_FILTERED',
+    captures: [],
+    printRequested: false,
+    preservePrintFlags: true
+  });
+  const savedAfterFilter = storedRecords.get('sess_filter_offline_1');
+  assert.equal(savedAfterFilter.finalImage, 'data:image/jpeg;base64,FINAL_FILTERED');
+  assert.equal(savedAfterFilter.printRequested, true, 'Offline print queue preserved on filter change');
+  assert.equal(savedAfterFilter.printCopies, 3);
+  assert.equal(savedAfterFilter.printPaperSize, '5x7');
+  assert.equal(savedAfterFilter.paperConfirmed, true);
+  assert.equal(savedAfterFilter.captures.length, 1, 'Existing raw captures preserved when filter update passes []');
+  await new Promise(r => setTimeout(r, 20));
+
+  // 4. Verify Kiosk, Mingle, Admin & SW integration wiring
+  assert.match(kioskHtml, /<script src="\/js\/photo-filters\.js/);
+  assert.match(mingleHtml, /<script src="\/js\/photo-filters\.js/);
+  assert.match(kioskHtml, /id="kioskFilterIntensityRange"/);
+  assert.match(mingleHtml, /data-filter="cinematic"/, 'Mingle has all 7 filter presets matching Kiosk');
+  assert.match(mingleHtml, /id="mingleFilterIntensityRange"/);
+  assert.match(swSrc, /'\/js\/photo-filters\.js'/);
+
+  assert.match(mingleSrc, /querySelectorAll\('#mingleFilterRow \.mingle-filter-btn'\)/, 'Mingle filter active class scoped so slot tabs stay highlighted');
+  assert.match(kioskSrc, /forceRegenerateBoomerang: validPoses\.length >= 2/, 'Kiosk regenerates Boomerang when photo filter changes');
+  assert.match(kioskSrc, /window\.MafazaPhotoFilters\.drawFilteredImage\([\s\S]*bm_/, 'Kiosk Boomerang applies active photo filter');
+  assert.match(kioskSrc, /getCameraCssFilterString\(\)[\s\S]*renderStyledCanvas/, 'Kiosk DSLR hardware capture applies camera adjust settings');
+
+  // 5. Verify Event Config persists defaultPhotoFilter + livePhotoFilter
+  assert.match(adminHtml, /id="cfgDefaultPhotoFilter"/);
+  assert.match(adminHtml, /id="cfgLivePhotoFilter"/);
+  assert.match(adminSrc, /cfgDefaultPhotoFilter/);
+  const createdEv = eventService.createEvent('tenant_studiokeren_01', {
+    name: 'Filter Default Test',
+    defaultPhotoFilter: 'korean',
+    livePhotoFilter: true
+  });
+  try {
+    assert.equal(createdEv.config.defaultPhotoFilter, 'korean');
+    assert.equal(createdEv.config.livePhotoFilter, true);
+  } finally {
+    const { db } = await import('../src/db/database.js');
+    db.prepare('DELETE FROM events WHERE id = ?').run(createdEv.id);
+  }
+});

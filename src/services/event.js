@@ -70,6 +70,8 @@ export function createEvent(tenantId, data) {
     pinLock: data.pinLock || '1234',
     welcomeHeadline: data.welcomeHeadline || 'Abadikan Momen Spesialmu Di Sini! 😊',
     welcomeBtnText: data.welcomeBtnText || 'Mulai Foto ➔',
+    defaultPhotoFilter: data.defaultPhotoFilter || 'normal',
+    livePhotoFilter: Boolean(data.livePhotoFilter),
     kioskBackground: data.kioskBackground || {
       type: 'default',
       url: '',

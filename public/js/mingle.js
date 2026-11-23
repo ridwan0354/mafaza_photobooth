@@ -36,6 +36,8 @@ class MingleBoothEngine {
     this.cachedPhotoImg = null;
     this.cachedPhotoMap = {};
     this.activeFilter = 'normal';
+    this.activeFilterIntensity = 1.0;
+    this._sessionFilterManuallyChosen = false;
     this.isTopLiveLayout = urlParams.get('fullscreen') === '1' || localStorage.getItem('pb_mingle_top_live') === 'true';
 
     this.guestPass = null;
@@ -367,6 +369,22 @@ class MingleBoothEngine {
     }
     this.applyMingleWelcomeText();
     this.applyMingleBackground();
+    this.syncDefaultEventFilter(false);
+    this.applyMingleVideoTransform();
+  }
+
+  getDefaultEventFilter() {
+    const raw = (this.eventConfig && this.eventConfig.defaultPhotoFilter) || 'normal';
+    return window.MafazaPhotoFilters ? window.MafazaPhotoFilters.normalizeFilterKey(raw) : raw;
+  }
+
+  syncDefaultEventFilter(forceReset = false) {
+    if (!forceReset && this._sessionFilterManuallyChosen) return;
+    this.activeFilter = this.getDefaultEventFilter();
+    this.activeFilterIntensity = 1.0;
+    if (typeof this.syncFilterControlsUI === 'function') {
+      this.syncFilterControlsUI();
+    }
   }
 
   applyMingleWelcomeText() {
@@ -820,7 +838,10 @@ class MingleBoothEngine {
     this.rawPhotoDataUrl = null;
     this.cachedPhotoImg = null;
     this.cachedPhotoMap = {};
-    this.activeFilter = 'normal';
+    this._sessionFilterManuallyChosen = false;
+    this.activeFilterIntensity = 1.0;
+    this.syncDefaultEventFilter(true);
+    if (window.MafazaPhotoFilters) window.MafazaPhotoFilters.clearCache();
     this.guestPass = null;
     this.sessionId = null;
     const qrHint = document.getElementById('mingleQrTapHint');
@@ -921,7 +942,12 @@ class MingleBoothEngine {
     const title = document.getElementById('minglePhotoZoomTitle');
     const prevBtn = document.getElementById('minglePhotoZoomPrevBtn');
     const nextBtn = document.getElementById('minglePhotoZoomNextBtn');
-    if (img) img.src = photos[safeIdx];
+    if (img) {
+      const applyPreviewFilter = (this.currentScreen === 'screenMingleResult' && this.filesOnlyMode && this.activeFilter !== 'normal');
+      const css = applyPreviewFilter ? this.getFilterCss(this.activeFilter) : 'none';
+      img.style.filter = (css && css !== 'none') ? css : '';
+      img.src = photos[safeIdx];
+    }
     if (title) title.innerText = `🔍 Preview Foto #${safeIdx + 1} dari ${photos.length}`;
     if (prevBtn) prevBtn.style.display = photos.length > 1 ? '' : 'none';
     if (nextBtn) nextBtn.style.display = photos.length > 1 ? '' : 'none';
@@ -1086,6 +1112,13 @@ class MingleBoothEngine {
     }
     video.style.objectFit = (rot === 90 || rot === 270) ? 'contain' : 'cover';
     video.style.transform = rot ? `rotate(${rot}deg) scale(${rotScale.toFixed(3)})` : '';
+    const liveCanvas = document.getElementById('mingleLiveCanvas');
+    const liveArtEnabled = Boolean(this.eventConfig && this.eventConfig.livePhotoFilter);
+    const artCss = liveArtEnabled && this.activeFilter !== 'normal' ? this.getFilterCss(this.activeFilter) : 'none';
+    [video, liveCanvas].forEach(el => {
+      if (!el || !el.style) return;
+      el.style.filter = (artCss && artCss !== 'none') ? artCss : '';
+    });
   }
 
   async rotateDataUrlIfNeeded(dataUrl, checkPortraitExifGuard = true) {
@@ -1471,6 +1504,7 @@ class MingleBoothEngine {
       this.stopWebcam();
 
       const canvasStage = document.getElementById('mingleCanvasStage');
+      const filterPanel = document.getElementById('mingleFilterPanel');
       const filterRow = document.getElementById('mingleFilterRow');
       const slotBar = document.getElementById('mingleResultSlotBar');
       const filesBox = document.getElementById('mingleFilesPreviewBox');
@@ -1481,11 +1515,21 @@ class MingleBoothEngine {
 
       const slotZoomBar = document.getElementById('mingleSlotZoomBar');
       const slotBadge = document.getElementById('mingleActiveSlotBadge');
+      if (!this._sessionFilterManuallyChosen) {
+        this.activeFilter = this.getDefaultEventFilter();
+        this.activeFilterIntensity = 1.0;
+      }
+      this.syncFilterControlsUI();
+      if (this.capturedPhotos[0] && window.MafazaPhotoFilters) {
+        window.MafazaPhotoFilters.updateFilterPillThumbnails('#mingleFilterRow', this.capturedPhotos[0]).catch(() => {});
+      }
+
       if (this.filesOnlyMode) {
         if (canvasStage) canvasStage.style.display = 'none';
         if (slotZoomBar) slotZoomBar.style.display = 'none';
         if (slotBadge) slotBadge.style.display = 'none';
-        if (filterRow) filterRow.style.display = 'none';
+        if (filterPanel) filterPanel.style.display = 'flex';
+        if (filterRow) filterRow.style.display = 'flex';
         if (slotBar) slotBar.style.display = 'none';
         if (filesBox) filesBox.style.display = 'flex';
         if (printBtn) printBtn.style.display = 'none';
@@ -1499,6 +1543,7 @@ class MingleBoothEngine {
         if (canvasStage) canvasStage.style.display = 'flex';
         if (slotZoomBar) slotZoomBar.style.display = 'inline-flex';
         if (slotBadge) slotBadge.style.display = '';
+        if (filterPanel) filterPanel.style.display = 'flex';
         if (filterRow) filterRow.style.display = 'flex';
         if (printBtn) printBtn.style.display = '';
         if (resTitle) resTitle.innerText = '✨ Hasil Foto Tamu';
@@ -1703,13 +1748,17 @@ class MingleBoothEngine {
   }
 
   getFilterCss(key) {
+    if (window.MafazaPhotoFilters) {
+      return window.MafazaPhotoFilters.getScaledCssFilter(key, this.activeFilterIntensity || 1.0);
+    }
     const map = {
       normal: 'none',
-      glowing: 'brightness(107%) contrast(104%) saturate(108%)',
-      korean: 'brightness(112%) contrast(96%) saturate(106%)',
-      warm_retro: 'sepia(24%) contrast(108%) brightness(102%) saturate(112%)',
-      vivid: 'contrast(114%) saturate(135%) brightness(102%)',
-      bw: 'grayscale(100%) contrast(120%) brightness(104%)'
+      glowing: 'brightness(105%) contrast(102%) saturate(106%)',
+      korean: 'brightness(108%) contrast(95%) saturate(103%)',
+      warm_retro: 'sepia(22%) contrast(106%) brightness(102%) saturate(110%)',
+      vivid: 'contrast(111%) saturate(126%) brightness(102%)',
+      bw: 'grayscale(100%) contrast(114%) brightness(105%)',
+      cinematic: 'contrast(112%) saturate(92%) brightness(100%) sepia(10%)'
     };
     return map[key] || 'none';
   }
@@ -1822,7 +1871,6 @@ class MingleBoothEngine {
         ctx.beginPath();
         ctx.rect(clipX, clipY, clipW, clipH);
         ctx.clip();
-        if (filterStr !== 'none') ctx.filter = filterStr;
 
         const tr = this.getSlotTransform(i);
         const zoom = Math.max(0.35, Math.min(3.5, tr.zoom || 1.0));
@@ -1836,7 +1884,15 @@ class MingleBoothEngine {
 
         const drawX = (clipX + clipW / 2) - (drawW / 2) + tr.panX;
         const drawY = (clipY + clipH / 2) - (drawH / 2) + tr.panY;
-        ctx.drawImage(pImg, drawX, drawY, drawW, drawH);
+        if (window.MafazaPhotoFilters) {
+          window.MafazaPhotoFilters.drawFilteredImage(ctx, pImg, drawX, drawY, drawW, drawH, this.activeFilter, {
+            intensity: this.activeFilterIntensity || 1.0,
+            cacheKey: `${this.sessionId || 'm'}_pose_${assignedIdx}`
+          });
+        } else {
+          if (filterStr !== 'none') ctx.filter = filterStr;
+          ctx.drawImage(pImg, drawX, drawY, drawW, drawH);
+        }
         ctx.restore();
       }
     }
@@ -1852,16 +1908,22 @@ class MingleBoothEngine {
     const heading = document.getElementById('mingleFilesCountHeading');
     const grid = document.getElementById('mingleFilesThumbsGrid');
     const photos = this.capturedPhotos || [];
+    const cssFilter = this.activeFilter !== 'normal' ? this.getFilterCss(this.activeFilter) : 'none';
+    const filterStyle = (cssFilter && cssFilter !== 'none') ? `filter: ${cssFilter};` : '';
     if (heroImg && photos[this.selectedFileIdx]) {
+      heroImg.style.filter = (cssFilter && cssFilter !== 'none') ? cssFilter : '';
       heroImg.src = photos[this.selectedFileIdx];
     }
     if (heading) {
-      heading.innerText = `📁 ${photos.length} File Foto HD Siap Diunduh`;
+      const fLabel = (this.activeFilter !== 'normal' && window.MafazaPhotoFilters)
+        ? ` · ${window.MafazaPhotoFilters.getLabel(this.activeFilter, true)}`
+        : '';
+      heading.innerText = `📁 ${photos.length} File Foto HD Siap Diunduh${fLabel}`;
     }
     if (grid) {
       grid.innerHTML = photos.map((src, idx) => `
         <div class="mingle-thumb-item ${idx === this.selectedFileIdx ? 'active' : ''}" style="width: 100%; height: 74px;" onclick="mingle.selectFilePreview(${idx})">
-          <img src="${src}" alt="File ${idx + 1}">
+          <img src="${src}" alt="File ${idx + 1}" style="${filterStyle}">
           <span class="mingle-thumb-badge">#${idx + 1}</span>
         </div>
       `).join('');
@@ -2099,12 +2161,14 @@ class MingleBoothEngine {
     const canvasStage = document.getElementById('mingleCanvasStage');
     const slotZoomBar = document.getElementById('mingleSlotZoomBar');
     const slotBadge = document.getElementById('mingleActiveSlotBadge');
+    const filterPanel = document.getElementById('mingleFilterPanel');
     const filterRow = document.getElementById('mingleFilterRow');
     const printBtn = document.getElementById('btnMinglePrint');
     if (filesBox) filesBox.style.display = 'none';
     if (canvasStage) canvasStage.style.display = 'flex';
     if (slotZoomBar) slotZoomBar.style.display = 'inline-flex';
     if (slotBadge) slotBadge.style.display = '';
+    if (filterPanel) filterPanel.style.display = 'flex';
     if (filterRow) filterRow.style.display = 'flex';
     if (printBtn) printBtn.style.display = '';
 
@@ -2155,13 +2219,58 @@ class MingleBoothEngine {
     if (modal) modal.style.display = 'none';
   }
 
-  async setFilter(filterKey) {
-    this.activeFilter = filterKey || 'normal';
-    document.querySelectorAll('.mingle-filter-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.getAttribute('data-filter') === this.activeFilter);
+  syncFilterControlsUI() {
+    const activeKey = this.activeFilter || 'normal';
+    const pct = Math.round((typeof this.activeFilterIntensity === 'number' ? this.activeFilterIntensity : 1.0) * 100);
+    document.querySelectorAll('#mingleFilterRow .mingle-filter-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-filter') === activeKey);
     });
-    await this.renderResultCanvas();
-    await this.syncFinalImageOnly();
+    const intRow = document.getElementById('mingleFilterIntensityRow');
+    const intRange = document.getElementById('mingleFilterIntensityRange');
+    const intLabel = document.getElementById('mingleFilterIntensityLabel');
+    if (intRow) intRow.style.display = activeKey !== 'normal' ? 'flex' : 'none';
+    if (intRange) intRange.value = String(pct);
+    if (intLabel) intLabel.innerText = `${pct}%`;
+  }
+
+  scheduleFilterResync() {
+    if (this._filterSyncTimerId) clearTimeout(this._filterSyncTimerId);
+    const delayMs = this.filesOnlyMode ? 550 : 450;
+    this._filterSyncTimerId = setTimeout(async () => {
+      if (this.filesOnlyMode) {
+        this.syncedCaptureCount = 0;
+        await this.syncFinalImageOnly(true, false);
+      } else {
+        await this.syncFinalImageOnly();
+      }
+    }, delayMs);
+  }
+
+  async setFilter(filterKey) {
+    this.activeFilter = window.MafazaPhotoFilters
+      ? window.MafazaPhotoFilters.normalizeFilterKey(filterKey)
+      : (filterKey || 'normal');
+    this._sessionFilterManuallyChosen = true;
+    this.syncFilterControlsUI();
+    if (this.filesOnlyMode) {
+      this.renderFilesPreview();
+    } else {
+      await this.renderResultCanvas();
+    }
+    this.scheduleFilterResync();
+  }
+
+  async setFilterIntensity(percentVal) {
+    const pct = Math.max(30, Math.min(100, parseInt(percentVal, 10) || 100));
+    this.activeFilterIntensity = pct / 100;
+    this._sessionFilterManuallyChosen = true;
+    this.syncFilterControlsUI();
+    if (this.filesOnlyMode) {
+      this.renderFilesPreview();
+    } else {
+      await this.renderResultCanvas();
+    }
+    this.scheduleFilterResync();
   }
 
   async saveMingleOfflineSession(finalBlob, {
@@ -2174,17 +2283,25 @@ class MingleBoothEngine {
     templateName = undefined,
     photos = null,
     modeVal = 'single',
+    filterKey = null,
+    filterIntensity = null,
     printRequested = false,
     printCopies = 1,
     printPaperSize = null,
-    paperConfirmed = false
+    paperConfirmed = false,
+    preservePrintFlags = true
   } = {}) {
     if (!window.pbOfflineStore) return false;
     const srcPhotos = Array.isArray(photos) ? photos : (this.capturedPhotos || []);
+    const activeF = filterKey || this.activeFilter || 'normal';
+    const activeInt = filterIntensity !== null ? filterIntensity : (this.activeFilterIntensity || 1.0);
+    const applyFileFilter = (modeVal === 'files_only' && activeF !== 'normal' && window.MafazaPhotoFilters);
     const offlineCaps = [];
     for (let i = 0; i < srcPhotos.length; i++) {
       try {
-        const b = await (await fetch(srcPhotos[i])).blob();
+        const b = applyFileFilter
+          ? await window.MafazaPhotoFilters.filterDataUrlToBlob(srcPhotos[i], activeF, { intensity: activeInt })
+          : await (await fetch(srcPhotos[i])).blob();
         offlineCaps.push({ poseIndex: i + 1, blob: b });
       } catch (e) {}
     }
@@ -2206,7 +2323,8 @@ class MingleBoothEngine {
       printRequested: Boolean(printRequested),
       printCopies: parseInt(printCopies, 10) || 1,
       printPaperSize: printPaperSize || null,
-      paperConfirmed: Boolean(paperConfirmed)
+      paperConfirmed: Boolean(paperConfirmed),
+      preservePrintFlags: Boolean(preservePrintFlags) && !printRequested
     });
     this.updateOfflineGalleryBadge();
     return true;
@@ -2232,7 +2350,9 @@ class MingleBoothEngine {
       templateName: this.selectedTemplate ? this.selectedTemplate.name : null,
       photos: [...(this.capturedPhotos || [])],
       filesOnlyMode: Boolean(this.filesOnlyMode),
-      syncedCaptureCount: this.syncedCaptureCount || 0
+      syncedCaptureCount: this.syncedCaptureCount || 0,
+      filter: this.activeFilter || 'normal',
+      filterIntensity: this.activeFilterIntensity || 1.0
     };
 
     if (!snap.guestPass) {
@@ -2344,6 +2464,10 @@ class MingleBoothEngine {
     const snapPhotos = overrideSnap ? overrideSnap.photos : [...(this.capturedPhotos || [])];
     const snapFilesOnly = overrideSnap ? overrideSnap.filesOnlyMode : Boolean(this.filesOnlyMode);
     const snapSyncedOffset = overrideSnap ? (overrideSnap.syncedCaptureCount || 0) : (this.syncedCaptureCount || 0);
+    const snapFilter = (overrideSnap && overrideSnap.filter) || this.activeFilter || 'normal';
+    const snapFilterIntensity = (overrideSnap && typeof overrideSnap.filterIntensity === 'number')
+      ? overrideSnap.filterIntensity
+      : (this.activeFilterIntensity || 1.0);
 
     let finalBlob = null;
     if (!snapFilesOnly && canvas && canvas.width > 0) {
@@ -2372,10 +2496,13 @@ class MingleBoothEngine {
         templateName: snapTemplateName,
         photos: snapPhotos,
         modeVal,
+        filterKey: snapFilter,
+        filterIntensity: snapFilterIntensity,
         printRequested: !this.isLocalDirectMode() && Boolean(printRequested),
         printCopies,
         printPaperSize: printPaperSize || null,
-        paperConfirmed
+        paperConfirmed,
+        preservePrintFlags: !printRequested
       }).catch(() => {});
       if (this.sessionId === snapSessionId) {
         if (statusEl) {
@@ -2455,7 +2582,9 @@ class MingleBoothEngine {
 
         for (let i = offset; i < end; i++) {
           try {
-            const rawBlob = await (await fetch(snapPhotos[i])).blob();
+            const rawBlob = (snapFilesOnly && snapFilter !== 'normal' && window.MafazaPhotoFilters)
+              ? await window.MafazaPhotoFilters.filterDataUrlToBlob(snapPhotos[i], snapFilter, { intensity: snapFilterIntensity })
+              : await (await fetch(snapPhotos[i])).blob();
             formData.append('captures', rawBlob, `mingle_pose_${i + 1}_${Date.now()}.jpg`);
           } catch (e) {}
         }
@@ -2485,10 +2614,13 @@ class MingleBoothEngine {
         templateName: snapTemplateName,
         photos: snapPhotos,
         modeVal,
+        filterKey: snapFilter,
+        filterIntensity: snapFilterIntensity,
         printRequested: Boolean(printRequested),
         printCopies,
         printPaperSize: printPaperSize || null,
-        paperConfirmed
+        paperConfirmed,
+        preservePrintFlags: !printRequested
       }).catch(() => {});
       if (this.sessionId === snapSessionId) {
         if (statusEl) statusEl.innerText = `⚡ Sinyal lambat/terputus — ${totalPhotos} foto aman tersimpan di tablet & otomatis terkirim!`;
