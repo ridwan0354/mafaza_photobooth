@@ -2203,19 +2203,23 @@ apiRouter.post('/sales/products', authMiddleware(), (req, res) => {
 apiRouter.patch('/sales/products/:id', authMiddleware(), (req, res) => {
   try {
     const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    salesService.verifySalesActionPin(req.body?.pin ?? req.headers['x-sales-pin']);
     const updated = salesService.updateProduct(tenantId, req.params.id, req.body || {});
     res.json(updated);
   } catch (err) {
-    res.status(/tidak ditemukan/i.test(err.message) ? 404 : 400).json({ error: err.message });
+    const code = err.statusCode || (/tidak ditemukan/i.test(err.message) ? 404 : 400);
+    res.status(code).json({ error: err.message });
   }
 });
 
 apiRouter.delete('/sales/products/:id', authMiddleware(), (req, res) => {
   try {
     const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    salesService.verifySalesActionPin(req.body?.pin ?? req.headers['x-sales-pin']);
     res.json(salesService.deleteProduct(tenantId, req.params.id));
   } catch (err) {
-    res.status(/tidak ditemukan/i.test(err.message) ? 404 : 400).json({ error: err.message });
+    const code = err.statusCode || (/tidak ditemukan/i.test(err.message) ? 404 : 400);
+    res.status(code).json({ error: err.message });
   }
 });
 

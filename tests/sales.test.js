@@ -78,20 +78,34 @@ test('Sales Catalog, Ad-hoc Products, Daily Reports, CSV Export, and Tenant Isol
     const prod2 = await prodRes2.json();
     createdProductIds.push(prod2.id);
 
-    // Edit price on product 1
-    const patchRes = await fetch(`${baseUrl}/api/sales/products/${prod1.id}`, {
+    // Edit price on product 1 requires PIN 1318
+    const patchNoPin = await fetch(`${baseUrl}/api/sales/products/${prod1.id}`, {
       method: 'PATCH',
       headers: headersB,
       body: JSON.stringify({ price: 40000 })
     });
+    assert.equal(patchNoPin.status, 403);
+
+    const patchBadPin = await fetch(`${baseUrl}/api/sales/products/${prod1.id}`, {
+      method: 'PATCH',
+      headers: headersB,
+      body: JSON.stringify({ pin: '0000', price: 40000 })
+    });
+    assert.equal(patchBadPin.status, 403);
+
+    const patchRes = await fetch(`${baseUrl}/api/sales/products/${prod1.id}`, {
+      method: 'PATCH',
+      headers: headersB,
+      body: JSON.stringify({ pin: '1318', price: 40000 })
+    });
     assert.equal(patchRes.status, 200);
     assert.equal((await patchRes.json()).price, 40000);
 
-    // Tenant A cannot edit or delete Tenant B product
+    // Tenant A cannot edit or delete Tenant B product even with PIN 1318
     const crossPatch = await fetch(`${baseUrl}/api/sales/products/${prod1.id}`, {
       method: 'PATCH',
       headers: headersA,
-      body: JSON.stringify({ price: 100 })
+      body: JSON.stringify({ pin: '1318', price: 100 })
     });
     assert.equal(crossPatch.status, 404);
 
@@ -154,12 +168,40 @@ test('Sales Catalog, Ad-hoc Products, Daily Reports, CSV Export, and Tenant Isol
     assert.ok(sale3.product_id, 'saveToCatalog creates catalog entry automatically');
     createdProductIds.push(sale3.product_id);
 
-    // Verify catalog deletion preserves historical sold snapshot
-    const delProdRes = await fetch(`${baseUrl}/api/sales/products/${prod2.id}`, {
+    // Delete product requires PIN 1318 and preserves historical sold snapshot
+    const delProdNoPin = await fetch(`${baseUrl}/api/sales/products/${prod2.id}`, {
       method: 'DELETE',
       headers: headersB
     });
+    assert.equal(delProdNoPin.status, 403);
+
+    const delProdRes = await fetch(`${baseUrl}/api/sales/products/${prod2.id}`, {
+      method: 'DELETE',
+      headers: headersB,
+      body: JSON.stringify({ pin: '1318' })
+    });
     assert.equal(delProdRes.status, 200);
+
+    // Verify editing catalog price today (e.g. 20k -> 15k) NEVER alters yesterday's sales snapshot
+    const histProd = await (await fetch(`${baseUrl}/api/sales/products`, {
+      method: 'POST',
+      headers: headersB,
+      body: JSON.stringify({ name: 'Foto Kilat 4R', category: 'Cetak', price: 20000, unit: 'lembar' })
+    })).json();
+    const day0 = '2026-11-21';
+    await fetch(`${baseUrl}/api/sales/transactions`, {
+      method: 'POST',
+      headers: headersB,
+      body: JSON.stringify({ productId: histProd.id, quantity: 1, soldDate: day0, soldTime: '10:00' })
+    });
+    const histPatch = await fetch(`${baseUrl}/api/sales/products/${histProd.id}`, {
+      method: 'PATCH',
+      headers: headersB,
+      body: JSON.stringify({ pin: '1318', price: 15000 })
+    });
+    assert.equal(histPatch.status, 200);
+    const day0Rep = await (await fetch(`${baseUrl}/api/sales/report?date=${day0}`, { headers: headersB })).json();
+    assert.equal(day0Rep.summary.totalRevenue, 20000, 'Yesterday sales price remains 20,000 after catalog edit to 15,000');
 
     // 4. Daily report for day2
     const repDay2Res = await fetch(`${baseUrl}/api/sales/report?date=${day2}`, { headers: headersB });

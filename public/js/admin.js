@@ -6028,10 +6028,17 @@ function updateSalesTxTotalPreview() {
 }
 window.updateSalesTxTotalPreview = updateSalesTxTotalPreview;
 
+let salesProductEditPin = '';
+
 async function submitSalesProduct(e) {
   e.preventDefault();
   const editId = document.getElementById('salesProdEditId')?.value || '';
+  if (editId && !salesProductEditPin) {
+    openSalesPinModal('edit_product', editId);
+    return;
+  }
   const payload = {
+    ...(editId ? { pin: salesProductEditPin } : {}),
     name: document.getElementById('salesProdName')?.value.trim(),
     category: document.getElementById('salesProdCategory')?.value.trim() || 'Umum',
     price: parseInt(document.getElementById('salesProdPrice')?.value || '0', 10),
@@ -6049,7 +6056,7 @@ async function submitSalesProduct(e) {
     if (!res.ok) throw new Error(data.error || 'Gagal menyimpan produk');
     resetSalesProductForm();
     await loadSalesProducts();
-    salesNotify(editId ? 'Produk berhasil diperbarui!' : 'Produk baru ditambahkan ke katalog!');
+    salesNotify(editId ? 'Produk berhasil diperbarui! (Riwayat penjualan lama tetap aman sesuai harga saat itu)' : 'Produk baru ditambahkan ke katalog!');
   } catch (err) {
     salesNotify(err.message, 'error');
   }
@@ -6059,6 +6066,12 @@ window.submitSalesProduct = submitSalesProduct;
 function editSalesProduct(productId) {
   const prod = salesProductsCache.find(p => p.id === productId);
   if (!prod) return;
+  openSalesPinModal('edit_product', prod.id);
+}
+window.editSalesProduct = editSalesProduct;
+
+function applyVerifiedEditSalesProduct(prod, pin) {
+  salesProductEditPin = pin || '';
   document.getElementById('salesProdEditId').value = prod.id;
   document.getElementById('salesProdName').value = prod.name;
   document.getElementById('salesProdCategory').value = prod.category || 'Umum';
@@ -6068,10 +6081,11 @@ function editSalesProduct(productId) {
   const cancelBtn = document.getElementById('salesProdCancelBtn');
   if (btn) btn.textContent = '💾 Simpan';
   if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+  document.getElementById('salesProdPrice')?.focus();
 }
-window.editSalesProduct = editSalesProduct;
 
 function resetSalesProductForm() {
+  salesProductEditPin = '';
   document.getElementById('salesProdEditId').value = '';
   document.getElementById('salesProdName').value = '';
   document.getElementById('salesProdPrice').value = '';
@@ -6085,19 +6099,8 @@ window.resetSalesProductForm = resetSalesProductForm;
 
 async function deleteSalesProduct(productId) {
   const prod = salesProductsCache.find(p => p.id === productId);
-  if (!confirm(`Hapus produk "${prod?.name || 'ini'}" dari katalog?\n(Riwayat penjualan sebelumnya tetap aman tercatat).`)) return;
-  try {
-    const res = await fetch(`/api/sales/products/${encodeURIComponent(productId)}`, { method: 'DELETE' });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Gagal menghapus produk');
-    if (document.getElementById('salesTxProductId')?.value === productId) {
-      document.getElementById('salesTxProductId').value = '';
-    }
-    await loadSalesProducts();
-    salesNotify('Produk dihapus dari katalog.');
-  } catch (err) {
-    salesNotify(err.message, 'error');
-  }
+  if (!prod) return;
+  openSalesPinModal('delete_product', prod.id);
 }
 window.deleteSalesProduct = deleteSalesProduct;
 
@@ -6144,9 +6147,15 @@ window.submitSalesTransaction = submitSalesTransaction;
 let salesPinGateState = { mode: null, saleId: null, verifiedPin: '' };
 
 function openSalesPinModal(mode, saleId) {
-  const tx = (salesLastReport?.transactions || []).find(t => t.id === saleId);
-  if (!tx) {
+  const isProductMode = mode === 'edit_product' || mode === 'delete_product';
+  const tx = !isProductMode ? (salesLastReport?.transactions || []).find(t => t.id === saleId) : null;
+  const prod = isProductMode ? salesProductsCache.find(p => p.id === saleId) : null;
+  if (!isProductMode && !tx) {
     salesNotify('Data transaksi tidak ditemukan. Segarkan laporan terlebih dahulu.', 'error');
+    return;
+  }
+  if (isProductMode && !prod) {
+    salesNotify('Data produk tidak ditemukan.', 'error');
     return;
   }
   salesPinGateState = { mode, saleId, verifiedPin: '' };
@@ -6159,17 +6168,21 @@ function openSalesPinModal(mode, saleId) {
   const btnEl = document.getElementById('salesPinSubmitBtn');
 
   if (titleEl) {
-    titleEl.textContent = mode === 'delete'
-      ? '🔐 Konfirmasi PIN Hapus Penjualan'
-      : '🔐 Konfirmasi PIN Edit Penjualan';
+    if (mode === 'delete') titleEl.textContent = '🔐 Konfirmasi PIN Hapus Penjualan';
+    else if (mode === 'edit') titleEl.textContent = '🔐 Konfirmasi PIN Edit Penjualan';
+    else if (mode === 'delete_product') titleEl.textContent = '🔐 Konfirmasi PIN Hapus Produk';
+    else titleEl.textContent = '🔐 Konfirmasi PIN Edit Produk';
   }
   if (subEl) {
-    subEl.textContent = mode === 'delete'
-      ? 'Masukkan PIN untuk menghapus transaksi ini dari laporan penjualan.'
-      : 'Masukkan PIN untuk membuka form edit transaksi penjualan ini.';
+    if (mode === 'delete') subEl.textContent = 'Masukkan PIN untuk menghapus transaksi ini dari laporan penjualan.';
+    else if (mode === 'edit') subEl.textContent = 'Masukkan PIN untuk membuka form edit transaksi penjualan ini.';
+    else if (mode === 'delete_product') subEl.textContent = 'Masukkan PIN untuk menghapus produk dari katalog (riwayat penjualan lama tetap aman).';
+    else subEl.textContent = 'Masukkan PIN untuk mengedit produk. Penjualan yang sudah tercatat sebelumnya tidak akan ikut berubah.';
   }
   if (summaryEl) {
-    summaryEl.textContent = `${tx.product_name} · ${tx.quantity} ${tx.unit || 'pcs'} = ${formatRupiah(tx.total_amount)} (${tx.sold_date})`;
+    summaryEl.textContent = isProductMode
+      ? `${prod.name} · ${formatRupiah(prod.price)} / ${prod.unit || 'pcs'}`
+      : `${tx.product_name} · ${tx.quantity} ${tx.unit || 'pcs'} = ${formatRupiah(tx.total_amount)} (${tx.sold_date})`;
   }
   if (pinInput) pinInput.value = '';
   if (errEl) {
@@ -6178,7 +6191,7 @@ function openSalesPinModal(mode, saleId) {
   }
   if (btnEl) {
     btnEl.disabled = false;
-    btnEl.textContent = mode === 'delete' ? '🗑️ Verifikasi & Hapus' : '🔓 Verifikasi & Edit';
+    btnEl.textContent = (mode === 'delete' || mode === 'delete_product') ? '🗑️ Verifikasi & Hapus' : '🔓 Verifikasi & Edit';
   }
   if (modal) modal.style.display = 'flex';
   setTimeout(() => pinInput?.focus(), 60);
@@ -6235,6 +6248,27 @@ async function submitSalesPinVerify(e) {
       salesPinGateState = { mode: 'editing', saleId, verifiedPin: pin };
       closeSalesPinModal();
       if (tx) openEditSaleModal(tx);
+    } else if (mode === 'edit_product') {
+      const prod = salesProductsCache.find(p => p.id === saleId);
+      closeSalesPinModal();
+      if (prod) applyVerifiedEditSalesProduct(prod, pin);
+    } else if (mode === 'delete_product') {
+      const delProdRes = await fetch(`/api/sales/products/${encodeURIComponent(saleId)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin })
+      });
+      const delProdData = await delProdRes.json().catch(() => ({}));
+      if (!delProdRes.ok) throw new Error(delProdData.error || 'Gagal menghapus produk');
+      closeSalesPinModal();
+      if (document.getElementById('salesTxProductId')?.value === saleId) {
+        document.getElementById('salesTxProductId').value = '';
+      }
+      if (document.getElementById('salesProdEditId')?.value === saleId) {
+        resetSalesProductForm();
+      }
+      await loadSalesProducts();
+      salesNotify('Produk dihapus dari katalog (riwayat penjualan lama tetap aman).');
     }
   } catch (err) {
     if (errEl) {
