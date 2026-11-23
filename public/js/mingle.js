@@ -902,13 +902,59 @@ class MingleBoothEngine {
     }
     if (strip) {
       strip.innerHTML = this.capturedPhotos.map((src, idx) => `
-        <div class="mingle-thumb-item">
+        <div class="mingle-thumb-item" style="width: 100%; height: 74px;" onclick="mingle.openCapturedPhotoPreview(${idx})" title="Klik untuk perbesar foto #${idx + 1}">
           <img src="${src}" alt="Foto ${idx + 1}">
           <span class="mingle-thumb-badge">#${idx + 1}</span>
-          <button type="button" class="mingle-thumb-del" onclick="mingle.deleteCapturedPhoto(${idx})" title="Hapus foto ini">✕</button>
+          <button type="button" class="mingle-thumb-del" onclick="event.stopPropagation(); mingle.deleteCapturedPhoto(${idx})" title="Hapus foto ini">✕</button>
         </div>
       `).join('');
     }
+  }
+
+  openCapturedPhotoPreview(idx) {
+    const photos = this.capturedPhotos || [];
+    if (photos.length === 0) return;
+    const safeIdx = Math.max(0, Math.min(photos.length - 1, Number(idx) || 0));
+    this._previewPhotoIdx = safeIdx;
+    const modal = document.getElementById('minglePhotoZoomModal');
+    const img = document.getElementById('minglePhotoZoomImg');
+    const title = document.getElementById('minglePhotoZoomTitle');
+    const prevBtn = document.getElementById('minglePhotoZoomPrevBtn');
+    const nextBtn = document.getElementById('minglePhotoZoomNextBtn');
+    if (img) img.src = photos[safeIdx];
+    if (title) title.innerText = `🔍 Preview Foto #${safeIdx + 1} dari ${photos.length}`;
+    if (prevBtn) prevBtn.style.display = photos.length > 1 ? '' : 'none';
+    if (nextBtn) nextBtn.style.display = photos.length > 1 ? '' : 'none';
+    if (modal) modal.style.display = 'flex';
+  }
+
+  stepCapturedPhotoPreview(delta) {
+    const photos = this.capturedPhotos || [];
+    if (photos.length <= 1) return;
+    const cur = Number(this._previewPhotoIdx || 0);
+    const next = (cur + delta + photos.length) % photos.length;
+    this.openCapturedPhotoPreview(next);
+  }
+
+  deletePreviewedPhoto() {
+    const photos = this.capturedPhotos || [];
+    if (photos.length === 0) {
+      this.closeCapturedPhotoPreview();
+      return;
+    }
+    const idx = Math.max(0, Math.min(photos.length - 1, Number(this._previewPhotoIdx || 0)));
+    this.deleteCapturedPhoto(idx);
+    if ((this.capturedPhotos || []).length === 0) {
+      this.closeCapturedPhotoPreview();
+    } else {
+      this.openCapturedPhotoPreview(Math.min(idx, this.capturedPhotos.length - 1));
+    }
+  }
+
+  closeCapturedPhotoPreview(event) {
+    if (event && event.target && event.target !== document.getElementById('minglePhotoZoomModal')) return;
+    const modal = document.getElementById('minglePhotoZoomModal');
+    if (modal) modal.style.display = 'none';
   }
 
   deleteCapturedPhoto(idx) {

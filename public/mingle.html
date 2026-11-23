@@ -914,18 +914,9 @@
               </p>
             </div>
           </div>
-
-          <!-- Strip Thumbnail Foto Terambil (Saat Multi-Pose / Banyak Foto) -->
-          <div id="mingleReadyStripWrap" style="display: none; border-top: 1.5px dashed var(--border-soft); padding-top: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <span id="mingleStripCountLabel" style="font-size: 12px; font-weight: 800; color: var(--caramel-brown);">🎞️ Foto Tersimpan: 0</span>
-              <span style="font-size: 11px; color: var(--text-muted);">Terus tekan shutter untuk tambah foto</span>
-            </div>
-            <div id="mingleCapturedStrip" class="mingle-captured-strip"></div>
-          </div>
         </div>
 
-        <div class="mingle-card mingle-ready-controls-card" style="justify-content: space-between;">
+        <div class="mingle-card mingle-ready-controls-card" style="justify-content: flex-start; gap: 10px;">
           <div style="display: flex; flex-direction: column; gap: 10px;">
             <div style="font-size: 12px; font-weight: 800; color: var(--text-muted);">MODE &amp; BINGKAI TERPILIH</div>
             <div style="display: flex; gap: 12px; align-items: center; background: #FFF; border: 1.5px solid var(--border-soft); border-radius: 16px; padding: 10px;">
@@ -949,9 +940,18 @@
                 <option value="unlimited">♾️ Banyak Foto (Bebas)</option>
               </select>
             </div>
+
+            <!-- Strip Thumbnail Hasil Foto (Di Sebelah Kanan, Tepat Di Bawah Jumlah Cekrek · Klik Untuk Perbesar) -->
+            <div id="mingleReadyStripWrap" style="display: none; background: #FFF; border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap;">
+                <span id="mingleStripCountLabel" style="font-size: 12px; font-weight: 800; color: var(--caramel-brown);">🎞️ Foto Tersimpan: 0</span>
+                <span style="font-size: 10.5px; font-weight: 700; color: var(--teal, #1F5B56);">🔍 Klik foto utk perbesar</span>
+              </div>
+              <div id="mingleCapturedStrip" class="mingle-captured-strip" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; max-height: 220px; overflow-y: auto; min-height: 0; padding: 2px;"></div>
+            </div>
           </div>
 
-          <div class="mingle-shutter-banner">
+          <div class="mingle-shutter-banner" style="margin-top: auto;">
             <div style="font-size: 14px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">
               <span class="mingle-pulse-dot"></span>Menunggu Jepretan Kamera
             </div>
@@ -998,7 +998,7 @@
 
           <!-- Tampilan Mode Jual File Tanpa Bingkai -->
           <div id="mingleFilesPreviewBox" class="mingle-files-preview-box">
-            <div class="mingle-files-hero">
+            <div class="mingle-files-hero" style="cursor: pointer;" onclick="mingle.openCapturedPhotoPreview(mingle.selectedFileIdx || 0)" title="Klik untuk perbesar foto">
               <img id="mingleFilesHeroImg" src="" alt="Preview Foto HD">
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -1094,6 +1094,24 @@
     </div>
   </div>
 
+  <!-- Modal Perbesar Hasil Foto Jepretan Mingle -->
+  <div id="minglePhotoZoomModal" style="display: none; position: fixed; inset: 0; z-index: 10020; background: rgba(15, 9, 6, 0.9); backdrop-filter: blur(6px); align-items: center; justify-content: center; padding: 18px;" onclick="mingle.closeCapturedPhotoPreview(event)">
+    <div style="background: #FFFDF9; border: 2px solid var(--border-soft, #EAD8C7); border-radius: 22px; padding: 16px 18px; width: min(94vw, 860px); max-height: 92dvh; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 24px 64px rgba(0,0,0,0.55);" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <strong id="minglePhotoZoomTitle" style="font-size: 16px; color: var(--caramel-brown);">🔍 Preview Foto #1</strong>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button type="button" id="minglePhotoZoomPrevBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px; font-weight: 800;" onclick="mingle.stepCapturedPhotoPreview(-1)">◀</button>
+          <button type="button" id="minglePhotoZoomNextBtn" class="btn btn-secondary" style="padding: 6px 12px; font-size: 13px; font-weight: 800;" onclick="mingle.stepCapturedPhotoPreview(1)">▶</button>
+          <button type="button" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; font-weight: 800; color: #B93829; border-color: #f2c7c0; background: #fff8f7;" onclick="mingle.deletePreviewedPhoto()">🗑️ Hapus</button>
+          <button type="button" class="btn btn-coral" style="padding: 6px 14px; font-size: 12.5px; font-weight: 800;" onclick="mingle.closeCapturedPhotoPreview()">✕ Tutup</button>
+        </div>
+      </div>
+      <div style="background: #1B1614; border-radius: 16px; padding: 10px; display: flex; align-items: center; justify-content: center; flex: 1; min-height: 240px; max-height: 74dvh; overflow: hidden;">
+        <img id="minglePhotoZoomImg" src="" alt="Preview Foto Besar" style="max-width: 100%; max-height: 70dvh; object-fit: contain; border-radius: 10px;">
+      </div>
+    </div>
+  </div>
+
   <!-- Modal Pilihan Cetak Mingle (Jumlah Lembar & Ukuran 4R / 5R) -->
   <div id="minglePrintOptionsModal" style="display: none; position: fixed; inset: 0; z-index: 9998; background: rgba(24, 14, 9, 0.84); backdrop-filter: blur(6px); align-items: center; justify-content: center; padding: 18px;" onclick="mingle.closePrintOptionsModal(event)">
     <div style="background: #FFFDF9; border: 2px solid var(--border-soft, #EAD8C7); border-radius: 24px; padding: 22px 24px; max-width: 470px; width: 92vw; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);" onclick="event.stopPropagation()">
@@ -1163,6 +1181,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.5"></script>
   <script src="/js/offline-store.js?v=1.3"></script>
   <script src="/js/print-client.js?v=1.7"></script>
-  <script src="/js/mingle.js?v=3.2"></script>
+  <script src="/js/mingle.js?v=3.3"></script>
 </body>
 </html>

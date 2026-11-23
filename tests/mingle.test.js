@@ -897,3 +897,57 @@ test('Mingle supports Arah Foto Kamera (Ikut Frame / Potret / Lanskap) matching 
   assert.equal(engine.getEffectiveCaptureOrientation(), 'portrait');
   assert.equal(elements.get('mingleViewfinder').style.aspectRatio, '2 / 3');
 });
+
+test('Mingle Ready screen places captured thumbnails in right column below Jumlah Cekrek with zoom lightbox', async () => {
+  const vm = await import('node:vm');
+  const mingleHtml = fs.readFileSync(path.join(process.cwd(), 'public/mingle.html'), 'utf8');
+  const mingleSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const trimmed = mingleSrc.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
+
+  const controlsIdx = mingleHtml.indexOf('class="mingle-card mingle-ready-controls-card"');
+  const shotsIdx = mingleHtml.indexOf('id="mingleReadyShotsSelect"');
+  const stripIdx = mingleHtml.indexOf('id="mingleReadyStripWrap"');
+  const bannerIdx = mingleHtml.indexOf('class="mingle-shutter-banner"');
+  assert.ok(controlsIdx !== -1 && shotsIdx > controlsIdx && stripIdx > shotsIdx && bannerIdx > stripIdx,
+    'mingleReadyStripWrap is placed in right controls column directly below Jumlah Cekrek');
+  assert.match(mingleHtml, /id="minglePhotoZoomModal"/);
+
+  const elements = new Map();
+  const docEl = () => ({ style: {}, value: '', innerText: '', innerHTML: '', src: '', classList: { toggle() {} } });
+  const ctx = vm.createContext({
+    URL, URLSearchParams, AbortController, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    localStorage: { getItem: () => null, setItem() {} },
+    navigator: { onLine: true, mediaDevices: null },
+    document: {
+      body: docEl(),
+      getElementById(id) { if (!elements.has(id)) elements.set(id, docEl()); return elements.get(id); },
+      querySelectorAll: () => [],
+      createElement: () => docEl()
+    },
+    window: { location: { search: '' }, addEventListener() {} },
+    setInterval: () => 1, clearInterval: () => {}, setTimeout, clearTimeout,
+    requestAnimationFrame: (fn) => fn(), console
+  });
+  vm.runInContext(trimmed, ctx);
+
+  const engine = vm.runInContext('Object.create(MingleBoothEngine.prototype)', ctx);
+  Object.assign(engine, {
+    capturedPhotos: ['data:image/jpeg;base64,ONE', 'data:image/jpeg;base64,TWO'],
+    activeTargetShots: 3,
+    syncedCaptureCount: 0
+  });
+  engine.updateReadyCaptureUI();
+  assert.match(elements.get('mingleCapturedStrip').innerHTML, /mingle\.openCapturedPhotoPreview\(0\)/);
+  assert.match(elements.get('mingleCapturedStrip').innerHTML, /event\.stopPropagation\(\); mingle\.deleteCapturedPhoto\(0\)/);
+
+  engine.openCapturedPhotoPreview(0);
+  assert.equal(elements.get('minglePhotoZoomModal').style.display, 'flex');
+  assert.equal(elements.get('minglePhotoZoomImg').src, 'data:image/jpeg;base64,ONE');
+
+  engine.stepCapturedPhotoPreview(1);
+  assert.equal(elements.get('minglePhotoZoomImg').src, 'data:image/jpeg;base64,TWO');
+
+  engine.deletePreviewedPhoto();
+  assert.equal(engine.capturedPhotos.length, 1);
+  assert.equal(elements.get('minglePhotoZoomImg').src, 'data:image/jpeg;base64,ONE');
+});
