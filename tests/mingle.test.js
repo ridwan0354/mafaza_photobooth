@@ -1155,7 +1155,12 @@ test('Mode Lokal clearly shows active banner, disables auto-sync until turned of
   const mingleSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
   const kioskSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/kiosk.js'), 'utf8');
 
-  // Verify Mingle & Kiosk badge/timeout wiring
+  // Verify Mingle & Kiosk badge/timeout wiring + single-screen APK layout & clean result stage
+  const mingleHtml = fs.readFileSync(path.join(process.cwd(), 'public/mingle.html'), 'utf8');
+  assert.match(mingleHtml, /body\.mingle-on-result \.mingle-shell\s*\{[\s\S]*height:\s*100dvh/);
+  assert.match(mingleHtml, /\.mingle-canvas-stage\s*\{[\s\S]*background:\s*#EFE4D6/);
+  assert.doesNotMatch(mingleHtml, /\.mingle-canvas-stage\s*\{[\s\S]*#221D1A/);
+  assert.match(mingleSrc, /classList\.toggle\('mingle-on-result', id === 'screenMingleResult'\)/);
   assert.match(mingleSrc, /Mode Lokal \(\$\{count\}\) · 📂 Galeri/);
   assert.match(mingleSrc, /30000/);
   assert.match(kioskSrc, /35000/);

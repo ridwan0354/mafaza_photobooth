@@ -867,6 +867,9 @@ class MingleBoothEngine {
       el.classList.toggle('active', el.id === id);
     });
     document.body.classList.toggle('mingle-on-welcome', id === 'screenMingleWelcome');
+    document.body.classList.toggle('mingle-on-select', id === 'screenMingleSelect');
+    document.body.classList.toggle('mingle-on-ready', id === 'screenMingleReady');
+    document.body.classList.toggle('mingle-on-result', id === 'screenMingleResult');
     this.currentScreen = id;
   }
 

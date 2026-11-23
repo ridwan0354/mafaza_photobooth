@@ -247,60 +247,200 @@
       grid-template-columns: minmax(400px, 1.55fr) minmax(270px, 0.85fr);
     }
 
-    /* Mode Full Live View Kiri + Kontrol Rapi Kanan (aktif otomatis saat ?fullscreen=1 atau tombol Live Besar) */
+    /* Mode Full Layar Tablet/Desktop tanpa Scroll Bawah (Ready & Result pas 1 layar) */
+    @media (min-width: 861px) {
+      body.mingle-on-ready,
+      body.mingle-on-result {
+        height: 100dvh;
+        overflow: hidden;
+      }
+
+      body.mingle-on-ready .mingle-wrapper,
+      body.mingle-on-result .mingle-wrapper {
+        height: 100dvh;
+        min-height: 100dvh;
+        overflow: hidden;
+      }
+
+      body.mingle-on-ready .mingle-shell,
+      body.mingle-on-result .mingle-shell {
+        height: 100dvh;
+        max-height: 100dvh;
+        max-width: 100%;
+        width: 100%;
+        padding: 8px 12px 38px;
+        gap: 8px;
+        overflow: hidden;
+      }
+
+      body.mingle-on-ready .mingle-topbar,
+      body.mingle-on-result .mingle-topbar {
+        padding: 6px 12px;
+        border-radius: 14px;
+        flex-shrink: 0;
+      }
+
+      body.mingle-on-ready .mingle-brand img,
+      body.mingle-on-result .mingle-brand img {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+      }
+
+      body.mingle-on-ready .mingle-brand-title,
+      body.mingle-on-result .mingle-brand-title {
+        font-size: 15px;
+      }
+
+      body.mingle-on-ready #screenMingleReady,
+      body.mingle-on-result #screenMingleResult {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      body.mingle-on-ready .mingle-ready-grid,
+      body.mingle-on-ready .mingle-ready-grid.is-landscape {
+        grid-template-columns: minmax(0, 1fr) minmax(275px, 330px) !important;
+        gap: 10px;
+        height: 100%;
+        min-height: 0;
+        align-items: stretch;
+      }
+
+      body.mingle-on-ready .mingle-card {
+        padding: 10px 12px;
+        gap: 8px;
+        min-height: 0;
+        height: 100%;
+        border-radius: 18px;
+      }
+
+      body.mingle-on-ready .mingle-viewfinder,
+      body.mingle-on-ready .mingle-viewfinder.is-landscape,
+      body.mingle-on-ready .mingle-viewfinder.is-portrait {
+        flex: 1;
+        min-height: 0;
+        max-height: 100%;
+        height: 100%;
+      }
+
+      body.mingle-on-ready .mingle-viewfinder.is-landscape {
+        width: 100%;
+        max-width: 100%;
+      }
+
+      body.mingle-on-ready .mingle-viewfinder.is-portrait {
+        width: auto;
+        max-width: 100%;
+        margin: 0 auto;
+      }
+
+      body.mingle-on-ready .mingle-ready-controls-card {
+        display: flex !important;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 8px;
+        overflow-y: auto;
+      }
+
+      body.mingle-on-ready #mingleCapturedStrip {
+        max-height: clamp(74px, 16dvh, 140px) !important;
+      }
+
+      body.mingle-on-ready .mingle-shutter-banner {
+        padding: 8px 10px;
+        border-radius: 14px;
+      }
+
+      body.mingle-on-result .mingle-result-grid,
+      body.mingle-on-result .mingle-result-grid.is-landscape {
+        grid-template-columns: minmax(0, 1.38fr) minmax(285px, 360px) !important;
+        gap: 10px;
+        height: 100%;
+        min-height: 0;
+        align-items: stretch;
+      }
+
+      body.mingle-on-result .mingle-result-grid > .mingle-card {
+        padding: 10px 12px;
+        gap: 8px;
+        min-height: 0;
+        height: 100%;
+        border-radius: 18px;
+        overflow: hidden;
+      }
+
+      body.mingle-on-result .mingle-result-grid > .mingle-card:last-child {
+        overflow-y: auto;
+      }
+
+      body.mingle-on-result .mingle-qr-box {
+        padding: 8px 10px;
+        gap: 4px;
+        border-radius: 16px;
+      }
+
+      body.mingle-on-result .mingle-qr-box img {
+        width: clamp(104px, 20dvh, 154px);
+        height: clamp(104px, 20dvh, 154px);
+        padding: 4px;
+      }
+
+      body.mingle-on-result #mingleQrPlaceholder {
+        padding: 18px 8px !important;
+      }
+
+      body.mingle-on-result #mingleResultSlotBar {
+        padding: 7px 8px !important;
+        gap: 5px !important;
+      }
+
+      body.mingle-on-result #mingleResultSlotTabs .mingle-filter-btn {
+        padding: 3px 8px;
+        font-size: 10.5px;
+      }
+
+      body.mingle-on-result #mingleResultPhotoPicker .mingle-thumb-item {
+        width: 54px;
+        height: 46px;
+      }
+
+      body.mingle-on-result .mingle-result-actions {
+        gap: 6px !important;
+      }
+
+      body.mingle-on-result .mingle-result-btn-primary {
+        padding: 10px 12px !important;
+        font-size: 14px !important;
+      }
+
+      body.mingle-on-result .mingle-result-btn-secondary {
+        padding: 8px 10px !important;
+        font-size: 12px !important;
+      }
+
+      body.mingle-on-result .mingle-filter-btn {
+        padding: 4px 8px;
+        font-size: 11px;
+        gap: 5px;
+      }
+
+      body.mingle-on-result .mingle-filter-btn .filter-pill-thumb {
+        width: 17px;
+        height: 17px;
+      }
+
+      body.mingle-on-result .mingle-filter-intensity-row {
+        margin-top: 5px;
+        padding: 4px 8px;
+        font-size: 10.5px;
+      }
+    }
+
     body.mingle-top-live .mingle-shell {
       max-width: 100%;
       width: 100%;
-      padding: 8px 12px 52px;
-      gap: 10px;
-    }
-
-    body.mingle-top-live .mingle-topbar {
-      padding: 6px 12px;
-      border-radius: 14px;
-    }
-
-    body.mingle-top-live .mingle-ready-grid,
-    body.mingle-top-live .mingle-ready-grid.is-landscape {
-      grid-template-columns: minmax(0, 1fr) minmax(280px, 340px) !important;
-      gap: 12px;
-      align-items: stretch;
-    }
-
-    body.mingle-top-live .mingle-ready-grid > .mingle-card:first-child {
-      padding: 12px 14px;
-      gap: 10px;
-    }
-
-    body.mingle-top-live .mingle-viewfinder {
-      min-height: 360px;
-      height: calc(100dvh - 168px);
-      max-height: 82dvh;
-      width: 100%;
-      margin: 0;
-    }
-
-    body.mingle-top-live .mingle-viewfinder.is-landscape {
-      aspect-ratio: auto;
-      max-height: 82dvh;
-      width: 100%;
-      max-width: 100%;
-    }
-
-    body.mingle-top-live .mingle-viewfinder.is-portrait {
-      height: calc(100dvh - 168px);
-      max-height: 82dvh;
-      width: auto;
-      max-width: 100%;
-      margin: 0 auto;
-    }
-
-    body.mingle-top-live .mingle-ready-controls-card {
-      display: flex !important;
-      flex-direction: column;
-      justify-content: space-between;
-      gap: 10px;
-      padding: 14px;
     }
 
     @media (max-width: 860px) {
@@ -425,10 +565,11 @@
     .mingle-canvas-stage {
       position: relative;
       flex: 1;
-      min-height: 360px;
-      background: #221D1A;
-      border-radius: 18px;
-      padding: 12px;
+      min-height: 0;
+      background: #EFE4D6;
+      border: 1.5px solid var(--border-soft, #EAD8C7);
+      border-radius: 16px;
+      padding: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -436,24 +577,25 @@
     }
 
     .mingle-canvas-stage.is-landscape {
-      min-height: 260px;
+      min-height: 0;
     }
 
     #mingleFinalCanvas {
       max-width: 100%;
-      max-height: 64dvh;
+      max-height: 100%;
       width: auto;
       height: auto;
-      border-radius: 12px;
-      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+      border-radius: 10px;
+      box-shadow: 0 10px 26px rgba(56, 30, 17, 0.18);
       touch-action: none;
       cursor: grab;
     }
 
     #mingleFinalCanvas.is-landscape {
-      width: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
       height: auto;
-      max-height: 62dvh;
     }
 
     .mingle-orient-tabs {
@@ -712,24 +854,29 @@
     .mingle-files-preview-box {
       display: none;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
       flex: 1;
+      min-height: 0;
+      overflow: hidden;
     }
 
     .mingle-files-hero {
-      background: #1B1614;
+      background: #EFE4D6;
+      border: 1.5px solid var(--border-soft, #EAD8C7);
       border-radius: 16px;
-      padding: 10px;
+      padding: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
-      max-height: 44dvh;
+      flex: 1;
+      min-height: 0;
+      max-height: 100%;
       overflow: hidden;
     }
 
     .mingle-files-hero img {
       max-width: 100%;
-      max-height: 40dvh;
+      max-height: 100%;
       object-fit: contain;
       border-radius: 10px;
     }
@@ -1071,18 +1218,18 @@
             <div id="mingleResultPhotoPicker" class="mingle-captured-strip" style="min-height: 0; padding: 2px 0;"></div>
           </div>
 
-          <div style="display: flex; flex-direction: column; gap: 10px; margin-top: auto;">
-            <button type="button" class="btn btn-coral" style="width: 100%; padding: 15px; font-size: 15.5px; font-weight: 800;" onclick="mingle.nextGuest()">
+          <div class="mingle-result-actions" style="display: flex; flex-direction: column; gap: 10px; margin-top: auto;">
+            <button type="button" class="btn btn-coral mingle-result-btn-primary" style="width: 100%; padding: 15px; font-size: 15.5px; font-weight: 800;" onclick="mingle.nextGuest()">
               ✨ Selesai · Tamu Berikutnya
             </button>
-            <button type="button" id="btnMingleAddMorePhotos" class="btn btn-secondary" style="width: 100%; padding: 11px; font-size: 13px; font-weight: 800; border-color: #1F5B56; color: #1F5B56;" onclick="mingle.addMorePhotos()">
+            <button type="button" id="btnMingleAddMorePhotos" class="btn btn-secondary mingle-result-btn-secondary" style="width: 100%; padding: 11px; font-size: 13px; font-weight: 800; border-color: #1F5B56; color: #1F5B56;" onclick="mingle.addMorePhotos()">
               ➕ Tambah Foto Lagi ke Sesi Ini
             </button>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-              <button type="button" class="btn btn-secondary" style="padding: 11px; font-size: 13px; font-weight: 700;" onclick="mingle.retakeSameFrame()">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <button type="button" class="btn btn-secondary mingle-result-btn-secondary" style="padding: 11px; font-size: 13px; font-weight: 700;" onclick="mingle.retakeSameFrame()">
                 📸 Foto Ulang
               </button>
-              <button type="button" id="btnMinglePrint" class="btn btn-secondary" style="padding: 11px; font-size: 13px; font-weight: 700;" onclick="mingle.openPrintOptionsModal()">
+              <button type="button" id="btnMinglePrint" class="btn btn-secondary mingle-result-btn-secondary" style="padding: 11px; font-size: 13px; font-weight: 700;" onclick="mingle.openPrintOptionsModal()">
                 🖨️ Cetak Foto
               </button>
             </div>
@@ -1217,6 +1364,6 @@
   <script src="/js/offline-store.js?v=1.5"></script>
   <script src="/js/print-client.js?v=1.7"></script>
   <script src="/js/photo-filters.js?v=1.0"></script>
-  <script src="/js/mingle.js?v=3.5"></script>
+  <script src="/js/mingle.js?v=3.6"></script>
 </body>
 </html>
