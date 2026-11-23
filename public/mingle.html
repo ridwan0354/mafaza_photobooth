@@ -1263,13 +1263,14 @@
   </div>
 
   <!-- Modal Perbesar QR Galeri Mingle -->
-  <div id="mingleQrZoomModal" style="display: none; position: fixed; inset: 0; z-index: 9998; background: rgba(24, 14, 9, 0.86); backdrop-filter: blur(6px); align-items: center; justify-content: center; padding: 20px;" onclick="mingle.closeQrZoomModal(event)">
+  <div id="mingleQrZoomModal" style="display: none; position: fixed; inset: 0; z-index: 10065; background: rgba(24, 14, 9, 0.86); backdrop-filter: blur(6px); align-items: center; justify-content: center; padding: 20px;" onclick="mingle.closeQrZoomModal(event)">
     <div style="background: #FFFDF9; border: 3px solid var(--coral, #E6786B); border-radius: 28px; padding: 24px 26px; max-width: 440px; width: 92vw; text-align: center; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45); display: flex; flex-direction: column; align-items: center; gap: 12px;" onclick="event.stopPropagation()">
       <div style="display: flex; width: 100%; justify-content: space-between; align-items: center;">
         <strong style="font-size: 17px; color: var(--caramel-brown);">📲 Scan QR Galeri Foto</strong>
         <button type="button" onclick="mingle.closeQrZoomModal()" style="width: 34px; height: 34px; border-radius: 50%; border: none; background: rgba(123,72,46,0.12); color: var(--caramel-brown); font-size: 16px; font-weight: 800; cursor: pointer;">✕</button>
       </div>
-      <div style="background: #FFFFFF; padding: 12px; border-radius: 20px; border: 2px solid #F0E4D7;">
+      <div style="background: #FFFFFF; padding: 12px; border-radius: 20px; border: 2px solid #F0E4D7; min-width: 220px; min-height: 220px; display: flex; align-items: center; justify-content: center;">
+        <div id="mingleQrZoomStatus" style="display: none; font-size: 13px; font-weight: 700; color: var(--text-muted); padding: 24px;">⏳ Memuat QR Code...</div>
         <img id="mingleQrZoomImg" src="" alt="QR Code Besar" style="width: min(72vw, 340px); height: min(72vw, 340px); display: block; object-fit: contain; image-rendering: pixelated;">
       </div>
       <p style="margin: 0; font-size: 12.5px; color: var(--text-muted); font-weight: 600;">Arahkan kamera HP tamu untuk mengunduh semua foto HD</p>
@@ -1452,8 +1453,8 @@
           <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
             <button type="button" class="btn btn-secondary" style="padding: 6px 11px; font-size: 13px; font-weight: 800;" onclick="mingle.stepEventPhotoZoom(-1)">◀</button>
             <button type="button" class="btn btn-secondary" style="padding: 6px 11px; font-size: 13px; font-weight: 800;" onclick="mingle.stepEventPhotoZoom(1)">▶</button>
-            <a id="mingleEventPhotoZoomGalleryLink" href="#" target="_blank" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; font-weight: 800; text-decoration: none; display: none;">📲 Galeri QR</a>
-            <button type="button" class="btn btn-coral" style="padding: 6px 14px; font-size: 12.5px; font-weight: 800;" onclick="mingle.closeEventPhotoZoom()">✕ Tutup</button>
+            <button type="button" id="mingleEventPhotoZoomQrBtn" class="btn btn-coral" style="padding: 6px 12px; font-size: 12px; font-weight: 800; display: none;" onclick="mingle.openEventPhotoQr(mingle._eventPhotoZoomIdx)">📲 Tampilkan QR</button>
+            <button type="button" class="btn btn-secondary" style="padding: 6px 14px; font-size: 12.5px; font-weight: 800;" onclick="mingle.closeEventPhotoZoom()">✕ Tutup</button>
           </div>
         </div>
         <div style="background: #1B1614; border-radius: 14px; padding: 10px; display: flex; align-items: center; justify-content: center; flex: 1; min-height: 240px; max-height: 74dvh; overflow: hidden;">

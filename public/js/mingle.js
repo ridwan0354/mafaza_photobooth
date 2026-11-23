@@ -2329,9 +2329,12 @@ class MingleBoothEngine {
     const qrImg = document.getElementById('mingleQrImg');
     const modal = document.getElementById('mingleQrZoomModal');
     const zoomImg = document.getElementById('mingleQrZoomImg');
+    const zoomStatus = document.getElementById('mingleQrZoomStatus');
     const zoomLink = document.getElementById('mingleQrZoomLink');
     const directLink = document.getElementById('mingleGalleryLink');
     if (!modal || !zoomImg || !qrImg || !qrImg.src || qrImg.style.display === 'none') return;
+    if (zoomStatus) zoomStatus.style.display = 'none';
+    zoomImg.style.display = 'block';
     zoomImg.src = qrImg.src;
     if (zoomLink) {
       if (directLink && directLink.href && directLink.href !== '#') {
@@ -3330,11 +3333,13 @@ class MingleBoothEngine {
           const reqCopies = parseInt(s.requestedPrintCopies, 10) || 0;
           items.push({
             id: s.id,
+            assetId: null,
             sessionId: s.id,
             src: s.finalImage,
             createdAt: s.createdAt || Date.now(),
             templateName: s.templateName || 'Foto Booth Mingle',
             galleryUrl: s.guestPassGalleryUrl || null,
+            qrDataUrl: s.guestPassQrDataUrl || null,
             isPrinted: false,
             printCopies: 0,
             requestedCopies: reqCopies,
@@ -3359,11 +3364,13 @@ class MingleBoothEngine {
             const reqCopies = parseInt(r.requested_print_copies, 10) || 0;
             items.push({
               id: r.asset_id || r.session_id,
+              assetId: r.asset_id || null,
               sessionId: r.session_id,
               src: r.file_path,
               createdAt: r.created_at || Date.now(),
               templateName: r.template_name || r.event_name || 'Foto Berframe',
               galleryUrl: r.galleryUrl || null,
+              qrDataUrl: null,
               isPrinted: Boolean(r.print_job_id),
               printCopies: parseInt(r.print_copies, 10) || 1,
               requestedCopies: reqCopies,
@@ -3419,6 +3426,8 @@ class MingleBoothEngine {
         : '';
       const borderStyle = (!p.isPrinted && p.requestedCopies > 0) ? 'border:2px solid #D4A754;background:#FFFDF7;' : 'border:1.5px solid #EAD8C7;background:#fff;';
 
+      const hasQrAction = Boolean(p.qrDataUrl || p.galleryUrl || (!p.isLocalPending && navigator.onLine !== false));
+
       return `
         <div style="${borderStyle}border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:7px;box-shadow:0 4px 12px rgba(123,72,46,0.06);">
           <div style="height:190px;background:#1B1614;border-radius:11px;overflow:hidden;position:relative;cursor:pointer;display:flex;align-items:center;justify-content:center;" onclick="mingle.openEventPhotoZoom(${idx})">
@@ -3433,7 +3442,7 @@ class MingleBoothEngine {
           ${orderNote}
           <div style="display:flex;gap:6px;margin-top:auto;">
             <button type="button" class="btn btn-secondary" style="flex:1;padding:6px 8px;font-size:11.5px;font-weight:800;" onclick="mingle.openEventPhotoZoom(${idx})">👁️ Perbesar</button>
-            ${p.galleryUrl ? `<a href="${this.escapeHtml(p.galleryUrl)}" target="_blank" class="btn btn-coral" style="padding:6px 10px;font-size:11.5px;font-weight:800;text-decoration:none;">📲 QR</a>` : ''}
+            ${hasQrAction ? `<button type="button" class="btn btn-coral" style="padding:6px 10px;font-size:11.5px;font-weight:800;" onclick="event.stopPropagation(); mingle.openEventPhotoQr(${idx})">📲 QR</button>` : ''}
           </div>
         </div>
       `;
@@ -3449,7 +3458,7 @@ class MingleBoothEngine {
     const img = document.getElementById('mingleEventPhotoZoomImg');
     const title = document.getElementById('mingleEventPhotoZoomTitle');
     const meta = document.getElementById('mingleEventPhotoZoomMeta');
-    const link = document.getElementById('mingleEventPhotoZoomGalleryLink');
+    const qrBtn = document.getElementById('mingleEventPhotoZoomQrBtn');
     if (img) img.src = item.src;
     if (title) title.textContent = `🖼️ ${item.templateName || 'Foto Berframe'} (${index + 1}/${list.length})`;
     if (meta) {
@@ -3459,15 +3468,83 @@ class MingleBoothEngine {
         : (item.requestedCopies > 0 ? `Pesanan Cetak: ${item.requestedPaperLabel} (${item.requestedCopies}×)` : 'Belum Dicetak');
       meta.textContent = `${timeStr} · ${statusText}${item.isLocalPending ? ' · Belum dikirim ke server' : ''}`;
     }
-    if (link) {
-      if (item.galleryUrl) {
-        link.href = item.galleryUrl;
-        link.style.display = 'inline-flex';
-      } else {
-        link.style.display = 'none';
-      }
+    if (qrBtn) {
+      const canShowQr = Boolean(item.qrDataUrl || item.galleryUrl || (!item.isLocalPending && navigator.onLine !== false));
+      qrBtn.style.display = canShowQr ? 'inline-flex' : 'none';
     }
     if (overlay) overlay.style.display = 'flex';
+  }
+
+  async openEventPhotoQr(index) {
+    const list = Array.isArray(this._eventFramedPhotosFiltered) ? this._eventFramedPhotosFiltered : [];
+    const item = list[index];
+    if (!item) return;
+
+    const modal = document.getElementById('mingleQrZoomModal');
+    const zoomImg = document.getElementById('mingleQrZoomImg');
+    const zoomStatus = document.getElementById('mingleQrZoomStatus');
+    const zoomLink = document.getElementById('mingleQrZoomLink');
+    if (!modal || !zoomImg) return;
+
+    if (item.qrDataUrl) {
+      if (zoomStatus) zoomStatus.style.display = 'none';
+      zoomImg.style.display = 'block';
+      zoomImg.src = item.qrDataUrl;
+      if (zoomLink) {
+        if (item.galleryUrl) {
+          zoomLink.href = item.galleryUrl;
+          zoomLink.style.display = '';
+        } else {
+          zoomLink.style.display = 'none';
+        }
+      }
+      modal.style.display = 'flex';
+      return;
+    }
+
+    if (item.isLocalPending || navigator.onLine === false) {
+      this.showToast('⏳ QR belum tersedia karena difoto saat offline tanpa stok QR — akan dibuat saat WiFi tersambung.', 'ℹ️', 3000);
+      return;
+    }
+
+    zoomImg.style.display = 'none';
+    if (zoomStatus) {
+      zoomStatus.textContent = '⏳ Menyiapkan QR Code...';
+      zoomStatus.style.display = 'block';
+    }
+    if (zoomLink) {
+      if (item.galleryUrl) {
+        zoomLink.href = item.galleryUrl;
+        zoomLink.style.display = '';
+      } else {
+        zoomLink.style.display = 'none';
+      }
+    }
+    modal.style.display = 'flex';
+
+    try {
+      const qs = new URLSearchParams();
+      if (item.assetId) qs.set('assetId', item.assetId);
+      if (item.sessionId) qs.set('sessionId', item.sessionId);
+      const res = await this.fetchWithTimeout(`/api/kiosk/gallery/qr?${qs.toString()}`, {}, 6000);
+      if (!res.ok) throw new Error('Gagal memuat QR');
+      const data = await res.json();
+      if (!data || !data.qrDataUrl) throw new Error('QR kosong');
+
+      item.qrDataUrl = data.qrDataUrl;
+      if (data.galleryUrl) item.galleryUrl = data.galleryUrl;
+
+      zoomImg.src = data.qrDataUrl;
+      zoomImg.style.display = 'block';
+      if (zoomStatus) zoomStatus.style.display = 'none';
+      if (zoomLink && data.galleryUrl) {
+        zoomLink.href = data.galleryUrl;
+        zoomLink.style.display = '';
+      }
+    } catch (err) {
+      modal.style.display = 'none';
+      this.showToast('⚠️ Gagal mengambil QR Code. Periksa koneksi server.', '⚠️', 2600);
+    }
   }
 
   stepEventPhotoZoom(delta) {

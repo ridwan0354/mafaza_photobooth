@@ -1711,6 +1711,66 @@ apiRouter.get('/kiosk/gallery/recent', (req, res) => {
   }
 });
 
+// Ambil / buatkan gambar QR Code yang bisa langsung di-scan tamu dari Galeri Foto Berframe Mingle
+apiRouter.get('/kiosk/gallery/qr', async (req, res) => {
+  try {
+    const { tenantId } = resolveOptionalAuth(req);
+    const assetId = req.query.assetId ? String(req.query.assetId).trim() : null;
+    const sessionId = req.query.sessionId ? String(req.query.sessionId).trim() : null;
+    if (!assetId && !sessionId) {
+      return res.status(400).json({ error: 'assetId atau sessionId diperlukan' });
+    }
+
+    let row = null;
+    if (assetId) {
+      row = db.prepare(`
+        SELECT ma.id as asset_id, ma.event_id, ma.tenant_id, ma.photo_session_id as session_id,
+               ps.guest_pass_id, gp.token_plain as gp_token
+        FROM media_assets ma
+        LEFT JOIN photo_sessions ps ON ma.photo_session_id = ps.id
+        LEFT JOIN guest_passes gp ON ps.guest_pass_id = gp.id
+        WHERE ma.id = ? AND ma.tenant_id = ?
+      `).get(assetId, tenantId);
+    }
+    if (!row && sessionId) {
+      row = db.prepare(`
+        SELECT ps.id as session_id, ps.event_id, ps.tenant_id, ps.guest_pass_id,
+               gp.token_plain as gp_token
+        FROM photo_sessions ps
+        LEFT JOIN guest_passes gp ON ps.guest_pass_id = gp.id
+        WHERE ps.id = ? AND ps.tenant_id = ?
+      `).get(sessionId, tenantId);
+    }
+
+    if (!row) {
+      return res.status(404).json({ error: 'Foto atau sesi tidak ditemukan' });
+    }
+
+    const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+    let token = row.gp_token;
+    if (!token) {
+      const pass = await qrService.createGuestPass(tenantId, row.event_id, 'booth_auto', baseUrl);
+      token = pass.token_plain;
+      if (row.session_id) {
+        db.prepare('UPDATE photo_sessions SET guest_pass_id = ? WHERE id = ?').run(pass.id, row.session_id);
+      }
+    }
+
+    const galleryUrl = `/gallery/g/${token}`;
+    const fullQrUrl = `${baseUrl.replace(/\/$/, '')}${galleryUrl}`;
+    const qrDataUrl = await qrService.createQrWithLogoDataUrl(fullQrUrl, { size: 360 });
+
+    res.json({
+      token,
+      galleryUrl,
+      fullQrUrl,
+      qrDataUrl
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Endpoint Detail QR & Status Alur Masuk (Alur QR Duluan vs QR Sendiri-Sendiri)
 apiRouter.get('/photos/:assetId/qr', authMiddleware(), async (req, res) => {
   try {

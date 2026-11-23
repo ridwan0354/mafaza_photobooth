@@ -1834,6 +1834,16 @@ test('Split Local Print vs Local Storage per-device isolation, Admin 313354 / se
     assert.match(found.galleryUrl || '', /^\/gallery\/g\//);
     assert.equal(found.requested_print_paper, '5x7');
     assert.equal(found.requested_print_copies, 2);
+
+    // Mingle scannable QR popup endpoint returns QR PNG data URL without Admin login
+    const qrRes = await fetch(`http://127.0.0.1:${port}/api/kiosk/gallery/qr?sessionId=${encodeURIComponent(sessId)}`);
+    assert.equal(qrRes.status, 200);
+    const qrJson = await qrRes.json();
+    assert.match(qrJson.qrDataUrl || '', /^data:image\/png;base64,/);
+    assert.equal(qrJson.galleryUrl, found.galleryUrl);
+    assert.match(mingleHtml, /id="mingleQrZoomModal"[^>]*z-index:\s*10065/);
+    assert.match(mingleHtml, /id="mingleEventPhotoZoomQrBtn"[^>]*openEventPhotoQr/);
+    assert.match(mingleJs, /async openEventPhotoQr\s*\(/);
   } finally {
     srv.closeAllConnections?.();
     srv.close();
