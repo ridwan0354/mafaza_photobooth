@@ -1850,6 +1850,9 @@ test('Split Local Print vs Local Storage per-device isolation, Admin 313354 / se
     assert.match(galleryViewerJs, /pbEventPhotoQrModal[\s\S]*z-index:\s*10065/);
     assert.match(galleryViewerJs, /pbEventPhotoZoomQrBtn[\s\S]*Tampilkan QR/);
     assert.match(galleryViewerJs, /\/api\/kiosk\/gallery\/qr/);
+    // Canon reconnect status uses un-mirrored HTML overlay rather than fillText on mirrored canvas
+    assert.match(kioskJs, /id\s*=\s*'canonUsbReconnectOverlay'/);
+    assert.doesNotMatch(kioskJs, /ctx\.fillText\(['"]Menyambung ulang ke Canon/);
   } finally {
     srv.closeAllConnections?.();
     srv.close();

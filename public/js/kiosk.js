@@ -2169,9 +2169,35 @@ class KioskEngine {
     }
 
     this.canonUsbStreamActive = true;
+    const setReconnectOverlay = (visible) => {
+      if (!retroFrame) return;
+      let ov = document.getElementById('canonUsbReconnectOverlay');
+      if (!visible) {
+        if (ov) ov.style.display = 'none';
+        return;
+      }
+      if (!ov) {
+        ov = document.createElement('div');
+        ov.id = 'canonUsbReconnectOverlay';
+        ov.style.cssText = 'position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:20px;background:rgba(26,18,14,0.82);color:#FFF9F2;text-align:center;pointer-events:none;';
+        ov.innerHTML = `
+          <div style="font-size:20px;font-weight:800;line-height:1.3;">🔌 Menyambung ulang ke Canon EOS...</div>
+          <div style="font-size:13.5px;font-weight:600;color:#F5B895;max-width:440px;line-height:1.45;">
+            Pastikan kamera <strong>ON</strong> (tidak Sleep), kabel USB kencang, dan aplikasi <strong>EOS Utility / EOS Webcam Utility</strong> di pojok kanan bawah Windows tertutup.
+          </div>
+        `;
+        retroFrame.appendChild(ov);
+      }
+      ov.style.display = 'flex';
+    };
+    setReconnectOverlay(false);
+
     let frameFailCount = 0;
     const drawNextFrame = async () => {
-      if (!this.canonUsbStreamActive) return;
+      if (!this.canonUsbStreamActive) {
+        setReconnectOverlay(false);
+        return;
+      }
       try {
         const res = await fetch(`http://127.0.0.1:19898/frame.jpg?t=${Date.now()}`, { cache: 'no-store' });
         if (!res.ok) throw new Error('Frame unavailable');
@@ -2179,25 +2205,24 @@ class KioskEngine {
         const bmp = await createImageBitmap(blob);
         if (!this.canonUsbStreamActive) {
           bmp.close();
+          setReconnectOverlay(false);
           return;
         }
         frameFailCount = 0;
+        setReconnectOverlay(false);
         ctx.drawImage(bmp, 0, 0, w, h);
         bmp.close();
         this.canonUsbLoopTimer = setTimeout(drawNextFrame, 42);
       } catch (err) {
-        if (!this.canonUsbStreamActive) return;
+        if (!this.canonUsbStreamActive) {
+          setReconnectOverlay(false);
+          return;
+        }
         frameFailCount++;
-        if (frameFailCount === 15 || frameFailCount % 30 === 0) {
+        if (frameFailCount >= 12) {
           ctx.fillStyle = '#1A120E';
           ctx.fillRect(0, 0, w, h);
-          ctx.fillStyle = '#FFF9F2';
-          ctx.font = 'bold 26px sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillText('Menyambung ulang ke Canon EOS...', w / 2, h / 2 - 14);
-          ctx.fillStyle = '#F5B895';
-          ctx.font = '18px sans-serif';
-          ctx.fillText('Pastikan kamera ON & EOS Webcam Utility tertutup', w / 2, h / 2 + 22);
+          setReconnectOverlay(true);
         }
         this.canonUsbLoopTimer = setTimeout(drawNextFrame, 220);
       }
@@ -2967,6 +2992,8 @@ class KioskEngine {
     const video = document.getElementById('videoFeed');
     const qrVideo = document.getElementById('qrVideoFeed');
     this.canonUsbStreamActive = false;
+    const usbReconnectOv = document.getElementById('canonUsbReconnectOverlay');
+    if (usbReconnectOv) usbReconnectOv.style.display = 'none';
     if (this.canonUsbCanvas) {
       this.canonUsbCanvas.style.display = 'none';
     }
