@@ -231,6 +231,7 @@ function runMigrations() {
   ensureColumn('photo_sessions', 'requested_print_copies', 'INTEGER DEFAULT 0');
 
   ensureStarterLandscapeTemplates();
+  ensureStarterSalesProducts();
 }
 
 function ensureStarterLandscapeTemplates() {
@@ -294,6 +295,37 @@ function ensureStarterLandscapeTemplates() {
     db.prepare("INSERT OR IGNORE INTO app_migrations (id) VALUES ('seed_polaroid_2up_landscape_v1')").run();
   } catch (e) {
     console.warn('ensureStarterLandscapeTemplates skipped:', e.message);
+  }
+}
+
+function ensureStarterSalesProducts() {
+  try {
+    db.exec('CREATE TABLE IF NOT EXISTS app_migrations (id TEXT PRIMARY KEY, applied_at DATETIME DEFAULT CURRENT_TIMESTAMP)');
+    const already = db.prepare("SELECT id FROM app_migrations WHERE id = 'seed_sales_starter_products_v1'").get();
+    if (already) return;
+
+    const tenant = db.prepare("SELECT id FROM tenants WHERE id = 'tenant_studiokeren_01'").get();
+    if (!tenant) return;
+
+    const existingCount = db.prepare('SELECT COUNT(*) as c FROM sales_products WHERE tenant_id = ?').get(tenant.id)?.c || 0;
+    if (existingCount === 0) {
+      const insertProd = db.prepare(`
+        INSERT OR IGNORE INTO sales_products (id, tenant_id, name, category, price, unit, active)
+        VALUES (?, ?, ?, ?, ?, ?, 1)
+      `);
+      const starters = [
+        ['prod_cetak_4r', tenant.id, 'Cetak Foto 4R', 'Cetak', 20000, 'lembar'],
+        ['prod_cetak_5r', tenant.id, 'Cetak Foto 5R', 'Cetak', 30000, 'lembar'],
+        ['prod_softcopy', tenant.id, 'Softcopy / File Digital', 'Digital', 15000, 'sesi'],
+        ['prod_keychain', tenant.id, 'Gantungan Kunci Akrilik', 'Aksesoris', 25000, 'pcs']
+      ];
+      for (const row of starters) {
+        insertProd.run(...row);
+      }
+    }
+    db.prepare("INSERT OR IGNORE INTO app_migrations (id) VALUES ('seed_sales_starter_products_v1')").run();
+  } catch (e) {
+    console.warn('ensureStarterSalesProducts skipped:', e.message);
   }
 }
 

@@ -17,6 +17,7 @@ import * as syncService from '../services/sync.js';
 import * as auditService from '../services/audit.js';
 import * as appBuilder from '../services/appBuilder.js';
 import * as cameraService from '../services/camera.js';
+import * as salesService from '../services/sales.js';
 import { optimizePhotoFile } from '../services/imageOptimizer.js';
 import QRCode from 'qrcode';
 
@@ -2173,5 +2174,102 @@ apiRouter.post('/camera/trigger-capture', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// 8. SALES CATALOG & DAILY SALES REPORT ROUTES
+// ==========================================
+apiRouter.get('/sales/products', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    const includeInactive = req.query.includeInactive === 'true';
+    res.json(salesService.listProducts(tenantId, { includeInactive }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/sales/products', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    const product = salesService.createProduct(tenantId, req.body || {});
+    res.status(201).json(product);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.patch('/sales/products/:id', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    const updated = salesService.updateProduct(tenantId, req.params.id, req.body || {});
+    res.json(updated);
+  } catch (err) {
+    res.status(/tidak ditemukan/i.test(err.message) ? 404 : 400).json({ error: err.message });
+  }
+});
+
+apiRouter.delete('/sales/products/:id', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    res.json(salesService.deleteProduct(tenantId, req.params.id));
+  } catch (err) {
+    res.status(/tidak ditemukan/i.test(err.message) ? 404 : 400).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/sales/report', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    const report = salesService.getSalesReport(tenantId, {
+      date: req.query.date,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      eventId: req.query.eventId
+    });
+    res.json(report);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/sales/report/export', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    const report = salesService.getSalesReport(tenantId, {
+      date: req.query.date,
+      startDate: req.query.startDate,
+      endDate: req.query.endDate,
+      eventId: req.query.eventId
+    });
+    const csv = salesService.buildSalesCsv(report);
+    const labelDate = report.appliedRange?.date || `${report.appliedRange?.startDate || 'semua'}_${report.appliedRange?.endDate || ''}`;
+    const safeFilename = String(labelDate).replace(/[^a-zA-Z0-9_-]/g, '_');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="laporan-penjualan-${safeFilename}.csv"`);
+    res.send(csv);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+apiRouter.post('/sales/transactions', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    const actor = req.user.email || req.user.role || 'Admin';
+    const created = salesService.recordSale(tenantId, req.body || {}, actor);
+    res.status(201).json(created);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.delete('/sales/transactions/:id', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId || 'tenant_studiokeren_01';
+    res.json(salesService.deleteSale(tenantId, req.params.id));
+  } catch (err) {
+    res.status(/tidak ditemukan/i.test(err.message) ? 404 : 400).json({ error: err.message });
   }
 });

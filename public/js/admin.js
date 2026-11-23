@@ -364,6 +364,8 @@ function switchTab(tabId, element) {
     loadSystemPrinters();
   } else if (tabId === 'qrpasses') {
     loadQRFleets();
+  } else if (tabId === 'sales') {
+    loadSalesDashboard();
   } else if (tabId === 'apps') {
     loadAppDownloadInfo();
   }
@@ -5780,6 +5782,541 @@ async function checkCanonBridgeAdminStatus() {
   }
 }
 window.checkCanonBridgeAdminStatus = checkCanonBridgeAdminStatus;
+
+// -------------------------------------------------------------
+// LAPORAN PENJUALAN & KATALOG PRODUK HARIAN
+// -------------------------------------------------------------
+let salesProductsCache = [];
+let salesPeriodMode = 'today';
+let salesLastReport = null;
+let salesDefaultEventApplied = false;
+
+function formatRupiah(amount) {
+  const num = Math.round(Number(amount) || 0);
+  return 'Rp ' + num.toLocaleString('id-ID');
+}
+
+function getLocalTodayIso() {
+  if (salesLastReport && salesLastReport.todayDate) return salesLastReport.todayDate;
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getLocalTimeHm() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function shiftIsoDate(isoDate, deltaDays) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return dt.toISOString().slice(0, 10);
+}
+
+function salesNotify(msg, type = 'success') {
+  if (window.pbNotify && typeof window.pbNotify[type] === 'function') {
+    window.pbNotify[type](msg);
+  } else if (type === 'error') {
+    alert(msg);
+  }
+}
+
+async function populateSalesEventSelectors() {
+  if (!Array.isArray(eventsList) || eventsList.length === 0) {
+    try {
+      const res = await fetch('/api/events');
+      if (res.ok) eventsList = await res.json();
+    } catch (e) {}
+  }
+
+  const filterSel = document.getElementById('salesFilterEvent');
+  const txSel = document.getElementById('salesTxEventId');
+  if (filterSel) {
+    const prev = filterSel.value || 'all';
+    filterSel.innerHTML = '<option value="all">🎪 Semua Event</option>' +
+      (eventsList || []).map(ev => `<option value="${escapeHtml(ev.id)}">${escapeHtml(ev.name)}</option>`).join('');
+    filterSel.value = Array.from(filterSel.options).some(o => o.value === prev) ? prev : 'all';
+  }
+  if (txSel) {
+    const prevTx = txSel.value;
+    txSel.innerHTML = '<option value="">Umum (Tanpa Event)</option>' +
+      (eventsList || []).map(ev => `<option value="${escapeHtml(ev.id)}">${escapeHtml(ev.name)}</option>`).join('');
+    if (!salesDefaultEventApplied && activeKioskEventId && Array.from(txSel.options).some(o => o.value === activeKioskEventId)) {
+      txSel.value = activeKioskEventId;
+      salesDefaultEventApplied = true;
+    } else if (prevTx && Array.from(txSel.options).some(o => o.value === prevTx)) {
+      txSel.value = prevTx;
+    }
+  }
+}
+
+function buildSalesQueryString() {
+  const params = new URLSearchParams();
+  const today = getLocalTodayIso();
+  const dateInput = document.getElementById('salesFilterDate');
+  const eventFilter = document.getElementById('salesFilterEvent')?.value || 'all';
+  if (eventFilter && eventFilter !== 'all') {
+    params.set('eventId', eventFilter);
+  }
+
+  if (salesPeriodMode === 'today') {
+    params.set('date', today);
+  } else if (salesPeriodMode === 'custom_day' && dateInput && dateInput.value) {
+    params.set('date', dateInput.value);
+  } else if (salesPeriodMode === '7days') {
+    params.set('startDate', shiftIsoDate(today, -6));
+    params.set('endDate', today);
+  } else if (salesPeriodMode === 'month') {
+    params.set('startDate', today.slice(0, 8) + '01');
+    params.set('endDate', today);
+  } else {
+    params.set('date', 'all');
+  }
+  return params.toString();
+}
+
+function syncSalesPeriodButtons() {
+  const map = {
+    today: 'salesPeriodTodayBtn',
+    '7days': 'salesPeriod7dBtn',
+    month: 'salesPeriodMonthBtn',
+    all: 'salesPeriodAllBtn'
+  };
+  Object.entries(map).forEach(([mode, btnId]) => {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    const active = salesPeriodMode === mode;
+    btn.className = active ? 'btn btn-primary' : 'btn btn-secondary';
+    btn.style.background = active ? '' : '#fff';
+  });
+}
+
+async function loadSalesDashboard() {
+  await populateSalesEventSelectors();
+  const txDateEl = document.getElementById('salesTxDate');
+  const txTimeEl = document.getElementById('salesTxTime');
+  const filterDateEl = document.getElementById('salesFilterDate');
+  const today = getLocalTodayIso();
+  if (txDateEl && !txDateEl.value) txDateEl.value = today;
+  if (txTimeEl && !txTimeEl.value) txTimeEl.value = getLocalTimeHm();
+  if (filterDateEl && !filterDateEl.value) filterDateEl.value = today;
+  syncSalesPeriodButtons();
+  updateSalesTxTotalPreview();
+  await Promise.all([loadSalesProducts(), loadSalesReport()]);
+}
+window.loadSalesDashboard = loadSalesDashboard;
+
+async function loadSalesProducts() {
+  try {
+    const res = await fetch('/api/sales/products');
+    if (!res.ok) return;
+    salesProductsCache = await res.json();
+    renderSalesProducts();
+  } catch (e) {
+    console.error('Failed to load sales products:', e);
+  }
+}
+
+function renderSalesProducts() {
+  const chipsEl = document.getElementById('salesQuickProductChips');
+  const listEl = document.getElementById('salesProductsList');
+  const badgeEl = document.getElementById('salesCatalogCountBadge');
+  const selectedId = document.getElementById('salesTxProductId')?.value || '';
+
+  if (badgeEl) badgeEl.textContent = `${salesProductsCache.length} Produk`;
+
+  if (chipsEl) {
+    const chipsHtml = salesProductsCache.map(p => {
+      const active = selectedId === p.id;
+      const border = active ? '2px solid var(--coral)' : '1.5px solid var(--border-soft)';
+      const bg = active ? 'rgba(230,120,107,0.12)' : '#fff';
+      return `<button type="button" onclick="selectSalesProductById('${escapeHtml(p.id)}')" style="padding: 7px 11px; border-radius: 10px; border: ${border}; background: ${bg}; cursor: pointer; font-size: 12px; font-weight: 800; color: var(--caramel-brown); display: inline-flex; align-items: center; gap: 6px;">
+        <span>${escapeHtml(p.name)}</span>
+        <span style="color: var(--coral);">${formatRupiah(p.price)}</span>
+      </button>`;
+    }).join('');
+    const customBtn = `<button type="button" onclick="clearSelectedSalesProductForCustom()" style="padding: 7px 11px; border-radius: 10px; border: 1.5px dashed var(--dusty-teal); background: rgba(95,143,138,0.08); cursor: pointer; font-size: 12px; font-weight: 800; color: var(--dusty-teal);">+ Ketik Produk Lain</button>`;
+    chipsEl.innerHTML = chipsHtml + customBtn;
+  }
+
+  if (listEl) {
+    if (salesProductsCache.length === 0) {
+      listEl.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 24px; font-size: 13px;">Belum ada produk di katalog. Tambahkan produk pertama di form di atas!</div>';
+      return;
+    }
+    listEl.innerHTML = salesProductsCache.map(p => `
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 12px; background: #fff; border: 1.5px solid var(--border-soft); border-radius: 12px;">
+        <div style="min-width: 0; flex: 1;">
+          <div style="font-size: 13.5px; font-weight: 800; color: var(--charcoal); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(p.name)}</div>
+          <div style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;">
+            ${escapeHtml(p.category)} • <strong>${formatRupiah(p.price)}</strong> / ${escapeHtml(p.unit)}
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px; flex-shrink: 0;">
+          <button type="button" class="btn btn-secondary" style="padding: 6px 10px; font-size: 11.5px; background: var(--cream-bg);" onclick="editSalesProduct('${escapeHtml(p.id)}')" title="Edit Produk">✏️</button>
+          <button type="button" class="btn btn-secondary" style="padding: 6px 10px; font-size: 11.5px; background: #fff; color: #B3402F; border-color: rgba(179,64,47,0.3);" onclick="deleteSalesProduct('${escapeHtml(p.id)}')" title="Hapus Produk">🗑️</button>
+        </div>
+      </div>
+    `).join('');
+  }
+}
+
+function selectSalesProductById(productId) {
+  const prod = salesProductsCache.find(p => p.id === productId);
+  if (!prod) return;
+  document.getElementById('salesTxProductId').value = prod.id;
+  document.getElementById('salesTxProductName').value = prod.name;
+  document.getElementById('salesTxCategory').value = prod.category || 'Umum';
+  document.getElementById('salesTxUnit').value = prod.unit || 'pcs';
+  document.getElementById('salesTxUnitPrice').value = Number(prod.price) || 0;
+  const saveRow = document.getElementById('salesSaveCatalogRow');
+  const saveCheck = document.getElementById('salesTxSaveCatalog');
+  if (saveRow) saveRow.style.display = 'none';
+  if (saveCheck) saveCheck.checked = false;
+  renderSalesProducts();
+  updateSalesTxTotalPreview();
+}
+window.selectSalesProductById = selectSalesProductById;
+
+function clearSelectedSalesProductForCustom() {
+  document.getElementById('salesTxProductId').value = '';
+  document.getElementById('salesTxProductName').value = '';
+  document.getElementById('salesTxCategory').value = 'Umum';
+  document.getElementById('salesTxUnit').value = 'pcs';
+  document.getElementById('salesTxUnitPrice').value = '';
+  const saveRow = document.getElementById('salesSaveCatalogRow');
+  if (saveRow) saveRow.style.display = 'flex';
+  renderSalesProducts();
+  updateSalesTxTotalPreview();
+  document.getElementById('salesTxProductName')?.focus();
+}
+window.clearSelectedSalesProductForCustom = clearSelectedSalesProductForCustom;
+
+function onSalesProductNameTyping() {
+  const idEl = document.getElementById('salesTxProductId');
+  const nameVal = (document.getElementById('salesTxProductName')?.value || '').trim();
+  const matched = salesProductsCache.find(p => p.id === idEl?.value);
+  if (matched && matched.name !== nameVal) {
+    idEl.value = '';
+    const saveRow = document.getElementById('salesSaveCatalogRow');
+    if (saveRow) saveRow.style.display = 'flex';
+    renderSalesProducts();
+  } else if (!idEl?.value) {
+    const saveRow = document.getElementById('salesSaveCatalogRow');
+    if (saveRow) saveRow.style.display = 'flex';
+  }
+}
+window.onSalesProductNameTyping = onSalesProductNameTyping;
+
+function adjustSalesTxQty(delta) {
+  const el = document.getElementById('salesTxQty');
+  if (!el) return;
+  const next = Math.max(1, (parseInt(el.value, 10) || 1) + delta);
+  el.value = next;
+  updateSalesTxTotalPreview();
+}
+window.adjustSalesTxQty = adjustSalesTxQty;
+
+function updateSalesTxTotalPreview() {
+  const qty = Math.max(1, parseInt(document.getElementById('salesTxQty')?.value || '1', 10) || 1);
+  const price = Math.max(0, parseInt(document.getElementById('salesTxUnitPrice')?.value || '0', 10) || 0);
+  const el = document.getElementById('salesTxTotalPreview');
+  if (el) el.textContent = formatRupiah(qty * price);
+}
+window.updateSalesTxTotalPreview = updateSalesTxTotalPreview;
+
+async function submitSalesProduct(e) {
+  e.preventDefault();
+  const editId = document.getElementById('salesProdEditId')?.value || '';
+  const payload = {
+    name: document.getElementById('salesProdName')?.value.trim(),
+    category: document.getElementById('salesProdCategory')?.value.trim() || 'Umum',
+    price: parseInt(document.getElementById('salesProdPrice')?.value || '0', 10),
+    unit: document.getElementById('salesProdUnit')?.value.trim() || 'pcs'
+  };
+  try {
+    const url = editId ? `/api/sales/products/${encodeURIComponent(editId)}` : '/api/sales/products';
+    const method = editId ? 'PATCH' : 'POST';
+    const res = await fetch(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal menyimpan produk');
+    resetSalesProductForm();
+    await loadSalesProducts();
+    salesNotify(editId ? 'Produk berhasil diperbarui!' : 'Produk baru ditambahkan ke katalog!');
+  } catch (err) {
+    salesNotify(err.message, 'error');
+  }
+}
+window.submitSalesProduct = submitSalesProduct;
+
+function editSalesProduct(productId) {
+  const prod = salesProductsCache.find(p => p.id === productId);
+  if (!prod) return;
+  document.getElementById('salesProdEditId').value = prod.id;
+  document.getElementById('salesProdName').value = prod.name;
+  document.getElementById('salesProdCategory').value = prod.category || 'Umum';
+  document.getElementById('salesProdPrice').value = prod.price;
+  document.getElementById('salesProdUnit').value = prod.unit || 'pcs';
+  const btn = document.getElementById('salesProdSubmitBtn');
+  const cancelBtn = document.getElementById('salesProdCancelBtn');
+  if (btn) btn.textContent = '💾 Simpan';
+  if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+}
+window.editSalesProduct = editSalesProduct;
+
+function resetSalesProductForm() {
+  document.getElementById('salesProdEditId').value = '';
+  document.getElementById('salesProdName').value = '';
+  document.getElementById('salesProdPrice').value = '';
+  document.getElementById('salesProdUnit').value = 'pcs';
+  const btn = document.getElementById('salesProdSubmitBtn');
+  const cancelBtn = document.getElementById('salesProdCancelBtn');
+  if (btn) btn.textContent = '+ Tambah Produk';
+  if (cancelBtn) cancelBtn.style.display = 'none';
+}
+window.resetSalesProductForm = resetSalesProductForm;
+
+async function deleteSalesProduct(productId) {
+  const prod = salesProductsCache.find(p => p.id === productId);
+  if (!confirm(`Hapus produk "${prod?.name || 'ini'}" dari katalog?\n(Riwayat penjualan sebelumnya tetap aman tercatat).`)) return;
+  try {
+    const res = await fetch(`/api/sales/products/${encodeURIComponent(productId)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal menghapus produk');
+    if (document.getElementById('salesTxProductId')?.value === productId) {
+      document.getElementById('salesTxProductId').value = '';
+    }
+    await loadSalesProducts();
+    salesNotify('Produk dihapus dari katalog.');
+  } catch (err) {
+    salesNotify(err.message, 'error');
+  }
+}
+window.deleteSalesProduct = deleteSalesProduct;
+
+async function submitSalesTransaction(e) {
+  e.preventDefault();
+  const productId = document.getElementById('salesTxProductId')?.value || '';
+  const payload = {
+    productId: productId || null,
+    productName: document.getElementById('salesTxProductName')?.value.trim(),
+    category: document.getElementById('salesTxCategory')?.value.trim() || 'Umum',
+    unit: document.getElementById('salesTxUnit')?.value.trim() || 'pcs',
+    quantity: parseInt(document.getElementById('salesTxQty')?.value || '1', 10) || 1,
+    unitPrice: parseInt(document.getElementById('salesTxUnitPrice')?.value || '0', 10) || 0,
+    paymentMethod: document.getElementById('salesTxPaymentMethod')?.value || 'Tunai',
+    eventId: document.getElementById('salesTxEventId')?.value || null,
+    notes: document.getElementById('salesTxNotes')?.value.trim() || '',
+    soldDate: document.getElementById('salesTxDate')?.value || getLocalTodayIso(),
+    soldTime: document.getElementById('salesTxTime')?.value || getLocalTimeHm(),
+    saveToCatalog: !productId && Boolean(document.getElementById('salesTxSaveCatalog')?.checked)
+  };
+  try {
+    const res = await fetch('/api/sales/transactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal mencatat penjualan');
+    document.getElementById('salesTxQty').value = '1';
+    document.getElementById('salesTxNotes').value = '';
+    document.getElementById('salesTxTime').value = getLocalTimeHm();
+    const saveCheck = document.getElementById('salesTxSaveCatalog');
+    if (saveCheck) saveCheck.checked = false;
+    updateSalesTxTotalPreview();
+    if (payload.saveToCatalog) await loadSalesProducts();
+    await loadSalesReport();
+    salesNotify(`Penjualan tercatat: ${data.product_name} (${data.quantity}×) = ${formatRupiah(data.total_amount)}`);
+  } catch (err) {
+    salesNotify(err.message, 'error');
+  }
+}
+window.submitSalesTransaction = submitSalesTransaction;
+
+async function deleteSalesTransaction(saleId) {
+  if (!confirm('Hapus transaksi penjualan ini dari laporan?')) return;
+  try {
+    const res = await fetch(`/api/sales/transactions/${encodeURIComponent(saleId)}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal menghapus transaksi');
+    await loadSalesReport();
+    salesNotify('Transaksi dihapus dari laporan.');
+  } catch (err) {
+    salesNotify(err.message, 'error');
+  }
+}
+window.deleteSalesTransaction = deleteSalesTransaction;
+
+function setSalesReportPeriod(mode) {
+  salesPeriodMode = mode;
+  const dateInput = document.getElementById('salesFilterDate');
+  if (mode === 'today' && dateInput) dateInput.value = getLocalTodayIso();
+  syncSalesPeriodButtons();
+  loadSalesReport();
+}
+window.setSalesReportPeriod = setSalesReportPeriod;
+
+function onSalesSpecificDateChange() {
+  salesPeriodMode = 'custom_day';
+  syncSalesPeriodButtons();
+  loadSalesReport();
+}
+window.onSalesSpecificDateChange = onSalesSpecificDateChange;
+
+function viewSalesDayDetail(dateStr) {
+  const dateInput = document.getElementById('salesFilterDate');
+  if (dateInput) dateInput.value = dateStr;
+  salesPeriodMode = dateStr === getLocalTodayIso() ? 'today' : 'custom_day';
+  syncSalesPeriodButtons();
+  loadSalesReport();
+}
+window.viewSalesDayDetail = viewSalesDayDetail;
+
+async function loadSalesReport() {
+  try {
+    const qs = buildSalesQueryString();
+    const res = await fetch(`/api/sales/report?${qs}`);
+    if (!res.ok) return;
+    const report = await res.json();
+    salesLastReport = report;
+
+    const txDateEl = document.getElementById('salesTxDate');
+    const filterDateEl = document.getElementById('salesFilterDate');
+    if (txDateEl && !txDateEl.value && report.todayDate) txDateEl.value = report.todayDate;
+    if (filterDateEl && !filterDateEl.value && report.todayDate) filterDateEl.value = report.todayDate;
+
+    const summary = report.summary || { totalRevenue: 0, totalItemsSold: 0, totalTransactions: 0, byPaymentMethod: {} };
+    document.getElementById('salesStatRevenue').textContent = formatRupiah(summary.totalRevenue);
+    document.getElementById('salesStatQty').textContent = `${summary.totalItemsSold} item`;
+    document.getElementById('salesStatTxCount').textContent = String(summary.totalTransactions);
+    document.getElementById('salesStatProductTypes').textContent = `${(report.itemsSold || []).length} jenis produk terjual`;
+
+    const methods = Object.values(summary.byPaymentMethod || {});
+    document.getElementById('salesStatPaymentBreakdown').textContent = methods.length
+      ? methods.map(m => `${m.method}: ${formatRupiah(m.totalRevenue)}`).join(' • ')
+      : 'Belum ada pemasukan';
+
+    const range = report.appliedRange || {};
+    let periodLabel = 'Periode: Hari Ini';
+    if (range.mode === 'all') periodLabel = 'Periode: Semua Tanggal';
+    else if (range.mode === 'range') periodLabel = `${range.startDate} s/d ${range.endDate}`;
+    else if (range.date) periodLabel = `Tanggal: ${range.date}`;
+    document.getElementById('salesStatPeriodLabel').textContent = periodLabel;
+
+    // 1. Render Tabel Apa Saja yang Terjual
+    const itemsBody = document.getElementById('salesItemsSoldTableBody');
+    const items = report.itemsSold || [];
+    if (itemsBody) {
+      if (items.length === 0) {
+        itemsBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">Belum ada produk terjual pada periode ini.</td></tr>';
+      } else {
+        itemsBody.innerHTML = items.map(item => `
+          <tr>
+            <td>
+              <div style="font-weight: 800; color: var(--charcoal);">${escapeHtml(item.productName)}</div>
+              <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(item.category)}</div>
+            </td>
+            <td style="font-weight: 800; color: var(--dusty-teal); white-space: nowrap;">${item.totalQty} ${escapeHtml(item.unit)}</td>
+            <td style="color: var(--text-muted); font-weight: 700;">${item.transactionsCount}×</td>
+            <td style="font-weight: 800; color: var(--coral); white-space: nowrap;">${formatRupiah(item.totalRevenue)}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // 2. Render Tabel Ringkasan Harian per Tanggal
+    const dailyBody = document.getElementById('salesDailyBreakdownTableBody');
+    const dailyRows = report.dailyBreakdown || [];
+    if (dailyBody) {
+      if (dailyRows.length === 0) {
+        dailyBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">Belum ada laporan harian pada periode ini.</td></tr>';
+      } else {
+        dailyBody.innerHTML = dailyRows.map(d => `
+          <tr>
+            <td style="font-weight: 800; color: var(--caramel-brown); white-space: nowrap;">
+              ${escapeHtml(d.date)}
+              <div style="font-size: 11px; color: var(--text-muted); font-weight: 600;">${d.transactionsCount} transaksi</div>
+            </td>
+            <td style="font-size: 12px; color: var(--charcoal); line-height: 1.45;">
+              <strong>${d.totalQty} item:</strong> ${escapeHtml(d.itemsSummary || '-')}
+            </td>
+            <td style="font-weight: 800; color: var(--coral); white-space: nowrap;">${formatRupiah(d.totalRevenue)}</td>
+            <td>
+              <button type="button" class="btn btn-secondary" style="padding: 5px 10px; font-size: 11.5px; background: #fff;" onclick="viewSalesDayDetail('${escapeHtml(d.date)}')">Detail</button>
+            </td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    // 3. Render Rincian Transaksi
+    const txBody = document.getElementById('salesTransactionsTableBody');
+    const txBadge = document.getElementById('salesTransactionsBadge');
+    const txs = report.transactions || [];
+    if (txBadge) txBadge.textContent = `${txs.length} transaksi`;
+    if (txBody) {
+      if (txs.length === 0) {
+        txBody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 26px;">Belum ada transaksi penjualan pada periode ini.</td></tr>';
+      } else {
+        txBody.innerHTML = txs.map(tx => `
+          <tr>
+            <td style="white-space: nowrap;">
+              <div style="font-weight: 800; color: var(--caramel-brown);">${escapeHtml(tx.sold_date)}</div>
+              <div style="font-size: 11.5px; color: var(--text-muted);">${escapeHtml(tx.sold_time || '')}</div>
+            </td>
+            <td>
+              <div style="font-weight: 800; color: var(--charcoal);">${escapeHtml(tx.product_name)}</div>
+              <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(tx.category || 'Umum')}</div>
+            </td>
+            <td style="white-space: nowrap; font-weight: 700;">
+              ${tx.quantity} ${escapeHtml(tx.unit || 'pcs')} × ${formatRupiah(tx.unit_price)}
+            </td>
+            <td style="font-weight: 800; color: var(--coral); white-space: nowrap;">${formatRupiah(tx.total_amount)}</td>
+            <td><span class="badge-pill badge-pending" style="font-size: 11px;">${escapeHtml(tx.payment_method || 'Tunai')}</span></td>
+            <td style="font-size: 12px; color: var(--text-muted);">
+              <strong style="color: var(--caramel-brown);">${escapeHtml(tx.event_name || 'Umum')}</strong>
+              ${tx.notes ? `<div style="margin-top: 2px;">${escapeHtml(tx.notes)}</div>` : ''}
+            </td>
+            <td>
+              <button type="button" class="btn btn-secondary" style="padding: 5px 10px; font-size: 11.5px; color: #B3402F; background: #fff; border-color: rgba(179,64,47,0.3);" onclick="deleteSalesTransaction('${escapeHtml(tx.id)}')">Hapus</button>
+            </td>
+          </tr>
+        `).join('');
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load sales report:', e);
+  }
+}
+window.loadSalesReport = loadSalesReport;
+
+async function exportSalesCsv() {
+  try {
+    const qs = buildSalesQueryString();
+    const res = await fetch(`/api/sales/report/export?${qs}`);
+    if (!res.ok) throw new Error('Gagal mengunduh file laporan CSV');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `laporan-penjualan-${salesLastReport?.appliedRange?.date || 'rekap'}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (err) {
+    salesNotify(err.message, 'error');
+  }
+}
+window.exportSalesCsv = exportSalesCsv;
 
 // -------------------------------------------------------------
 // ADMIN LOGOUT & AUTHENTICATION SESSION GUARDS

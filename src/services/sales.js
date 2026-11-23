@@ -1,0 +1,373 @@
+import crypto from 'node:crypto';
+import { db } from '../db/database.js';
+
+const VALID_PAYMENT_METHODS = new Set(['Tunai', 'QRIS', 'Transfer', 'Lainnya']);
+
+/**
+ * Resolves the tenant's local calendar date (YYYY-MM-DD) and time (HH:MM)
+ * using the matching event timezone or active event timezone (fallback Asia/Makassar).
+ */
+export function getTenantLocalDateInfo(tenantId, eventId = null, now = new Date()) {
+  let timeZone = 'Asia/Makassar';
+  try {
+    let row = null;
+    if (eventId) {
+      row = db.prepare('SELECT timezone FROM events WHERE id = ? AND tenant_id = ?').get(eventId, tenantId);
+    }
+    if (!row) {
+      row = db.prepare("SELECT timezone FROM events WHERE tenant_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1").get(tenantId);
+    }
+    if (row && row.timezone) {
+      timeZone = row.timezone;
+    }
+  } catch (e) {}
+
+  try {
+    const date = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(now);
+    const time = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).format(now);
+    return { timeZone, date, time };
+  } catch (e) {
+    const iso = now.toISOString();
+    return { timeZone: 'UTC', date: iso.slice(0, 10), time: iso.slice(11, 16) };
+  }
+}
+
+export function listProducts(tenantId, { includeInactive = false } = {}) {
+  const where = includeInactive ? 'WHERE tenant_id = ?' : 'WHERE tenant_id = ? AND active = 1';
+  return db.prepare(`
+    SELECT id, tenant_id, name, category, price, unit, active, created_at, updated_at
+    FROM sales_products
+    ${where}
+    ORDER BY active DESC, category ASC, name ASC
+  `).all(tenantId);
+}
+
+export function createProduct(tenantId, data = {}) {
+  const name = String(data.name || '').trim();
+  if (!name) {
+    throw new Error('Nama produk wajib diisi.');
+  }
+  const category = String(data.category || 'Umum').trim() || 'Umum';
+  const unit = String(data.unit || 'pcs').trim() || 'pcs';
+  const rawPrice = Number(data.price);
+  if (!Number.isFinite(rawPrice) || rawPrice < 0) {
+    throw new Error('Harga produk tidak valid.');
+  }
+  const price = Math.round(rawPrice);
+  const active = data.active === false || data.active === 0 ? 0 : 1;
+  const id = 'prod_' + crypto.randomBytes(6).toString('hex');
+
+  db.prepare(`
+    INSERT INTO sales_products (id, tenant_id, name, category, price, unit, active)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, tenantId, name, category, price, unit, active);
+
+  return db.prepare('SELECT * FROM sales_products WHERE id = ? AND tenant_id = ?').get(id, tenantId);
+}
+
+export function updateProduct(tenantId, productId, data = {}) {
+  const current = db.prepare('SELECT * FROM sales_products WHERE id = ? AND tenant_id = ?').get(productId, tenantId);
+  if (!current) {
+    throw new Error('Produk tidak ditemukan.');
+  }
+
+  const name = data.name !== undefined ? String(data.name).trim() : current.name;
+  if (!name) throw new Error('Nama produk tidak boleh kosong.');
+  const category = data.category !== undefined ? (String(data.category).trim() || 'Umum') : current.category;
+  const unit = data.unit !== undefined ? (String(data.unit).trim() || 'pcs') : current.unit;
+  let price = current.price;
+  if (data.price !== undefined) {
+    const parsed = Number(data.price);
+    if (!Number.isFinite(parsed) || parsed < 0) throw new Error('Harga produk tidak valid.');
+    price = Math.round(parsed);
+  }
+  const active = data.active !== undefined ? (data.active ? 1 : 0) : current.active;
+
+  db.prepare(`
+    UPDATE sales_products
+    SET name = ?, category = ?, price = ?, unit = ?, active = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND tenant_id = ?
+  `).run(name, category, price, unit, active, productId, tenantId);
+
+  return db.prepare('SELECT * FROM sales_products WHERE id = ? AND tenant_id = ?').get(productId, tenantId);
+}
+
+export function deleteProduct(tenantId, productId) {
+  const res = db.prepare('DELETE FROM sales_products WHERE id = ? AND tenant_id = ?').run(productId, tenantId);
+  if (!res.changes) {
+    throw new Error('Produk tidak ditemukan.');
+  }
+  return { deleted: true, id: productId };
+}
+
+function normalizeDateString(raw) {
+  const str = String(raw || '').trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(str) ? str : null;
+}
+
+function normalizeTimeString(raw) {
+  const str = String(raw || '').trim();
+  return /^\d{2}:\d{2}$/.test(str) ? str : null;
+}
+
+export function recordSale(tenantId, data = {}, actorName = 'Admin') {
+  let product = null;
+  if (data.productId) {
+    product = db.prepare('SELECT * FROM sales_products WHERE id = ? AND tenant_id = ?').get(String(data.productId), tenantId);
+    if (!product) throw new Error('Produk yang dipilih tidak ditemukan.');
+  }
+
+  const productName = String(data.productName || (product && product.name) || '').trim();
+  if (!productName) {
+    throw new Error('Pilih produk atau ketik nama produk yang terjual.');
+  }
+
+  const category = String(data.category || (product && product.category) || 'Umum').trim() || 'Umum';
+  const unit = String(data.unit || (product && product.unit) || 'pcs').trim() || 'pcs';
+
+  const rawUnitPrice = data.unitPrice !== undefined && data.unitPrice !== '' && data.unitPrice !== null
+    ? Number(data.unitPrice)
+    : (product ? Number(product.price) : NaN);
+  if (!Number.isFinite(rawUnitPrice) || rawUnitPrice < 0) {
+    throw new Error('Harga satuan penjualan tidak valid.');
+  }
+  const unitPrice = Math.round(rawUnitPrice);
+
+  const rawQty = Number(data.quantity ?? 1);
+  if (!Number.isFinite(rawQty) || rawQty < 1 || rawQty > 10000) {
+    throw new Error('Jumlah terjual minimal 1.');
+  }
+  const quantity = Math.round(rawQty);
+  const totalAmount = unitPrice * quantity;
+
+  let eventId = null;
+  if (data.eventId && String(data.eventId).trim() && String(data.eventId).trim() !== 'all') {
+    const ev = db.prepare('SELECT id FROM events WHERE id = ? AND tenant_id = ?').get(String(data.eventId).trim(), tenantId);
+    if (!ev) throw new Error('Event tidak ditemukan.');
+    eventId = ev.id;
+  }
+
+  // Optional: save ad-hoc typed product directly into catalog so cashier can reuse it immediately
+  let savedProductId = product ? product.id : null;
+  if (!product && data.saveToCatalog) {
+    const created = createProduct(tenantId, { name: productName, category, price: unitPrice, unit });
+    savedProductId = created.id;
+  }
+
+  const rawMethod = String(data.paymentMethod || 'Tunai').trim();
+  const paymentMethod = VALID_PAYMENT_METHODS.has(rawMethod) ? rawMethod : 'Tunai';
+  const customerName = String(data.customerName || '').trim().slice(0, 120);
+  const notes = String(data.notes || '').trim().slice(0, 300);
+
+  const localNow = getTenantLocalDateInfo(tenantId, eventId);
+  const soldDate = normalizeDateString(data.soldDate) || localNow.date;
+  const soldTime = normalizeTimeString(data.soldTime) || localNow.time;
+  const id = 'sale_' + crypto.randomBytes(6).toString('hex');
+
+  db.prepare(`
+    INSERT INTO sales_transactions (
+      id, tenant_id, event_id, product_id, product_name, category, unit,
+      unit_price, quantity, total_amount, payment_method, customer_name, notes,
+      sold_date, sold_time, created_by
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, tenantId, eventId, savedProductId, productName, category, unit,
+    unitPrice, quantity, totalAmount, paymentMethod, customerName, notes,
+    soldDate, soldTime, String(actorName || 'Admin').slice(0, 80)
+  );
+
+  return db.prepare(`
+    SELECT s.*, e.name as event_name
+    FROM sales_transactions s
+    LEFT JOIN events e ON e.id = s.event_id
+    WHERE s.id = ? AND s.tenant_id = ?
+  `).get(id, tenantId);
+}
+
+export function deleteSale(tenantId, saleId) {
+  const res = db.prepare('DELETE FROM sales_transactions WHERE id = ? AND tenant_id = ?').run(saleId, tenantId);
+  if (!res.changes) {
+    throw new Error('Transaksi penjualan tidak ditemukan.');
+  }
+  return { deleted: true, id: saleId };
+}
+
+export function getSalesReport(tenantId, filters = {}) {
+  const localNow = getTenantLocalDateInfo(tenantId, filters.eventId || null);
+  const rawDate = String(filters.date || '').trim();
+  const startDate = normalizeDateString(filters.startDate);
+  const endDate = normalizeDateString(filters.endDate);
+  const eventId = filters.eventId && filters.eventId !== 'all' ? String(filters.eventId).trim() : null;
+
+  const whereParts = ['s.tenant_id = ?'];
+  const params = [tenantId];
+
+  let appliedRange = { mode: 'day', date: localNow.date, startDate: localNow.date, endDate: localNow.date };
+  if (startDate && endDate) {
+    whereParts.push('s.sold_date >= ? AND s.sold_date <= ?');
+    params.push(startDate, endDate);
+    appliedRange = { mode: 'range', date: null, startDate, endDate };
+  } else if (rawDate === 'all') {
+    appliedRange = { mode: 'all', date: 'all', startDate: null, endDate: null };
+  } else {
+    const targetDay = normalizeDateString(rawDate) || localNow.date;
+    whereParts.push('s.sold_date = ?');
+    params.push(targetDay);
+    appliedRange = { mode: 'day', date: targetDay, startDate: targetDay, endDate: targetDay };
+  }
+
+  if (eventId) {
+    whereParts.push('s.event_id = ?');
+    params.push(eventId);
+  }
+
+  const rows = db.prepare(`
+    SELECT s.*, e.name as event_name
+    FROM sales_transactions s
+    LEFT JOIN events e ON e.id = s.event_id
+    WHERE ${whereParts.join(' AND ')}
+    ORDER BY s.sold_date DESC, s.sold_time DESC, s.created_at DESC
+  `).all(...params);
+
+  let totalRevenue = 0;
+  let totalItemsSold = 0;
+  const byPaymentMethod = {};
+  const productMap = new Map();
+  const dailyMap = new Map();
+
+  for (const row of rows) {
+    const qty = Number(row.quantity) || 0;
+    const rev = Number(row.total_amount) || 0;
+    totalRevenue += rev;
+    totalItemsSold += qty;
+
+    const method = row.payment_method || 'Tunai';
+    if (!byPaymentMethod[method]) {
+      byPaymentMethod[method] = { method, transactionsCount: 0, totalQty: 0, totalRevenue: 0 };
+    }
+    byPaymentMethod[method].transactionsCount += 1;
+    byPaymentMethod[method].totalQty += qty;
+    byPaymentMethod[method].totalRevenue += rev;
+
+    const pKey = `${row.product_name}__${row.unit || 'pcs'}`;
+    if (!productMap.has(pKey)) {
+      productMap.set(pKey, {
+        productId: row.product_id || null,
+        productName: row.product_name,
+        category: row.category || 'Umum',
+        unit: row.unit || 'pcs',
+        totalQty: 0,
+        totalRevenue: 0,
+        transactionsCount: 0,
+        lastUnitPrice: Number(row.unit_price) || 0
+      });
+    }
+    const pAgg = productMap.get(pKey);
+    pAgg.totalQty += qty;
+    pAgg.totalRevenue += rev;
+    pAgg.transactionsCount += 1;
+
+    const dKey = row.sold_date;
+    if (!dailyMap.has(dKey)) {
+      dailyMap.set(dKey, {
+        date: dKey,
+        transactionsCount: 0,
+        totalQty: 0,
+        totalRevenue: 0,
+        itemCounts: new Map()
+      });
+    }
+    const dAgg = dailyMap.get(dKey);
+    dAgg.transactionsCount += 1;
+    dAgg.totalQty += qty;
+    dAgg.totalRevenue += rev;
+    dAgg.itemCounts.set(row.product_name, (dAgg.itemCounts.get(row.product_name) || 0) + qty);
+  }
+
+  const itemsSold = Array.from(productMap.values()).sort((a, b) =>
+    (b.totalQty - a.totalQty) || (b.totalRevenue - a.totalRevenue) || a.productName.localeCompare(b.productName)
+  );
+
+  const dailyBreakdown = Array.from(dailyMap.values())
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map((d) => ({
+      date: d.date,
+      transactionsCount: d.transactionsCount,
+      totalQty: d.totalQty,
+      totalRevenue: d.totalRevenue,
+      itemsSummary: Array.from(d.itemCounts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, qty]) => `${name} (${qty})`)
+        .join(', ')
+    }));
+
+  return {
+    todayDate: localNow.date,
+    timeZone: localNow.timeZone,
+    appliedRange,
+    summary: {
+      totalRevenue,
+      totalItemsSold,
+      totalTransactions: rows.length,
+      byPaymentMethod
+    },
+    itemsSold,
+    dailyBreakdown,
+    transactions: rows
+  };
+}
+
+function escapeCsvCell(val) {
+  let str = String(val ?? '');
+  if (/^[=+\-@]/.test(str)) {
+    str = `'${str}`;
+  }
+  return `"${str.replace(/"/g, '""')}"`;
+}
+
+export function buildSalesCsv(report) {
+  const header = [
+    'Tanggal',
+    'Jam',
+    'Event',
+    'Nama Produk',
+    'Kategori',
+    'Jumlah',
+    'Satuan',
+    'Harga Satuan (Rp)',
+    'Total (Rp)',
+    'Metode Bayar',
+    'Pembeli',
+    'Catatan',
+    'Kasir'
+  ];
+  const lines = [header.map(escapeCsvCell).join(',')];
+  for (const row of report.transactions || []) {
+    lines.push([
+      row.sold_date,
+      row.sold_time,
+      row.event_name || '-',
+      row.product_name,
+      row.category || 'Umum',
+      row.quantity,
+      row.unit || 'pcs',
+      row.unit_price,
+      row.total_amount,
+      row.payment_method || 'Tunai',
+      row.customer_name || '',
+      row.notes || '',
+      row.created_by || 'Admin'
+    ].map(escapeCsvCell).join(','));
+  }
+  return '\uFEFF' + lines.join('\r\n');
+}

@@ -568,6 +568,10 @@
         grid-template-columns: 1fr !important;
         gap: 16px !important;
       }
+      .sales-grid {
+        grid-template-columns: 1fr !important;
+        gap: 16px !important;
+      }
       .photo-preview-grid {
         grid-template-columns: 1fr !important;
         gap: 16px !important;
@@ -660,6 +664,9 @@
       <div class="nav-btn" id="navBtnPrintQueue" onclick="switchTab('printqueue', this)" style="position: relative;">
         <span>⏳</span> Progres Print
         <span id="navPrintBadge" style="display: none; margin-left: auto; background: var(--coral); color: #fff; font-size: 11px; font-weight: 800; padding: 2px 7px; border-radius: 99px; box-shadow: 0 2px 6px rgba(0,0,0,0.2);">0</span>
+      </div>
+      <div class="nav-btn" id="navBtnSales" onclick="switchTab('sales', this)">
+        <span>📊</span> Laporan Penjualan
       </div>
       <div class="nav-btn" onclick="switchTab('prints', this)">
         <span>🖨️</span> Printer &amp; Kertas
@@ -2358,6 +2365,272 @@
         </div>
       </div>
 
+      <!-- TAB SALES: LAPORAN PENJUALAN & PRODUK -->
+      <div id="tab-sales" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 20px;">
+          <div>
+            <h2 style="font-size: 26px; font-weight: 800; margin-bottom: 6px;">📊 Laporan Penjualan &amp; Kasir Harian</h2>
+            <p style="color: var(--text-muted); margin: 0;">Tambah produk apa saja, catat penjualan dengan cepat, dan pantau apa saja yang terjual setiap hari.</p>
+          </div>
+          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button type="button" class="btn btn-secondary" onclick="loadSalesDashboard()" style="background: #fff; font-size: 13.5px; padding: 10px 16px;">
+              🔄 Segarkan
+            </button>
+            <button type="button" class="btn btn-teal" onclick="exportSalesCsv()" style="font-size: 13.5px; padding: 10px 18px;">
+              📥 Export Excel (CSV)
+            </button>
+          </div>
+        </div>
+
+        <!-- Bar Filter Laporan Harian -->
+        <div class="card-pop" style="padding: 16px 20px; margin-bottom: 20px; background: var(--cream-card);">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+              <span style="font-size: 13px; font-weight: 800; color: var(--caramel-brown); margin-right: 4px;">📅 Periode:</span>
+              <button type="button" id="salesPeriodTodayBtn" class="btn btn-primary" style="padding: 8px 14px; font-size: 12.5px;" onclick="setSalesReportPeriod('today')">Hari Ini</button>
+              <button type="button" id="salesPeriod7dBtn" class="btn btn-secondary" style="padding: 8px 14px; font-size: 12.5px; background: #fff;" onclick="setSalesReportPeriod('7days')">7 Hari</button>
+              <button type="button" id="salesPeriodMonthBtn" class="btn btn-secondary" style="padding: 8px 14px; font-size: 12.5px; background: #fff;" onclick="setSalesReportPeriod('month')">Bulan Ini</button>
+              <button type="button" id="salesPeriodAllBtn" class="btn btn-secondary" style="padding: 8px 14px; font-size: 12.5px; background: #fff;" onclick="setSalesReportPeriod('all')">Semua Tanggal</button>
+            </div>
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
+              <input type="date" id="salesFilterDate" onchange="onSalesSpecificDateChange()" style="padding: 8px 12px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 700; color: var(--charcoal);">
+              <select id="salesFilterEvent" onchange="loadSalesReport()" style="padding: 8px 12px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 700; color: var(--caramel-brown); min-width: 180px;">
+                <option value="all">🎪 Semua Event</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3 Kartu Ringkasan Penjualan -->
+        <div class="stat-cards-grid" style="margin-bottom: 24px;">
+          <div class="stat-card" style="background: var(--cream-card); border-color: var(--coral);">
+            <div class="stat-icon-circle" style="background: var(--coral); box-shadow: 0 6px 16px rgba(230, 120, 107, 0.35);">
+              💰
+            </div>
+            <div>
+              <span style="font-size: 13.5px; color: var(--text-muted); font-weight: 600;">Total Omzet</span>
+              <h3 id="salesStatRevenue" style="font-size: 26px; font-weight: 800; color: var(--charcoal); margin: 2px 0;">Rp 0</h3>
+              <span id="salesStatPaymentBreakdown" style="font-size: 11.5px; color: var(--caramel-brown); font-weight: 700;">Tunai: Rp 0 • QRIS: Rp 0</span>
+            </div>
+          </div>
+
+          <div class="stat-card" style="background: var(--cream-card); border-color: var(--dusty-teal);">
+            <div class="stat-icon-circle" style="background: var(--dusty-teal); box-shadow: 0 6px 16px rgba(95, 143, 138, 0.35);">
+              📦
+            </div>
+            <div>
+              <span style="font-size: 13.5px; color: var(--text-muted); font-weight: 600;">Total Produk Terjual</span>
+              <h3 id="salesStatQty" style="font-size: 26px; font-weight: 800; color: var(--charcoal); margin: 2px 0;">0 item</h3>
+              <span id="salesStatProductTypes" style="font-size: 11.5px; color: var(--dusty-teal); font-weight: 700;">0 jenis produk laku</span>
+            </div>
+          </div>
+
+          <div class="stat-card" style="background: var(--cream-card); border-color: var(--muted-mustard);">
+            <div class="stat-icon-circle" style="background: var(--muted-mustard); box-shadow: 0 6px 16px rgba(212, 167, 84, 0.35);">
+              🧾
+            </div>
+            <div>
+              <span style="font-size: 13.5px; color: var(--text-muted); font-weight: 600;">Jumlah Transaksi</span>
+              <h3 id="salesStatTxCount" style="font-size: 26px; font-weight: 800; color: var(--charcoal); margin: 2px 0;">0</h3>
+              <span id="salesStatPeriodLabel" style="font-size: 11.5px; color: var(--text-muted); font-weight: 700;">Periode: Hari Ini</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Grid 2 Kolom: Kasir Cepat + Kelola Daftar Produk -->
+        <div class="sales-grid" style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 22px; margin-bottom: 24px;">
+          <!-- KIRI: CATAT PENJUALAN -->
+          <div class="card-pop" style="padding: 22px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px;">
+              <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: var(--caramel-brown);">🛒 Catat Penjualan</h3>
+              <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Klik produk atau ketik bebas</span>
+            </div>
+
+            <!-- Tombol Klik Cepat Produk -->
+            <div id="salesQuickProductChips" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px;"></div>
+
+            <form onsubmit="submitSalesTransaction(event)">
+              <input type="hidden" id="salesTxProductId" value="">
+              <div style="display: grid; grid-template-columns: 1.4fr 1fr 0.8fr; gap: 10px; margin-bottom: 10px;">
+                <div>
+                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Nama Produk *</label>
+                  <input type="text" id="salesTxProductName" required placeholder="Contoh: Cetak 4R / Gantungan Kunci" oninput="onSalesProductNameTyping()" style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13.5px; font-weight: 700;">
+                </div>
+                <div>
+                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Kategori</label>
+                  <input type="text" id="salesTxCategory" value="Umum" placeholder="Cetak / Aksesoris" style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13px; font-weight: 600;">
+                </div>
+                <div>
+                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Satuan</label>
+                  <input type="text" id="salesTxUnit" value="pcs" placeholder="pcs / lembar" style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13px; font-weight: 600;">
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: 10px; margin-bottom: 10px; align-items: end;">
+                <div>
+                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Jumlah *</label>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <button type="button" class="btn btn-secondary" style="padding: 8px 12px; font-weight: 800; background: #fff;" onclick="adjustSalesTxQty(-1)">-</button>
+                    <input type="number" id="salesTxQty" value="1" min="1" max="10000" required oninput="updateSalesTxTotalPreview()" style="width: 100%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 14px; font-weight: 800;">
+                    <button type="button" class="btn btn-secondary" style="padding: 8px 12px; font-weight: 800; background: #fff;" onclick="adjustSalesTxQty(1)">+</button>
+                  </div>
+                </div>
+                <div>
+                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Harga Satuan (Rp) *</label>
+                  <input type="number" id="salesTxUnitPrice" value="20000" min="0" step="500" required oninput="updateSalesTxTotalPreview()" style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13.5px; font-weight: 800;">
+                </div>
+                <div>
+                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Pembayaran</label>
+                  <select id="salesTxPaymentMethod" style="width: 100%; padding: 10px 10px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13.5px; font-weight: 700;">
+                    <option value="Tunai">💵 Tunai</option>
+                    <option value="QRIS">📱 QRIS</option>
+                    <option value="Transfer">🏦 Transfer</option>
+                    <option value="Lainnya">🧾 Lainnya</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr 0.8fr 0.7fr; gap: 10px; margin-bottom: 10px;">
+                <div>
+                  <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Event Terkait</label>
+                  <select id="salesTxEventId" style="width: 100%; padding: 9px 10px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 12.5px; font-weight: 700;">
+                    <option value="">Umum (Tanpa Event)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Nama Tamu / Catatan</label>
+                  <input type="text" id="salesTxNotes" placeholder="Opsional (mis. Meja 4)" style="width: 100%; padding: 9px 10px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 12.5px;">
+                </div>
+                <div>
+                  <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Tanggal</label>
+                  <input type="date" id="salesTxDate" style="width: 100%; padding: 8px 8px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 12px; font-weight: 700;">
+                </div>
+                <div>
+                  <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Jam</label>
+                  <input type="time" id="salesTxTime" style="width: 100%; padding: 8px 8px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 12px; font-weight: 700;">
+                </div>
+              </div>
+
+              <label id="salesSaveCatalogRow" style="display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; color: var(--dusty-teal); margin-bottom: 12px; cursor: pointer;">
+                <input type="checkbox" id="salesTxSaveCatalog">
+                <span>Sekalian simpan produk baru ini ke Katalog Produk agar lain kali tinggal klik</span>
+              </label>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 12px; padding: 10px 14px;">
+                <div>
+                  <div style="font-size: 11.5px; color: var(--text-muted); font-weight: 700;">Total Tagihan</div>
+                  <div id="salesTxTotalPreview" style="font-size: 20px; font-weight: 900; color: var(--coral);">Rp 20.000</div>
+                </div>
+                <button type="submit" class="btn btn-coral" style="padding: 12px 22px; font-size: 14.5px; font-weight: 800;">
+                  ✅ Catat Penjualan
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <!-- KANAN: TAMBAH & KELOLA PRODUK APA SAJA -->
+          <div class="card-pop" style="padding: 22px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: var(--caramel-brown);">🏷️ Katalog Produk (Bebas Tambah)</h3>
+              <span id="salesCatalogCountBadge" class="badge-pill badge-pending" style="font-size: 11px;">0 Produk</span>
+            </div>
+
+            <form onsubmit="submitSalesProduct(event)" style="background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 12px; margin-bottom: 14px;">
+              <input type="hidden" id="salesProdEditId" value="">
+              <div style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; margin-bottom: 8px;">
+                <input type="text" id="salesProdName" required placeholder="Nama Produk (apa saja, mis: Frame Kayu)" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 700;">
+                <input type="text" id="salesProdCategory" list="salesCategorySuggestions" value="Foto &amp; Cetak" placeholder="Kategori" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 600;">
+                <datalist id="salesCategorySuggestions">
+                  <option value="Cetak"></option>
+                  <option value="Digital"></option>
+                  <option value="Aksesoris"></option>
+                  <option value="Paket"></option>
+                  <option value="Minuman &amp; Snack"></option>
+                  <option value="Lainnya"></option>
+                </datalist>
+              </div>
+              <div style="display: grid; grid-template-columns: 1fr 0.8fr auto; gap: 8px; align-items: center;">
+                <input type="number" id="salesProdPrice" required min="0" step="500" placeholder="Harga (Rp)" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 700;">
+                <input type="text" id="salesProdUnit" value="pcs" placeholder="Satuan (pcs/lembar)" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 600;">
+                <div style="display: flex; gap: 6px;">
+                  <button type="submit" id="salesProdSubmitBtn" class="btn btn-primary" style="padding: 9px 14px; font-size: 12.5px; font-weight: 800; white-space: nowrap;">+ Tambah Produk</button>
+                  <button type="button" id="salesProdCancelBtn" class="btn btn-secondary" style="display: none; padding: 9px 10px; font-size: 12px; background: #fff;" onclick="resetSalesProductForm()">Batal</button>
+                </div>
+              </div>
+            </form>
+
+            <div id="salesProductsList" style="max-height: 295px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;"></div>
+          </div>
+        </div>
+
+        <!-- REKAP PRODUK TERJUAL & LAPORAN HARIAN PER TANGGAL -->
+        <div class="sales-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-bottom: 24px;">
+          <div class="card-pop" style="padding: 20px;">
+            <h3 style="margin: 0 0 12px; font-size: 17px; font-weight: 800; color: var(--caramel-brown);">🛍️ Apa Saja yang Terjual</h3>
+            <div class="table-responsive" style="margin-bottom: 0;">
+              <table style="min-width: 440px !important;">
+                <thead>
+                  <tr style="background: var(--cream-bg); font-size: 12.5px;">
+                    <th>Produk</th>
+                    <th>Terjual</th>
+                    <th>Transaksi</th>
+                    <th>Omzet</th>
+                  </tr>
+                </thead>
+                <tbody id="salesItemsSoldTableBody">
+                  <tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">Belum ada penjualan pada periode ini.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card-pop" style="padding: 20px;">
+            <h3 style="margin: 0 0 12px; font-size: 17px; font-weight: 800; color: var(--caramel-brown);">📅 Ringkasan Harian per Tanggal</h3>
+            <div class="table-responsive" style="margin-bottom: 0;">
+              <table style="min-width: 460px !important;">
+                <thead>
+                  <tr style="background: var(--cream-bg); font-size: 12.5px;">
+                    <th>Tanggal</th>
+                    <th>Item Laku</th>
+                    <th>Total</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="salesDailyBreakdownTableBody">
+                  <tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">Belum ada data harian.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- RINCIAN SEMUA TRANSAKSI -->
+        <div class="card-pop" style="padding: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+            <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: var(--caramel-brown);">🧾 Rincian Transaksi Terjual</h3>
+            <span id="salesTransactionsBadge" style="font-size: 12.5px; color: var(--text-muted); font-weight: 700;">0 transaksi</span>
+          </div>
+          <div class="table-responsive" style="margin-bottom: 0;">
+            <table>
+              <thead>
+                <tr style="background: var(--cream-bg); font-size: 12.5px;">
+                  <th>Waktu</th>
+                  <th>Produk</th>
+                  <th>Qty × Harga</th>
+                  <th>Total</th>
+                  <th>Bayar</th>
+                  <th>Event / Catatan</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="salesTransactionsTableBody">
+                <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 26px;">Belum ada transaksi penjualan pada periode ini.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- TAB 6: BILLING -->
       <div id="tab-billing" class="tab-content">
         <h2 style="font-size: 26px; font-weight: 800; margin-bottom: 6px;">💳 Langganan &amp; Pembayaran Manual</h2>
@@ -2973,6 +3246,6 @@
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.3"></script>
   <script src="/js/print-client.js?v=1.7"></script>
-  <script src="/js/admin.js?v=responsive-v7.6"></script>
+  <script src="/js/admin.js?v=responsive-v7.7"></script>
 </body>
 </html>

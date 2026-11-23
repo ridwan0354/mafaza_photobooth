@@ -278,3 +278,39 @@ CREATE INDEX IF NOT EXISTS idx_photo_sessions_event_started ON photo_sessions(ev
 CREATE INDEX IF NOT EXISTS idx_tenants_agent_key ON tenants(agent_key);
 CREATE INDEX IF NOT EXISTS idx_sync_jobs_state ON sync_jobs(state);
 CREATE INDEX IF NOT EXISTS idx_audit_tenant ON audit_logs(tenant_id);
+
+CREATE TABLE IF NOT EXISTS sales_products (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'Umum',
+  price INTEGER NOT NULL DEFAULT 0,
+  unit TEXT NOT NULL DEFAULT 'pcs',
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sales_transactions (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  event_id TEXT REFERENCES events(id) ON DELETE SET NULL,
+  product_id TEXT REFERENCES sales_products(id) ON DELETE SET NULL,
+  product_name TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'Umum',
+  unit TEXT NOT NULL DEFAULT 'pcs',
+  unit_price INTEGER NOT NULL DEFAULT 0,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  total_amount INTEGER NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL DEFAULT 'Tunai',
+  customer_name TEXT DEFAULT '',
+  notes TEXT DEFAULT '',
+  sold_date TEXT NOT NULL,
+  sold_time TEXT NOT NULL DEFAULT '00:00',
+  sold_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  created_by TEXT DEFAULT 'Admin',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sales_products_tenant ON sales_products(tenant_id, active, name);
+CREATE INDEX IF NOT EXISTS idx_sales_tx_tenant_date ON sales_transactions(tenant_id, sold_date, event_id);
