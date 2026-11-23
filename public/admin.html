@@ -519,7 +519,7 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
       }
       .topbar-kiosk-btn {
         flex: 1 1 auto;
@@ -617,6 +617,228 @@
       .topbar-kiosk-btn {
         font-size: 12.5px !important;
         padding: 8px 14px !important;
+      }
+    }
+
+    /* =========================================================
+       LAPORAN PENJUALAN & KASIR — RESPONSIVE DESKTOP + HP
+       ========================================================= */
+    .sales-header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    .sales-header-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .sales-filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .sales-filter-periods {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .sales-filter-controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+    .sales-row-product {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 0.8fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .sales-row-amount {
+      display: grid;
+      grid-template-columns: 1fr 1.1fr 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+      align-items: end;
+    }
+    .sales-row-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr 0.8fr 0.7fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .sales-qty-stepper {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .sales-qty-stepper .btn {
+      padding: 8px 12px;
+      font-weight: 800;
+      background: #fff;
+      flex-shrink: 0;
+    }
+    .sales-qty-stepper input {
+      flex: 1;
+      min-width: 44px;
+      text-align: center;
+      padding: 9px 6px;
+      border-radius: 10px;
+      border: 2px solid var(--border-soft);
+      font-size: 14px;
+      font-weight: 800;
+    }
+    .sales-total-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      background: var(--cream-bg);
+      border: 1.5px solid var(--border-soft);
+      border-radius: 12px;
+      padding: 10px 14px;
+    }
+    .sales-prod-row1 {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .sales-prod-row2 {
+      display: grid;
+      grid-template-columns: 1fr 0.8fr auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .sales-field-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--caramel-brown);
+      margin-bottom: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .sales-field-label-muted {
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+    .sales-card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    @media (max-width: 768px) {
+      .sales-header-actions {
+        width: 100%;
+      }
+      .sales-header-actions .btn {
+        flex: 1 1 0;
+        justify-content: center;
+      }
+      .sales-filter-bar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .sales-filter-periods {
+        width: 100%;
+      }
+      .sales-filter-periods .btn {
+        flex: 1 1 auto;
+        justify-content: center;
+        padding: 8px 10px !important;
+      }
+      .sales-filter-controls {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+      .sales-filter-controls input,
+      .sales-filter-controls select {
+        width: 100% !important;
+        min-width: 0 !important;
+      }
+      .sales-row-product {
+        grid-template-columns: 1fr 1fr;
+      }
+      .sales-row-product > div:first-child {
+        grid-column: 1 / -1;
+      }
+      .sales-row-amount {
+        grid-template-columns: 1fr 1fr;
+      }
+      .sales-row-amount > div:last-child {
+        grid-column: 1 / -1;
+      }
+      .sales-qty-stepper .btn {
+        padding: 8px 10px;
+      }
+      .sales-row-meta {
+        grid-template-columns: 1fr 1fr;
+      }
+      .sales-total-bar {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: center;
+      }
+      .sales-total-bar .btn,
+      .sales-total-actions {
+        width: 100%;
+      }
+      .sales-total-actions {
+        display: flex;
+        gap: 8px;
+      }
+      .sales-total-actions .btn {
+        flex: 1;
+        justify-content: center;
+      }
+      .sales-prod-row1 {
+        grid-template-columns: 1fr;
+      }
+      .sales-prod-row2 {
+        grid-template-columns: 1fr 1fr;
+      }
+      .sales-prod-actions {
+        grid-column: 1 / -1;
+        display: flex;
+        gap: 8px;
+      }
+      .sales-prod-actions .btn {
+        flex: 1;
+        justify-content: center;
+      }
+      #salesQuickProductChips button {
+        flex: 1 1 calc(50% - 4px);
+        justify-content: space-between;
+        min-width: 135px;
+      }
+      .sales-grid > *,
+      #tab-sales .card-pop {
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+      }
+      .table-responsive table.sales-compact-table {
+        min-width: 100% !important;
+      }
+      .table-responsive table.sales-compact-table th,
+      .table-responsive table.sales-compact-table td {
+        padding: 9px 8px !important;
+        font-size: 12px !important;
       }
     }
   </style>
@@ -2367,12 +2589,12 @@
 
       <!-- TAB SALES: LAPORAN PENJUALAN & PRODUK -->
       <div id="tab-sales" class="tab-content">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; margin-bottom: 20px;">
+        <div class="sales-header-bar">
           <div>
             <h2 style="font-size: 26px; font-weight: 800; margin-bottom: 6px;">📊 Laporan Penjualan &amp; Kasir Harian</h2>
             <p style="color: var(--text-muted); margin: 0;">Tambah produk apa saja, catat penjualan dengan cepat, dan pantau apa saja yang terjual setiap hari.</p>
           </div>
-          <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <div class="sales-header-actions">
             <button type="button" class="btn btn-secondary" onclick="loadSalesDashboard()" style="background: #fff; font-size: 13.5px; padding: 10px 16px;">
               🔄 Segarkan
             </button>
@@ -2384,15 +2606,15 @@
 
         <!-- Bar Filter Laporan Harian -->
         <div class="card-pop" style="padding: 16px 20px; margin-bottom: 20px; background: var(--cream-card);">
-          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;">
-            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+          <div class="sales-filter-bar">
+            <div class="sales-filter-periods">
               <span style="font-size: 13px; font-weight: 800; color: var(--caramel-brown); margin-right: 4px;">📅 Periode:</span>
               <button type="button" id="salesPeriodTodayBtn" class="btn btn-primary" style="padding: 8px 14px; font-size: 12.5px;" onclick="setSalesReportPeriod('today')">Hari Ini</button>
               <button type="button" id="salesPeriod7dBtn" class="btn btn-secondary" style="padding: 8px 14px; font-size: 12.5px; background: #fff;" onclick="setSalesReportPeriod('7days')">7 Hari</button>
               <button type="button" id="salesPeriodMonthBtn" class="btn btn-secondary" style="padding: 8px 14px; font-size: 12.5px; background: #fff;" onclick="setSalesReportPeriod('month')">Bulan Ini</button>
               <button type="button" id="salesPeriodAllBtn" class="btn btn-secondary" style="padding: 8px 14px; font-size: 12.5px; background: #fff;" onclick="setSalesReportPeriod('all')">Semua Tanggal</button>
             </div>
-            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
+            <div class="sales-filter-controls">
               <input type="date" id="salesFilterDate" onchange="onSalesSpecificDateChange()" style="padding: 8px 12px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 700; color: var(--charcoal);">
               <select id="salesFilterEvent" onchange="loadSalesReport()" style="padding: 8px 12px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 700; color: var(--caramel-brown); min-width: 180px;">
                 <option value="all">🎪 Semua Event</option>
@@ -2441,7 +2663,7 @@
         <div class="sales-grid" style="display: grid; grid-template-columns: 1.15fr 1fr; gap: 22px; margin-bottom: 24px;">
           <!-- KIRI: CATAT PENJUALAN -->
           <div class="card-pop" style="padding: 22px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px;">
+            <div class="sales-card-head">
               <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: var(--caramel-brown);">🛒 Catat Penjualan</h3>
               <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Klik produk atau ketik bebas</span>
             </div>
@@ -2451,36 +2673,36 @@
 
             <form onsubmit="submitSalesTransaction(event)">
               <input type="hidden" id="salesTxProductId" value="">
-              <div style="display: grid; grid-template-columns: 1.4fr 1fr 0.8fr; gap: 10px; margin-bottom: 10px;">
+              <div class="sales-row-product">
                 <div>
-                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Nama Produk *</label>
+                  <label class="sales-field-label">Nama Produk *</label>
                   <input type="text" id="salesTxProductName" required placeholder="Contoh: Cetak 4R / Gantungan Kunci" oninput="onSalesProductNameTyping()" style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13.5px; font-weight: 700;">
                 </div>
                 <div>
-                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Kategori</label>
+                  <label class="sales-field-label">Kategori</label>
                   <input type="text" id="salesTxCategory" value="Umum" placeholder="Cetak / Aksesoris" style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13px; font-weight: 600;">
                 </div>
                 <div>
-                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Satuan</label>
+                  <label class="sales-field-label">Satuan</label>
                   <input type="text" id="salesTxUnit" value="pcs" placeholder="pcs / lembar" style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13px; font-weight: 600;">
                 </div>
               </div>
 
-              <div style="display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: 10px; margin-bottom: 10px; align-items: end;">
+              <div class="sales-row-amount">
                 <div>
-                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Jumlah *</label>
-                  <div style="display: flex; align-items: center; gap: 6px;">
-                    <button type="button" class="btn btn-secondary" style="padding: 8px 12px; font-weight: 800; background: #fff;" onclick="adjustSalesTxQty(-1)">-</button>
-                    <input type="number" id="salesTxQty" value="1" min="1" max="10000" required oninput="updateSalesTxTotalPreview()" style="width: 100%; text-align: center; padding: 9px 6px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 14px; font-weight: 800;">
-                    <button type="button" class="btn btn-secondary" style="padding: 8px 12px; font-weight: 800; background: #fff;" onclick="adjustSalesTxQty(1)">+</button>
+                  <label class="sales-field-label">Jumlah *</label>
+                  <div class="sales-qty-stepper">
+                    <button type="button" class="btn btn-secondary" onclick="adjustSalesTxQty(-1)">-</button>
+                    <input type="number" id="salesTxQty" value="1" min="1" max="10000" required oninput="updateSalesTxTotalPreview()">
+                    <button type="button" class="btn btn-secondary" onclick="adjustSalesTxQty(1)">+</button>
                   </div>
                 </div>
                 <div>
-                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Harga Satuan (Rp) *</label>
+                  <label class="sales-field-label">Harga Satuan (Rp) *</label>
                   <input type="number" id="salesTxUnitPrice" value="20000" min="0" step="500" required oninput="updateSalesTxTotalPreview()" style="width: 100%; padding: 10px 12px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13.5px; font-weight: 800;">
                 </div>
                 <div>
-                  <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Pembayaran</label>
+                  <label class="sales-field-label">Pembayaran</label>
                   <select id="salesTxPaymentMethod" style="width: 100%; padding: 10px 10px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13.5px; font-weight: 700;">
                     <option value="Tunai">💵 Tunai</option>
                     <option value="QRIS">📱 QRIS</option>
@@ -2490,23 +2712,23 @@
                 </div>
               </div>
 
-              <div style="display: grid; grid-template-columns: 1fr 1fr 0.8fr 0.7fr; gap: 10px; margin-bottom: 10px;">
+              <div class="sales-row-meta">
                 <div>
-                  <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Event Terkait</label>
+                  <label class="sales-field-label sales-field-label-muted">Event Terkait</label>
                   <select id="salesTxEventId" style="width: 100%; padding: 9px 10px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 12.5px; font-weight: 700;">
                     <option value="">Umum (Tanpa Event)</option>
                   </select>
                 </div>
                 <div>
-                  <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Nama Tamu / Catatan</label>
+                  <label class="sales-field-label sales-field-label-muted">Nama Tamu / Catatan</label>
                   <input type="text" id="salesTxNotes" placeholder="Opsional (mis. Meja 4)" style="width: 100%; padding: 9px 10px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 12.5px;">
                 </div>
                 <div>
-                  <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Tanggal</label>
+                  <label class="sales-field-label sales-field-label-muted">Tanggal</label>
                   <input type="date" id="salesTxDate" style="width: 100%; padding: 8px 8px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 12px; font-weight: 700;">
                 </div>
                 <div>
-                  <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Jam</label>
+                  <label class="sales-field-label sales-field-label-muted">Jam</label>
                   <input type="time" id="salesTxTime" style="width: 100%; padding: 8px 8px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 12px; font-weight: 700;">
                 </div>
               </div>
@@ -2516,7 +2738,7 @@
                 <span>Sekalian simpan produk baru ini ke Katalog Produk agar lain kali tinggal klik</span>
               </label>
 
-              <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 12px; padding: 10px 14px;">
+              <div class="sales-total-bar">
                 <div>
                   <div style="font-size: 11.5px; color: var(--text-muted); font-weight: 700;">Total Tagihan</div>
                   <div id="salesTxTotalPreview" style="font-size: 20px; font-weight: 900; color: var(--coral);">Rp 20.000</div>
@@ -2530,14 +2752,14 @@
 
           <!-- KANAN: TAMBAH & KELOLA PRODUK APA SAJA -->
           <div class="card-pop" style="padding: 22px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div class="sales-card-head">
               <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: var(--caramel-brown);">🏷️ Katalog Produk (Bebas Tambah)</h3>
               <span id="salesCatalogCountBadge" class="badge-pill badge-pending" style="font-size: 11px;">0 Produk</span>
             </div>
 
             <form onsubmit="submitSalesProduct(event)" style="background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 12px; margin-bottom: 14px;">
               <input type="hidden" id="salesProdEditId" value="">
-              <div style="display: grid; grid-template-columns: 1.4fr 1fr; gap: 8px; margin-bottom: 8px;">
+              <div class="sales-prod-row1">
                 <input type="text" id="salesProdName" required placeholder="Nama Produk (apa saja, mis: Frame Kayu)" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 700;">
                 <input type="text" id="salesProdCategory" list="salesCategorySuggestions" value="Foto &amp; Cetak" placeholder="Kategori" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 600;">
                 <datalist id="salesCategorySuggestions">
@@ -2549,10 +2771,10 @@
                   <option value="Lainnya"></option>
                 </datalist>
               </div>
-              <div style="display: grid; grid-template-columns: 1fr 0.8fr auto; gap: 8px; align-items: center;">
+              <div class="sales-prod-row2">
                 <input type="number" id="salesProdPrice" required min="0" step="500" placeholder="Harga (Rp)" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 700;">
                 <input type="text" id="salesProdUnit" value="pcs" placeholder="Satuan (pcs/lembar)" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 600;">
-                <div style="display: flex; gap: 6px;">
+                <div class="sales-prod-actions" style="display: flex; gap: 6px;">
                   <button type="submit" id="salesProdSubmitBtn" class="btn btn-primary" style="padding: 9px 14px; font-size: 12.5px; font-weight: 800; white-space: nowrap;">+ Tambah Produk</button>
                   <button type="button" id="salesProdCancelBtn" class="btn btn-secondary" style="display: none; padding: 9px 10px; font-size: 12px; background: #fff;" onclick="resetSalesProductForm()">Batal</button>
                 </div>
@@ -2568,7 +2790,7 @@
           <div class="card-pop" style="padding: 20px;">
             <h3 style="margin: 0 0 12px; font-size: 17px; font-weight: 800; color: var(--caramel-brown);">🛍️ Apa Saja yang Terjual</h3>
             <div class="table-responsive" style="margin-bottom: 0;">
-              <table style="min-width: 440px !important;">
+              <table class="sales-compact-table" style="min-width: 440px;">
                 <thead>
                   <tr style="background: var(--cream-bg); font-size: 12.5px;">
                     <th>Produk</th>
@@ -2587,7 +2809,7 @@
           <div class="card-pop" style="padding: 20px;">
             <h3 style="margin: 0 0 12px; font-size: 17px; font-weight: 800; color: var(--caramel-brown);">📅 Ringkasan Harian per Tanggal</h3>
             <div class="table-responsive" style="margin-bottom: 0;">
-              <table style="min-width: 460px !important;">
+              <table class="sales-compact-table" style="min-width: 460px;">
                 <thead>
                   <tr style="background: var(--cream-bg); font-size: 12.5px;">
                     <th>Tanggal</th>
@@ -3276,32 +3498,32 @@
 
       <form onsubmit="submitEditSale(event)">
         <input type="hidden" id="editSaleId" value="">
-        <div style="display: grid; grid-template-columns: 1.4fr 1fr 0.8fr; gap: 10px; margin-bottom: 10px;">
+        <div class="sales-row-product">
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Nama Produk *</label>
+            <label class="sales-field-label">Nama Produk *</label>
             <input type="text" id="editSaleProductName" required style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13.5px; font-weight: 700;">
           </div>
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Kategori</label>
+            <label class="sales-field-label">Kategori</label>
             <input type="text" id="editSaleCategory" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13px;">
           </div>
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Satuan</label>
+            <label class="sales-field-label">Satuan</label>
             <input type="text" id="editSaleUnit" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13px;">
           </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 0.9fr 1.1fr 1fr; gap: 10px; margin-bottom: 10px;">
+        <div class="sales-row-amount">
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Jumlah *</label>
+            <label class="sales-field-label">Jumlah *</label>
             <input type="number" id="editSaleQty" min="1" max="10000" required oninput="updateEditSaleTotalPreview()" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13.5px; font-weight: 800;">
           </div>
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Harga Satuan (Rp) *</label>
+            <label class="sales-field-label">Harga Satuan (Rp) *</label>
             <input type="number" id="editSaleUnitPrice" min="0" step="500" required oninput="updateEditSaleTotalPreview()" style="width: 100%; padding: 9px 11px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 13.5px; font-weight: 800;">
           </div>
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 4px;">Pembayaran</label>
+            <label class="sales-field-label">Pembayaran</label>
             <select id="editSalePaymentMethod" style="width: 100%; padding: 9px 10px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 13px; font-weight: 700;">
               <option value="Tunai">💵 Tunai</option>
               <option value="QRIS">📱 QRIS</option>
@@ -3311,33 +3533,33 @@
           </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr 0.85fr 0.7fr; gap: 10px; margin-bottom: 14px;">
+        <div class="sales-row-meta" style="margin-bottom: 14px;">
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Event Terkait</label>
+            <label class="sales-field-label sales-field-label-muted">Event Terkait</label>
             <select id="editSaleEventId" style="width: 100%; padding: 9px 8px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 12.5px; font-weight: 700;">
               <option value="">Umum (Tanpa Event)</option>
             </select>
           </div>
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Catatan / Tamu</label>
+            <label class="sales-field-label sales-field-label-muted">Catatan / Tamu</label>
             <input type="text" id="editSaleNotes" style="width: 100%; padding: 9px 10px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 12.5px;">
           </div>
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Tanggal</label>
+            <label class="sales-field-label sales-field-label-muted">Tanggal</label>
             <input type="date" id="editSaleDate" required style="width: 100%; padding: 8px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 12px; font-weight: 700;">
           </div>
           <div>
-            <label style="display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">Jam</label>
+            <label class="sales-field-label sales-field-label-muted">Jam</label>
             <input type="time" id="editSaleTime" required style="width: 100%; padding: 8px; border-radius: 10px; border: 2px solid var(--border-soft); font-size: 12px; font-weight: 700;">
           </div>
         </div>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--cream-bg); border: 1.5px solid var(--border-soft); border-radius: 12px; padding: 10px 14px;">
+        <div class="sales-total-bar">
           <div>
             <div style="font-size: 11.5px; color: var(--text-muted); font-weight: 700;">Total Baru</div>
             <div id="editSaleTotalPreview" style="font-size: 19px; font-weight: 900; color: var(--coral);">Rp 0</div>
           </div>
-          <div style="display: flex; gap: 8px;">
+          <div class="sales-total-actions" style="display: flex; gap: 8px;">
             <button type="button" class="btn btn-secondary" style="background: #fff; padding: 10px 14px;" onclick="closeEditSaleModal()">Batal</button>
             <button type="submit" id="editSaleSubmitBtn" class="btn btn-coral" style="padding: 10px 18px; font-weight: 800;">💾 Simpan Perubahan</button>
           </div>
