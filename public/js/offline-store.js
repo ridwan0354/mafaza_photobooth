@@ -718,12 +718,106 @@
         await this._showSessionDetail(s.id);
         await this.renderLocalGalleryModal();
       };
-      document.getElementById('pbOfflineDetailPrintLocal').onclick = () => {
+      document.getElementById('pbOfflineDetailPrintLocal').onclick = async () => {
         const imgSrc = s.finalImage || (caps[0] && caps[0].dataUrl);
-        if (imgSrc && window.pbPrintViaBrowser) {
-          window.pbPrintViaBrowser({ imageUrl: imgSrc, copies: s.printCopies || 1 });
+        if (!imgSrc || !window.pbPrintViaBrowser) return;
+        let finalPrintUrl = imgSrc;
+        if (s.finalImage && s.guestPassQrDataUrl) {
+          try {
+            finalPrintUrl = await this._composeOfflinePrintableWithQr(s, imgSrc);
+          } catch (e) {}
         }
+        window.pbPrintViaBrowser({ imageUrl: finalPrintUrl || imgSrc, copies: s.printCopies || 1 });
       };
+    },
+
+    async _composeOfflinePrintableWithQr(session, imgSrc) {
+      const loadImg = (src) => new Promise((res) => {
+        const img = new Image();
+        img.onload = () => res(img.naturalWidth > 0 ? img : null);
+        img.onerror = () => res(null);
+        img.src = src;
+      });
+
+      const [baseImg, qrImg] = await Promise.all([
+        loadImg(imgSrc),
+        loadImg(session.guestPassQrDataUrl)
+      ]);
+      if (!baseImg || !qrImg) return imgSrc;
+
+      let tpl = null;
+      try {
+        const candidates = await Promise.all([
+          this.getCachedConfig('templates_' + session.eventId),
+          this.getCachedConfig('mingle_templates_' + session.eventId),
+          this.getCachedConfig('mingle_all_templates_' + session.eventId)
+        ]);
+        for (const list of candidates) {
+          if (Array.isArray(list)) {
+            tpl = list.find(t => t && t.id === session.templateId) || tpl;
+          }
+        }
+      } catch (e) {}
+
+      const rawQrCoords = (tpl && Array.isArray(tpl.qr_coords) && tpl.qr_coords.length > 0) ? tpl.qr_coords : null;
+      const qrPos = (tpl && tpl.qr_position) || 'bottom-right';
+      if (!rawQrCoords && qrPos === 'none') return imgSrc;
+
+      const c = document.createElement('canvas');
+      c.width = baseImg.naturalWidth || 1200;
+      c.height = baseImg.naturalHeight || 1800;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(baseImg, 0, 0, c.width, c.height);
+
+      const drawCard = (startX, startY, targetSizePx) => {
+        const qrSize = Math.max(52, Math.round(targetSizePx));
+        const pad = Math.max(4, Math.round(qrSize * 0.05));
+        const cardSize = qrSize + pad * 2;
+        const sx = Math.max(0, Math.min(c.width - cardSize, Math.round(startX)));
+        const sy = Math.max(0, Math.min(c.height - cardSize, Math.round(startY)));
+        ctx.save();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(sx, sy, cardSize, cardSize);
+        ctx.drawImage(qrImg, sx + pad, sy + pad, qrSize, qrSize);
+        ctx.restore();
+      };
+
+      if (rawQrCoords) {
+        const isSvgTpl = tpl && String(tpl.image_storage_key || '').toLowerCase().includes('.svg');
+        const fitsCanvas = rawQrCoords.every(q =>
+          (Number(q.x) || 0) >= -4 &&
+          (Number(q.y) || 0) >= -4 &&
+          ((Number(q.x) || 0) + (Number(q.size) || 140)) <= c.width + 8 &&
+          ((Number(q.y) || 0) + (Number(q.size) || 140)) <= c.height + 8
+        );
+        const useTplRef = tpl && tpl.width && tpl.height && (isSvgTpl || !fitsCanvas);
+        const refW = useTplRef ? tpl.width : c.width;
+        const refH = useTplRef ? tpl.height : c.height;
+        const sx = c.width / Math.max(1, refW);
+        const sy = c.height / Math.max(1, refH);
+        for (const item of rawQrCoords) {
+          const sizePx = Math.max(60, Math.round((Number(item.size) || 150) * Math.min(sx, sy)));
+          drawCard((Number(item.x) || 0) * sx, (Number(item.y) || 0) * sy, sizePx);
+        }
+      } else if (qrPos === 'dual-bottom-right') {
+        const halfW = Math.round(c.width / 2);
+        const qSize = Math.round(Math.min(c.width, c.height) * 0.115);
+        drawCard(halfW - qSize - 32, c.height - qSize - 32, qSize);
+        drawCard(c.width - qSize - 32, c.height - qSize - 32, qSize);
+      } else {
+        const qSize = c.width <= 700 ? 100 : 140;
+        const pad = Math.max(4, Math.round(qSize * 0.05));
+        const cardSize = qSize + pad * 2;
+        const margin = c.width <= 700 ? 18 : 32;
+        let sx = c.width - cardSize - margin;
+        let sy = c.height - cardSize - margin;
+        if (qrPos === 'bottom-left') sx = margin;
+        else if (qrPos === 'top-right') sy = margin;
+        else if (qrPos === 'top-left') { sx = margin; sy = margin; }
+        drawCard(sx, sy, qSize);
+      }
+
+      return c.toDataURL('image/png');
     },
 
     async renderLocalGalleryModal() {

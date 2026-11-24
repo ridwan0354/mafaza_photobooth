@@ -2731,6 +2731,9 @@ class MingleBoothEngine {
         const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${snapSessionId}/complete`, { method: 'POST', body: formData }, 30000);
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json().catch(() => null);
+        if (data && data.guestPass && data.guestPass.token && !this.guestPass && this.sessionId === snapSessionId) {
+          this.guestPass = data.guestPass;
+        }
         if (this.sessionId === snapSessionId && statusEl) {
           const pj = data && data.printJob;
           if (printRequested) {
@@ -2786,6 +2789,9 @@ class MingleBoothEngine {
         const res = await this.fetchWithTimeout(`/api/kiosk/sessions/${snapSessionId}/complete`, { method: 'POST', body: formData }, 30000);
         if (!res.ok) throw new Error('Gagal mengunggah batch foto');
         lastData = await res.json().catch(() => lastData);
+        if (lastData && lastData.guestPass && lastData.guestPass.token && !this.guestPass && this.sessionId === snapSessionId) {
+          this.guestPass = lastData.guestPass;
+        }
         if (this.sessionId === snapSessionId) {
           this.syncedCaptureCount = end;
         }
@@ -2957,6 +2963,73 @@ class MingleBoothEngine {
     }
   }
 
+  async ensureMingleGuestPassReady() {
+    if (this._activeSyncPromise && (!this.guestPass || !this.guestPass.qrDataUrl)) {
+      try {
+        await Promise.race([this._activeSyncPromise, new Promise(r => setTimeout(r, 2800))]);
+      } catch (e) {}
+    }
+
+    if (!this.guestPass) {
+      const cachedPass = this.popGuestPassFromPool();
+      if (cachedPass) this.guestPass = cachedPass;
+    }
+
+    if (!this.guestPass && navigator.onLine !== false) {
+      try {
+        const res = await this.fetchWithTimeout('/api/guest-passes/issue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tenantId: this.tenantId,
+            eventId: this.eventId,
+            baseUrl: window.location.origin
+          })
+        }, 3000);
+        if (res.ok) {
+          this.guestPass = await res.json();
+        }
+      } catch (e) {}
+    }
+
+    if (this.guestPass && !this.guestPass.qrDataUrl && navigator.onLine !== false) {
+      const token = this.guestPass.token || this.guestPass.token_plain;
+      if (token) {
+        try {
+          const res = await this.fetchWithTimeout('/api/kiosk/qr/resolve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token, baseUrl: window.location.origin })
+          }, 2500);
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.pass) this.guestPass = { ...this.guestPass, ...data.pass };
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (this.guestPass && this.guestPass.qrDataUrl) {
+      const qrImg = document.getElementById('mingleQrImg');
+      const qrPh = document.getElementById('mingleQrPlaceholder');
+      const qrHint = document.getElementById('mingleQrTapHint');
+      const linkEl = document.getElementById('mingleGalleryLink');
+      if (qrImg && (!qrImg.src || qrImg.style.display === 'none')) {
+        qrImg.src = this.guestPass.qrDataUrl;
+        qrImg.style.display = 'block';
+        if (qrPh) qrPh.style.display = 'none';
+        if (qrHint) qrHint.style.display = 'block';
+      }
+      const token = this.guestPass.token || this.guestPass.token_plain;
+      const gUrl = this.guestPass.galleryUrl || (token ? `/gallery/g/${token}` : null);
+      if (linkEl && gUrl) {
+        linkEl.href = gUrl;
+        linkEl.style.display = 'inline-block';
+      }
+    }
+    return this.guestPass;
+  }
+
   async buildPrintableDataUrl() {
     const canvas = document.getElementById('mingleFinalCanvas');
     if (!canvas) return null;
@@ -2972,9 +3045,8 @@ class MingleBoothEngine {
     const bCtx = baseCanvas.getContext('2d');
     bCtx.drawImage(canvas, 0, 0);
 
-    if (qrEnabled && !this.guestPass) {
-      const cachedPass = this.popGuestPassFromPool();
-      if (cachedPass) this.guestPass = cachedPass;
+    if (qrEnabled && (!this.guestPass || !this.guestPass.qrDataUrl)) {
+      await this.ensureMingleGuestPassReady();
     }
 
     if (qrEnabled && this.guestPass) {
@@ -2983,8 +3055,16 @@ class MingleBoothEngine {
         const w = baseCanvas.width;
         const h = baseCanvas.height;
         if (rawQrCoords) {
-          const refW = (tpl && tpl.width) || w;
-          const refH = (tpl && tpl.height) || h;
+          const isSvgTpl = tpl && String(tpl.image_storage_key || '').toLowerCase().includes('.svg');
+          const coordsFitCanvas = rawQrCoords.every(q =>
+            (Number(q.x) || 0) >= -4 &&
+            (Number(q.y) || 0) >= -4 &&
+            ((Number(q.x) || 0) + (Number(q.size) || 140)) <= w + 8 &&
+            ((Number(q.y) || 0) + (Number(q.size) || 140)) <= h + 8
+          );
+          const useTplRef = tpl && tpl.width && tpl.height && (isSvgTpl || !coordsFitCanvas);
+          const refW = useTplRef ? tpl.width : w;
+          const refH = useTplRef ? tpl.height : h;
           const sx = w / Math.max(1, refW);
           const sy = h / Math.max(1, refH);
           for (const item of rawQrCoords) {

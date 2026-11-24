@@ -2060,7 +2060,7 @@ test('Mingle result photo picker stays intact across session reset and lets oper
   assert.match(mingleHtml, /id="mingleResultSlotHint"/);
   assert.match(mingleHtml, /id="mingleResultSlotTabs"/);
   assert.match(mingleHtml, /id="mingleResultPhotoPicker"/);
-  assert.match(mingleHtml, /\/js\/mingle\.js\?v=3\.7/);
+  assert.match(mingleHtml, /\/js\/mingle\.js\?v=3\.8/);
 
   const createEl = (id) => ({
     id,
@@ -2158,4 +2158,194 @@ test('Mingle result photo picker stays intact across session reset and lets oper
     elements.get('mingleResultPhotoPicker').innerHTML,
     /mingle-thumb-item active"\s+onclick="mingle\.assignPhotoToActiveSlot\(1\)"/
   );
+});
+
+test('Printed sheets always stamp configured QR codes across Editor save, Browser sheet, Reprint, Kiosk & Mingle local print', async () => {
+  const express = (await import('express')).default;
+  const { apiRouter } = await import('../src/routes/api.js');
+  const { createToken } = await import('../src/services/auth.js');
+  const printService = await import('../src/services/print.js');
+  const sheet = await import('../src/services/sheet.js');
+  const vm = await import('node:vm');
+
+  const tenantId = 'tenant_studiokeren_01';
+  const eventId = 'event_wedding_dimas_sarah';
+  const ts = Date.now();
+
+  // 1. Admin template save: non-empty qrCoords prevents contradictory qr_position='none'
+  const tpl = templateService.createTemplate(tenantId, {
+    name: `QR Save Test ${ts}`,
+    eventId,
+    boothMode: 'both',
+    formatPreset: 'portrait',
+    width: 1024,
+    height: 1536,
+    qrPosition: 'none',
+    qrCoords: [
+      { id: 'qr_1', x: 20, y: 1380, size: 110 },
+      { id: 'qr_2', x: 530, y: 1380, size: 110 }
+    ]
+  });
+  assert.equal(tpl.qr_position, 'bottom-right', 'Non-empty qrCoords prevents qr_position=none');
+  assert.equal(tpl.qr_coords.length, 2);
+
+  // Switch back to 'none' cleanly when qrCoords updated with empty + non-none
+  const updatedContradictory = templateService.updateTemplateSlots(
+    tpl.id, tenantId, [], null, 'none', 1024, 1536, '1', 'both', 'portrait', '4R',
+    [{ id: 'qr_1', x: 24, y: 1390, size: 115 }, { id: 'qr_2', x: 534, y: 1390, size: 115 }]
+  );
+  assert.equal(updatedContradictory.qr_position, 'bottom-right');
+  assert.equal(updatedContradictory.qr_coords.length, 2);
+
+  // 2. Test GET /api/photos/:assetId/sheet & reprintJob live template refresh
+  const uploadsDir = path.join(process.cwd(), 'public/uploads');
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  const fakeImgFile = `test_qr_sheet_${ts}.png`;
+  const fakeImgRel = `/uploads/${fakeImgFile}`;
+  const fakeImgAbs = path.join(uploadsDir, fakeImgFile);
+  // Solid warm beige background so any black/white QR card stands out clearly
+  const bgBuf = Buffer.alloc(1024 * 1536 * 4);
+  for (let i = 0; i < bgBuf.length; i += 4) {
+    bgBuf[i] = 200; bgBuf[i + 1] = 175; bgBuf[i + 2] = 140; bgBuf[i + 3] = 255;
+  }
+  fs.writeFileSync(fakeImgAbs, sheet.encodePng({ width: 1024, height: 1536, channels: 4, data: bgBuf }));
+
+  const sessId = `sess_qr_print_${ts}`;
+  const assetId = `asset_qr_print_${ts}`;
+  let initialJobId = null;
+  let reprintedJobId = null;
+
+  const app = express();
+  app.use((req, res, next) => { req.cookies = {}; next(); });
+  app.use(express.json());
+  app.use('/api', apiRouter);
+  const srv = app.listen(0);
+  const port = srv.address().port;
+  const adminToken = createToken({ userId: 'user_business_owner_01', email: 'owner@studiokeren.id', role: 'super_admin', tenantId });
+
+  try {
+    // Initially start with template QR disabled to simulate first print BEFORE QR was added
+    templateService.updateTemplateSlots(tpl.id, tenantId, [], null, 'none', 1024, 1536, '1', 'both', 'portrait', '4R', []);
+
+    db.prepare(`
+      INSERT INTO photo_sessions (id, tenant_id, event_id, guest_pass_id, template_id, mode, status)
+      VALUES (?, ?, ?, NULL, ?, 'multi', 'completed')
+    `).run(sessId, tenantId, eventId, tpl.id);
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
+      VALUES (?, ?, ?, ?, 'final_photo', 'print_hires', ?, 'ready')
+    `).run(assetId, tenantId, eventId, sessId, fakeImgRel);
+
+    // First job created BEFORE template had QR -> old options had qrPosition='none'
+    const firstJob = printService.createPrintJob(tenantId, eventId, null, sessId, assetId, 1, { paperSize: '4x6' });
+    initialJobId = firstJob.printJobId;
+
+    // Operator enables 2 QRs on Template in Admin
+    templateService.updateTemplateSlots(
+      tpl.id, tenantId, [], null, 'bottom-right', 1024, 1536, '1', 'both', 'portrait', '4R',
+      [{ id: 'qr_1', x: 24, y: 1390, size: 115 }, { id: 'qr_2', x: 534, y: 1390, size: 115 }]
+    );
+
+    // 2a. GET /api/photos/:assetId/sheet stamps BOTH QRs onto the PNG sheet cleanly & auto-issues pass
+    const sheetRes = await fetch(`http://127.0.0.1:${port}/api/photos/${assetId}/sheet?paperSize=4x6`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.equal(sheetRes.status, 200);
+    const sheetBuf = Buffer.from(await sheetRes.arrayBuffer());
+    const decodedSheet = sheet.decodePng(sheetBuf);
+    assert.equal(decodedSheet.width, 1200);
+    assert.equal(decodedSheet.height, 1800);
+
+    // Check both QR positions inside safe-margin 90% sheet (~60 + 24*1.054=85..195 & ~60 + 534*1.054=622..732, Y ~72 + 1390*1.054=1537..1650)
+    const countBlackWhitePixels = (x0, y0, x1, y1) => {
+      let black = 0, white = 0;
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const i = (y * decodedSheet.width + x) * decodedSheet.channels;
+          const r = decodedSheet.data[i], g = decodedSheet.data[i + 1], b = decodedSheet.data[i + 2];
+          if (r < 20 && g < 20 && b < 20) black++;
+          else if (r > 240 && g > 240 && b > 240) white++;
+        }
+      }
+      return { black, white };
+    };
+    const leftQrStats = countBlackWhitePixels(75, 1525, 220, 1675);
+    const rightQrStats = countBlackWhitePixels(610, 1525, 760, 1675);
+    assert.ok(leftQrStats.black > 200 && leftQrStats.white > 200, `Left QR #1 must be stamped on browser sheet (${JSON.stringify(leftQrStats)})`);
+    assert.ok(rightQrStats.black > 200 && rightQrStats.white > 200, `Right QR #2 must be stamped on browser sheet (${JSON.stringify(rightQrStats)})`);
+
+    // 2b. reprintJob refreshes live template QR settings & picks up qrUrl even after template update
+    const rep = printService.reprintJob(initialJobId, tenantId, 'user_business_owner_01', 1, {
+      baseUrl: `http://127.0.0.1:${port}`
+    });
+    reprintedJobId = rep.printJobId;
+    const repRow = db.prepare('SELECT options_json FROM print_jobs WHERE id = ?').get(reprintedJobId);
+    const repOpts = JSON.parse(repRow.options_json);
+    assert.equal(repOpts.qrPosition, 'bottom-right', 'reprintJob uses refreshed live template qr_position');
+    assert.equal(repOpts.qrCoords.length, 2, 'reprintJob uses refreshed live template 2 qr_coords');
+    assert.ok(repOpts.qrUrl && repOpts.qrUrl.includes('/gallery/g/'), 'reprintJob guarantees valid qrUrl');
+
+    // 3. Static checks across Admin, Kiosk, Mingle & print-client
+    const adminJs = fs.readFileSync(path.join(process.cwd(), 'public/js/admin.js'), 'utf8');
+    const kioskJs = fs.readFileSync(path.join(process.cwd(), 'public/js/kiosk.js'), 'utf8');
+    const printClientJs = fs.readFileSync(path.join(process.cwd(), 'public/js/print-client.js'), 'utf8');
+    const mingleJs = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+
+    assert.doesNotMatch(kioskJs, /readyRow\.style\.display = isLocal \?/, 'No undefined isLocal ReferenceError in kiosk modal');
+    assert.match(adminJs, /\/api\/photos\/\$\{encodeURIComponent\((?:photo|activeModalPhoto)\.asset_id\)\}\/sheet/);
+    assert.match(printClientJs, /includes\('\?'\)/, 'print-client appends &t= cleanly when sheetUrl has query params');
+
+    // 4. Mingle buildPrintableDataUrl waits for in-flight guest pass sync before stamping QR
+    const trimmedMingle = mingleJs.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
+    const fakeQrImg = { complete: true, naturalWidth: 260, src: 'data:image/png;base64,FAKEQR' };
+    const mainCanvas = { width: 1024, height: 1536 };
+    const outCanvas = { width: 0, height: 0, getContext: () => ({ drawImage() {}, fillRect() {} }), toDataURL: () => 'data:image/png;base64,OUT' };
+    const domMap = new Map([
+      ['mingleFinalCanvas', mainCanvas],
+      ['mingleQrImg', { src: '', style: {}, complete: false, naturalWidth: 0 }],
+      ['mingleQrPlaceholder', { style: {} }],
+      ['mingleQrTapHint', { style: {} }],
+      ['mingleGalleryLink', { style: {}, href: '' }]
+    ]);
+    const mCtx = vm.createContext({
+      URL, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+      Image: class { set src(v) { this.naturalWidth = 260; this.complete = true; if (this.onload) this.onload(); } },
+      window: { location: { origin: 'http://localhost', search: '' }, addEventListener: () => {} },
+      document: {
+        getElementById: (id) => domMap.get(id) || null,
+        querySelector: () => null,
+        querySelectorAll: () => [],
+        createElement: () => outCanvas,
+        addEventListener: () => {}
+      },
+      localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+      navigator: { onLine: true, mediaDevices: {} },
+      fetch: async () => ({ ok: true, json: async () => ({ id: 'gp_fast', token: 'tok_fast', qrDataUrl: 'data:image/png;base64,QRFAST' }) }),
+      setTimeout, clearTimeout, setInterval, clearInterval, console
+    });
+    vm.runInContext(trimmedMingle, mCtx);
+    const mEngine = vm.runInContext('Object.create(MingleBoothEngine.prototype)', mCtx);
+    const drawnCalls = [];
+    Object.assign(mEngine, {
+      tenantId, eventId, guestPass: null,
+      selectedTemplate: { id: tpl.id, width: 1024, height: 1536, qr_position: 'bottom-right', qr_coords: [{ id: 'qr_1', x: 20, y: 1380, size: 110 }, { id: 'qr_2', x: 530, y: 1380, size: 110 }] },
+      _activeSyncPromise: new Promise(r => setTimeout(() => { mEngine.guestPass = { id: 'gp_late', token: 'tok_late', qrDataUrl: 'data:image/png;base64,QRLATE' }; r(); }, 40)),
+      resolveMinglePrintableQrImage: async () => (mEngine.guestPass ? fakeQrImg : null),
+      drawQrCardAt: (ctx, x, y, w, h, img, size) => drawnCalls.push({ x, y, size })
+    });
+    await mEngine.buildPrintableDataUrl();
+    assert.equal(drawnCalls.length, 2, 'Mingle buildPrintableDataUrl awaits sync and draws both QR cards');
+  } finally {
+    const sessRow = db.prepare('SELECT guest_pass_id FROM photo_sessions WHERE id = ?').get(sessId);
+    if (initialJobId) db.prepare('DELETE FROM print_jobs WHERE id = ?').run(initialJobId);
+    if (reprintedJobId) db.prepare('DELETE FROM print_jobs WHERE id = ?').run(reprintedJobId);
+    db.prepare('DELETE FROM media_assets WHERE id = ?').run(assetId);
+    db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(sessId);
+    if (sessRow && sessRow.guest_pass_id) db.prepare('DELETE FROM guest_passes WHERE id = ?').run(sessRow.guest_pass_id);
+    db.prepare('DELETE FROM template_versions WHERE template_id = ?').run(tpl.id);
+    db.prepare('DELETE FROM templates WHERE id = ?').run(tpl.id);
+    try { fs.unlinkSync(fakeImgAbs); } catch (e) {}
+    srv.closeAllConnections?.();
+    srv.close();
+  }
 });

@@ -1314,7 +1314,7 @@ class KioskEngine {
               eventId: this.eventId,
               baseUrl: window.location.origin
             })
-          }, 1800);
+          }, 3000);
           if (res.ok) {
             this.guestPass = await res.json();
             return;
@@ -4593,8 +4593,8 @@ class KioskEngine {
     }
 
     try {
-      if (!isLocalMode && navigator.onLine !== false) {
-        await Promise.race([this.fetchTemplates(), new Promise(r => setTimeout(r, 1200))]);
+      if (navigator.onLine !== false) {
+        await Promise.race([this.fetchTemplates(), new Promise(r => setTimeout(r, isLocalMode ? 800 : 1200))]);
       }
     } catch (e) {}
 
@@ -5930,7 +5930,7 @@ class KioskEngine {
         : '<strong>⚠️ Konfirmasi Kertas 5R:</strong> Laptop Stasiun Printer akan menampilkan popup pengingat ganti kertas 5R sebelum mencetak ke Epson.';
     }
     if (readyRow) {
-      readyRow.style.display = isLocal ? 'none' : 'flex';
+      readyRow.style.display = isLocalPrint ? 'none' : 'flex';
     }
   }
 
@@ -6069,14 +6069,23 @@ class KioskEngine {
     bCtx.drawImage(finalCanvas, 0, 0);
 
     if (includeQr && qrEnabled) {
-      if (!this.guestPass) {
+      if (!this.guestPass || !this.guestPass.qrDataUrl) {
         try { await this.ensureGuestPassReady(); } catch (e) {}
       }
       if (this.guestPass) {
         try {
           const qrImg = await this.resolvePrintableQrImage();
           if (qrImg) {
-            const tplSize = (tpl && tpl.width && tpl.height) ? { width: tpl.width, height: tpl.height } : null;
+            const isSvgTpl = tpl && String(tpl.image_storage_key || '').toLowerCase().includes('.svg');
+            const coordsFitCanvas = rawQrCoords && rawQrCoords.every(q =>
+              (Number(q.x) || 0) >= -4 &&
+              (Number(q.y) || 0) >= -4 &&
+              ((Number(q.x) || 0) + (Number(q.size) || 140)) <= baseCanvas.width + 8 &&
+              ((Number(q.y) || 0) + (Number(q.size) || 140)) <= baseCanvas.height + 8
+            );
+            const tplSize = (tpl && tpl.width && tpl.height && (isSvgTpl || !coordsFitCanvas))
+              ? { width: tpl.width, height: tpl.height }
+              : null;
             this.drawQrOnCanvas(bCtx, baseCanvas.width, baseCanvas.height, qrImg, rawQrCoords || qrPos, tplSize);
           }
         } catch (e) {}

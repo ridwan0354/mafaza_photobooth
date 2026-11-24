@@ -1210,9 +1210,15 @@ apiRouter.post('/kiosk/sessions/:id/complete', upload.fields([
       db.prepare('SELECT id FROM media_assets WHERE photo_session_id = ? LIMIT 1').get(sessionId)
     );
 
-    // Jika sesi belum memiliki guest_pass_id (mis. kehabisan pool QR saat offline >20 customer)
-    // tapi template mengaktifkan QR atau Mode Jual File, otomatis buat & tautkan pass khusus sesi ini.
+    // Jika sesi belum memiliki guest_pass_id yang valid di DB (mis. kehabisan pool QR saat offline >20 customer
+    // atau pass lama/lintas DB) tapi template mengaktifkan QR atau Mode Jual File, otomatis buat & tautkan pass.
     let issuedAutoPass = null;
+    if (session.guest_pass_id) {
+      const validLinkedPass = db.prepare('SELECT id, token_plain FROM guest_passes WHERE id = ?').get(session.guest_pass_id);
+      if (!validLinkedPass || !validLinkedPass.token_plain) {
+        session.guest_pass_id = null;
+      }
+    }
     if (!session.guest_pass_id && hasSessionMedia) {
       try {
         const tplRow = session.template_id
@@ -1860,13 +1866,28 @@ apiRouter.post('/photos/:assetId/print', authMiddleware(), (req, res) => {
       asset.photo_session_id,
       asset.id,
       copies,
-      { baseUrl, paperSize, paperConfirmed }
+      { baseUrl, paperSize, paperConfirmed, autoIssuePass: true }
     );
     res.json({
       success: true,
       message: 'Perintah cetak ulang berhasil dikirim ke spooler!',
       printJob
     });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.get('/photos/:assetId/sheet', authMiddleware(), (req, res) => {
+  try {
+    const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+    const sheet = printService.getPrintSheetForAsset(req.params.assetId, req.user.tenantId, {
+      paperSize: req.query.paperSize || null,
+      baseUrl
+    });
+    if (!sheet) return res.status(404).json({ error: 'Lembar cetak tidak ditemukan' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.sendFile(sheet.path);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

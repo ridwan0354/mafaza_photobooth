@@ -113,7 +113,9 @@
   // Dialog cetak browser (cadangan). Ukuran & orientasi kertas otomatis mengikuti frame (portrait / landscape) tanpa tepian.
   async function printViaBrowser({ imageUrl, copies = 1, job = null }) {
     const paper = await resolvePaper(job);
-    const src = (job && job.sheetUrl) ? `${job.sheetUrl}?t=${Date.now()}` : imageUrl;
+    const src = (job && job.sheetUrl)
+      ? `${job.sheetUrl}${String(job.sheetUrl).includes('?') ? '&' : '?'}t=${Date.now()}`
+      : imageUrl;
     if (!src) {
       toast('File gambar tidak ditemukan untuk dicetak.', 'error');
       return;

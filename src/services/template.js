@@ -249,6 +249,9 @@ export function createTemplate(tenantId, data) {
     ];
     qrPosition = 'bottom-right';
   }
+  if (qrCoords.length > 0 && qrPosition === 'none') {
+    qrPosition = 'bottom-right';
+  }
 
   const imageUrl = data.imageUrl || '/assets/templates/single-green-template.svg';
   const chromaKeyVal = (data.chromaKey !== undefined || data.chroma_key !== undefined)
@@ -317,13 +320,22 @@ export function updateTemplateSlots(templateId, tenantId, slots, layers = null, 
     params.push(name.trim());
   }
 
-  if (qrPosition) {
-    updates.push('qr_position = ?');
-    params.push(qrPosition);
+  const hasQrCoordsInput = (qrCoords !== null && qrCoords !== undefined);
+  const normQrCoords = hasQrCoordsInput ? normalizeQrCoords(qrCoords) : null;
+  let effectiveQrPos = qrPosition;
+  if (normQrCoords && normQrCoords.length > 0 && (effectiveQrPos === 'none' || (!effectiveQrPos && template.qr_position === 'none'))) {
+    effectiveQrPos = 'bottom-right';
   }
-  if (qrCoords !== null && qrCoords !== undefined) {
+  if (effectiveQrPos) {
+    updates.push('qr_position = ?');
+    params.push(effectiveQrPos);
+  }
+  if (hasQrCoordsInput) {
     updates.push('qr_coords_json = ?');
-    params.push(JSON.stringify(normalizeQrCoords(qrCoords)));
+    params.push(JSON.stringify(normQrCoords));
+  } else if (effectiveQrPos === 'none') {
+    updates.push('qr_coords_json = ?');
+    params.push('[]');
   }
   if (shotsMode) {
     updates.push('shots_mode = ?');
@@ -376,13 +388,23 @@ export function updateTemplateConfig(templateId, tenantId, updates = {}) {
     params.push(cleanName);
   }
   if (updates.eventId !== undefined) { fields.push('event_id = ?'); params.push(updates.eventId || null); }
-  if (updates.qrPosition !== undefined || updates.qr_position !== undefined) {
-    fields.push('qr_position = ?');
-    params.push(updates.qrPosition || updates.qr_position || 'bottom-right');
+  const hasQrCoordsUpdate = (updates.qrCoords !== undefined || updates.qr_coords !== undefined);
+  const normQrCoordsUpdate = hasQrCoordsUpdate ? normalizeQrCoords(updates.qrCoords || updates.qr_coords) : null;
+  const hasQrPosUpdate = (updates.qrPosition !== undefined || updates.qr_position !== undefined);
+  let nextQrPos = hasQrPosUpdate ? (updates.qrPosition || updates.qr_position || 'bottom-right') : null;
+  if (normQrCoordsUpdate && normQrCoordsUpdate.length > 0 && (nextQrPos === 'none' || (!nextQrPos && template.qr_position === 'none'))) {
+    nextQrPos = 'bottom-right';
   }
-  if (updates.qrCoords !== undefined || updates.qr_coords !== undefined) {
+  if (nextQrPos !== null) {
+    fields.push('qr_position = ?');
+    params.push(nextQrPos);
+  }
+  if (hasQrCoordsUpdate) {
     fields.push('qr_coords_json = ?');
-    params.push(JSON.stringify(normalizeQrCoords(updates.qrCoords || updates.qr_coords)));
+    params.push(JSON.stringify(normQrCoordsUpdate));
+  } else if (nextQrPos === 'none') {
+    fields.push('qr_coords_json = ?');
+    params.push('[]');
   }
   if (updates.shotsMode !== undefined || updates.shots_mode !== undefined) {
     fields.push('shots_mode = ?');

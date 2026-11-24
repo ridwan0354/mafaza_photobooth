@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db } from '../db/database.js';
 import { resolvePaper, buildPrintSheetFile, detectImageOrientation } from './sheet.js';
+import * as qrService from './qr.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -539,7 +540,7 @@ export function markJobPrintedByBrowser(jobId, tenantId = null) {
   return true;
 }
 
-// Lokasi file lembar siap cetak untuk sebuah job (sudah termasuk susunan 2 strip per lembar)
+  // Lokasi file lembar siap cetak untuk sebuah job (sudah termasuk susunan 2 strip per lembar)
 export function getPrintSheetForJob(jobId) {
   const job = db.prepare(`
     SELECT pj.id, pj.options_json, ma.file_path
@@ -551,6 +552,28 @@ export function getPrintSheetForJob(jobId) {
   if (!fs.existsSync(abs)) return null;
   const options = parseJson(job.options_json || '{}', {});
   return { path: buildPrintSheetFile(abs, options, job.id), options };
+}
+
+export function getPrintSheetForAsset(assetId, tenantId, extraOptions = {}) {
+  const asset = db.prepare('SELECT * FROM media_assets WHERE id = ? AND tenant_id = ?').get(assetId, tenantId);
+  if (!asset || !asset.file_path) return null;
+  const abs = path.join(publicDir, asset.file_path.replace(/^\//, ''));
+  if (!fs.existsSync(abs)) return null;
+
+  const options = buildPrintOptions(tenantId, 1, extraOptions.paperSize || null);
+  const qrCfg = resolveSessionPrintQrConfig(asset.photo_session_id, tenantId, asset.event_id, {
+    ...extraOptions,
+    autoIssuePass: true
+  });
+  options.qrUrl = qrCfg.qrUrl;
+  options.qrPosition = qrCfg.qrPosition || 'bottom-right';
+  if (qrCfg.qrCoords && qrCfg.qrCoords.length > 0) {
+    options.qrCoords = qrCfg.qrCoords;
+    options.qrTemplateWidth = qrCfg.qrTemplateWidth;
+    options.qrTemplateHeight = qrCfg.qrTemplateHeight;
+  }
+  const sheetPath = buildPrintSheetFile(abs, options, `asset_${assetId}`);
+  return { path: sheetPath, options };
 }
 
 function resolveCupsDriverOptions(cupsQueueId, options) {
@@ -779,27 +802,16 @@ export function dispatchPrintJobToOs(printJobId, absFilePath, printFilePath, opt
   return { dispatchedToOs, resolvedQueueId, resolvedPrinterName };
 }
 
-export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, mediaAssetId, copies = 1, extraOptions = {}) {
-  const printJobId = 'pjob_' + crypto.randomBytes(8).toString('hex');
-  const idempotencyKey = `print_${photoSessionId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-
-  // Ambil seluruh pengaturan cetak aktif (plus override ukuran kertas 4R/5R bila dipilih tamu/operator)
-  const options = buildPrintOptions(tenantId, copies, extraOptions.paperSize || null);
-  const safeCopies = Math.max(1, Math.min(options.maxCopies || 10, parseInt(copies, 10) || 1));
-  if (extraOptions.mediaType) options.mediaType = extraOptions.mediaType;
-  if (extraOptions.borderless !== undefined) options.borderless = Boolean(extraOptions.borderless);
-  if (extraOptions.highDpi !== undefined) options.highDpi = Boolean(extraOptions.highDpi);
-  if (extraOptions.safeMargin !== undefined) options.safeMargin = extraOptions.safeMargin;
-
-  // Cari token galeri dan posisi QR template untuk ditempelkan khusus pada lembar cetak
+function resolveSessionPrintQrConfig(photoSessionId, tenantId, fallbackEventId, extraOptions = {}) {
   let qrUrl = extraOptions.qrUrl || null;
   let qrPosition = extraOptions.qrPosition || null;
-  let qrCoords = Array.isArray(extraOptions.qrCoords) ? extraOptions.qrCoords : null;
+  let qrCoords = (Array.isArray(extraOptions.qrCoords) && extraOptions.qrCoords.length > 0) ? extraOptions.qrCoords : null;
   let qrTemplateWidth = null;
   let qrTemplateHeight = null;
+  let session = null;
 
   if (photoSessionId) {
-    const session = db.prepare(`
+    session = db.prepare(`
       SELECT ps.id, ps.guest_pass_id, ps.template_id, ps.event_id,
              gp.token_plain,
              t.qr_position, t.qr_coords_json, t.width as tpl_width, t.height as tpl_height
@@ -811,7 +823,7 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
 
     if (session) {
       if (!qrPosition) qrPosition = session.qr_position || 'bottom-right';
-      if (!qrCoords && session.qr_coords_json) {
+      if ((!qrCoords || qrCoords.length === 0) && session.qr_coords_json) {
         const parsed = parseJson(session.qr_coords_json, []);
         if (Array.isArray(parsed) && parsed.length > 0) qrCoords = parsed;
       }
@@ -830,6 +842,49 @@ export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, medi
       }
     }
   }
+
+  if (qrCoords && qrCoords.length > 0 && (!qrPosition || qrPosition === 'none')) {
+    qrPosition = 'bottom-right';
+  }
+  const effectivePos = qrPosition || 'bottom-right';
+  const qrEnabled = (Array.isArray(qrCoords) && qrCoords.length > 0) || effectivePos !== 'none';
+
+  if (!qrUrl && qrEnabled && extraOptions.autoIssuePass) {
+    try {
+      const targetEventId = (session && session.event_id) || fallbackEventId || null;
+      const autoPass = qrService.createGuestPassRecordSync(tenantId, targetEventId, 'print_auto');
+      if (autoPass && autoPass.token_plain) {
+        if (session && session.id) {
+          db.prepare('UPDATE photo_sessions SET guest_pass_id = ? WHERE id = ?').run(autoPass.id, session.id);
+        }
+        const baseUrl = extraOptions.baseUrl || process.env.BASE_URL || 'https://mafaza.galipatsistem.com';
+        qrUrl = `${baseUrl.replace(/\/+$/, '')}/gallery/g/${autoPass.token_plain}`;
+      }
+    } catch (e) {}
+  }
+
+  return { qrUrl, qrPosition: effectivePos, qrCoords, qrTemplateWidth, qrTemplateHeight };
+}
+
+export function createPrintJob(tenantId, eventId, deviceId, photoSessionId, mediaAssetId, copies = 1, extraOptions = {}) {
+  const printJobId = 'pjob_' + crypto.randomBytes(8).toString('hex');
+  const idempotencyKey = `print_${photoSessionId}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+  // Ambil seluruh pengaturan cetak aktif (plus override ukuran kertas 4R/5R bila dipilih tamu/operator)
+  const options = buildPrintOptions(tenantId, copies, extraOptions.paperSize || null);
+  const safeCopies = Math.max(1, Math.min(options.maxCopies || 10, parseInt(copies, 10) || 1));
+  if (extraOptions.mediaType) options.mediaType = extraOptions.mediaType;
+  if (extraOptions.borderless !== undefined) options.borderless = Boolean(extraOptions.borderless);
+  if (extraOptions.highDpi !== undefined) options.highDpi = Boolean(extraOptions.highDpi);
+  if (extraOptions.safeMargin !== undefined) options.safeMargin = extraOptions.safeMargin;
+
+  // Cari token galeri dan posisi QR template untuk ditempelkan khusus pada lembar cetak
+  const { qrUrl, qrPosition, qrCoords, qrTemplateWidth, qrTemplateHeight } = resolveSessionPrintQrConfig(
+    photoSessionId,
+    tenantId,
+    eventId,
+    extraOptions
+  );
 
   if (extraOptions.baseUrl) {
     options.baseUrl = extraOptions.baseUrl;
@@ -1042,6 +1097,14 @@ export function reprintJob(printJobId, tenantId, operatorId, copies = null, extr
     }
   }
 
+  const hasLiveSessionTemplate = original.photo_session_id
+    ? Boolean(db.prepare(`
+        SELECT t.id FROM photo_sessions ps
+        JOIN templates t ON ps.template_id = t.id
+        WHERE ps.id = ?
+      `).get(original.photo_session_id))
+    : false;
+
   const newJob = createPrintJob(
     tenantId,
     original.event_id,
@@ -1054,8 +1117,9 @@ export function reprintJob(printJobId, tenantId, operatorId, copies = null, extr
       paperConfirmed: !!extraOptions.paperConfirmed,
       baseUrl: resolvedBaseUrl,
       qrUrl: resolvedQrUrl,
-      qrPosition: origOpts.qrPosition || null,
-      qrCoords: Array.isArray(origOpts.qrCoords) ? origOpts.qrCoords : null,
+      qrPosition: hasLiveSessionTemplate ? null : (origOpts.qrPosition || null),
+      qrCoords: hasLiveSessionTemplate ? null : (Array.isArray(origOpts.qrCoords) && origOpts.qrCoords.length > 0 ? origOpts.qrCoords : null),
+      autoIssuePass: true,
       mediaType: origOpts.mediaType || null,
       borderless: origOpts.borderless,
       highDpi: origOpts.highDpi,

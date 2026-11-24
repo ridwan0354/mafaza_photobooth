@@ -1560,10 +1560,12 @@ function initEditorQrFromTemplate(tpl) {
   }
   const w = parseInt(tpl.width, 10) || 1200;
   const h = parseInt(tpl.height, 10) || 1800;
+  const hasSavedCoords = Array.isArray(tpl.qr_coords) && tpl.qr_coords.length > 0;
   const pos = tpl.qr_position || 'bottom-right';
-  if (pos === 'none') {
+  if (pos === 'none' && !hasSavedCoords) {
     editorQrCoords = [];
-  } else if (Array.isArray(tpl.qr_coords) && tpl.qr_coords.length > 0) {
+  } else if (hasSavedCoords) {
+    if (pos === 'none') tpl.qr_position = 'bottom-right';
     editorQrCoords = tpl.qr_coords.map((q, i) => ({
       id: q.id || `qr_${i + 1}`,
       x: Math.round(Number(q.x) || 0),
@@ -1641,9 +1643,9 @@ function selectTemplateForEditor(templateId, scroll = true) {
   initEditorQrFromTemplate(activeTemplate);
   const qrSelect = document.getElementById('editorTemplateQrPos');
   if (qrSelect) {
-    qrSelect.value = (activeTemplate.qr_position === 'none')
+    qrSelect.value = (editorQrCoords.length === 0 && activeTemplate.qr_position === 'none')
       ? 'none'
-      : (editorQrCoords.length >= 2 ? 'dual-bottom-right' : (activeTemplate.qr_position || 'bottom-right'));
+      : (editorQrCoords.length >= 2 ? 'dual-bottom-right' : (activeTemplate.qr_position && activeTemplate.qr_position !== 'none' ? activeTemplate.qr_position : 'bottom-right'));
   }
 
   const shotsSelect = document.getElementById('editorTemplateShotsMode');
@@ -1766,13 +1768,20 @@ function onEditorQrCountChange(val) {
   const canvas = document.getElementById('templateEditorCanvas');
   const cw = (canvas && canvas.width) || activeTemplate.width || 1200;
   const ch = (canvas && canvas.height) || activeTemplate.height || 1800;
+  const qrSelect = document.getElementById('editorTemplateQrPos');
 
   if (count === 0) {
     activeTemplate.qr_position = 'none';
     editorQrCoords = [];
     selectedQrIndex = -1;
+    if (qrSelect) qrSelect.value = 'none';
   } else if (count === 1) {
     if (activeTemplate.qr_position === 'none') activeTemplate.qr_position = 'bottom-right';
+    if (qrSelect) {
+      if (qrSelect.value === 'none' || qrSelect.value === 'dual-bottom-right') {
+        qrSelect.value = activeTemplate.qr_position || 'bottom-right';
+      }
+    }
     if (editorQrCoords.length > 0) {
       editorQrCoords = [{ ...editorQrCoords[0], id: 'qr_1' }];
     } else {
@@ -1781,6 +1790,7 @@ function onEditorQrCountChange(val) {
     selectedQrIndex = 0;
   } else {
     if (activeTemplate.qr_position === 'none') activeTemplate.qr_position = 'bottom-right';
+    if (qrSelect) qrSelect.value = 'dual-bottom-right';
     if (editorQrCoords.length >= 2) {
       editorQrCoords = editorQrCoords.slice(0, 2);
     } else {
@@ -1802,6 +1812,8 @@ function onEditorQrPositionChange(val) {
   activeTemplate.qr_position = val === 'dual-bottom-right' ? 'bottom-right' : val;
   editorQrCoords = buildPresetQrCoords(val, cw, ch);
   activeTemplate.qr_coords = editorQrCoords;
+  const qrSelect = document.getElementById('editorTemplateQrPos');
+  if (qrSelect && qrSelect.value !== val) qrSelect.value = val;
   selectedQrIndex = editorQrCoords.length > 0 ? 0 : -1;
   renderQrInspector();
   scheduleEditorRender();
@@ -2845,7 +2857,9 @@ async function saveTemplateVersion(silent = false) {
   const width = (canvas && canvas.width) || activeTemplate.width || 1200;
   const height = (canvas && canvas.height) || activeTemplate.height || 1800;
   const rawQrPos = document.getElementById('editorTemplateQrPos')?.value || activeTemplate.qr_position || 'bottom-right';
-  const qrPosition = (editorQrCoords.length === 0) ? 'none' : (rawQrPos === 'dual-bottom-right' ? 'bottom-right' : rawQrPos);
+  const qrPosition = (editorQrCoords.length === 0)
+    ? 'none'
+    : (rawQrPos === 'none' || rawQrPos === 'dual-bottom-right' ? 'bottom-right' : rawQrPos);
   const shotsMode = document.getElementById('editorTemplateShotsMode')?.value || activeTemplate.shots_mode || 'event';
   const boothMode = document.getElementById('editorTemplateBoothMode')?.value || activeTemplate.booth_mode || 'kiosk';
   const fmtKey = document.getElementById('editorTemplateFormat')?.value || getTemplateFormatKey(activeTemplate);
@@ -4575,9 +4589,13 @@ async function executeQuickPrintBrowser() {
     window.pbToast('File gambar tidak ditemukan untuk dicetak.', 'error');
     return;
   }
+  const paperSize = is5r ? '5x7' : '4x6';
+  const sheetUrl = photo.print_job_id
+    ? `/api/print-jobs/${photo.print_job_id}/sheet`
+    : (photo.asset_id ? `/api/photos/${encodeURIComponent(photo.asset_id)}/sheet?paperSize=${encodeURIComponent(paperSize)}` : null);
   const job = {
-    ...(photo.print_job_id ? { sheetUrl: `/api/print-jobs/${photo.print_job_id}/sheet` } : {}),
-    paperSize: is5r ? '5x7' : '4x6',
+    ...(sheetUrl ? { sheetUrl } : {}),
+    paperSize,
     paperWidthIn: is5r ? 5 : 4,
     paperHeightIn: is5r ? 7 : 6,
     borderless: true
@@ -5634,7 +5652,10 @@ function printModalPhotoViaDevice() {
     return;
   }
   const copies = parseInt(document.getElementById('modalPrintCopies')?.value || '1', 10);
-  const job = activeModalPhoto.print_job_id ? { sheetUrl: `/api/print-jobs/${activeModalPhoto.print_job_id}/sheet` } : null;
+  const sheetUrl = activeModalPhoto.print_job_id
+    ? `/api/print-jobs/${activeModalPhoto.print_job_id}/sheet`
+    : (activeModalPhoto.asset_id ? `/api/photos/${encodeURIComponent(activeModalPhoto.asset_id)}/sheet` : null);
+  const job = sheetUrl ? { sheetUrl } : null;
   window.pbPrintViaBrowser({ imageUrl: imgSrc, copies, job });
 }
 
