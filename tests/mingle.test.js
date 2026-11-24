@@ -2049,3 +2049,113 @@ test('All-in-One Windows Print Agent stays safe in camera-only mode without clai
     srv.close();
   }
 });
+
+test('Mingle result photo picker stays intact across session reset and lets operator pick from 2+ captured photos', async () => {
+  const vm = await import('node:vm');
+  const mingleHtml = fs.readFileSync(path.join(process.cwd(), 'public/mingle.html'), 'utf8');
+  const mingleSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const trimmed = mingleSrc.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
+
+  assert.match(mingleHtml, /id="mingleResultSlotBar"/);
+  assert.match(mingleHtml, /id="mingleResultSlotHint"/);
+  assert.match(mingleHtml, /id="mingleResultSlotTabs"/);
+  assert.match(mingleHtml, /id="mingleResultPhotoPicker"/);
+  assert.match(mingleHtml, /\/js\/mingle\.js\?v=3\.7/);
+
+  const createEl = (id) => ({
+    id,
+    style: { display: 'none' },
+    _innerHTML: '',
+    innerText: '',
+    src: '',
+    removeAttribute(attr) { if (attr === 'src') this.src = ''; }
+  });
+
+  const elements = new Map([
+    ['mingleResultSlotBar', createEl('mingleResultSlotBar')],
+    ['mingleResultSlotHint', createEl('mingleResultSlotHint')],
+    ['mingleResultSlotTabs', createEl('mingleResultSlotTabs')],
+    ['mingleResultPhotoPicker', createEl('mingleResultPhotoPicker')],
+    ['mingleCapturedStrip', createEl('mingleCapturedStrip')],
+    ['mingleReadyStripRow', createEl('mingleReadyStripRow')],
+    ['mingleFilesStrip', createEl('mingleFilesStrip')],
+    ['mingleQrTapHint', createEl('mingleQrTapHint')],
+    ['mingleQrImg', createEl('mingleQrImg')]
+  ]);
+
+  // Simulate DOM tree removal if parent slotBar.innerHTML is mistakenly cleared
+  const slotBarEl = elements.get('mingleResultSlotBar');
+  Object.defineProperty(slotBarEl, 'innerHTML', {
+    get() { return this._innerHTML; },
+    set(val) {
+      this._innerHTML = val;
+      if (val === '') {
+        elements.delete('mingleResultSlotHint');
+        elements.delete('mingleResultSlotTabs');
+        elements.delete('mingleResultPhotoPicker');
+      } else {
+        if (/id="mingleResultSlotHint"/.test(val)) elements.set('mingleResultSlotHint', createEl('mingleResultSlotHint'));
+        if (/id="mingleResultSlotTabs"/.test(val)) elements.set('mingleResultSlotTabs', createEl('mingleResultSlotTabs'));
+        if (/id="mingleResultPhotoPicker"/.test(val)) elements.set('mingleResultPhotoPicker', createEl('mingleResultPhotoPicker'));
+      }
+    }
+  });
+
+  const ctx = vm.createContext({
+    window: { location: { origin: 'http://localhost', search: '' }, addEventListener: () => {} },
+    document: {
+      getElementById: (id) => elements.get(id) || null,
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    },
+    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    navigator: { onLine: true, mediaDevices: {} },
+    URL,
+    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    setTimeout, clearTimeout, setInterval, clearInterval, console
+  });
+  vm.runInContext(trimmed, ctx);
+
+  const engine = vm.runInContext('Object.create(MingleBoothEngine.prototype)', ctx);
+  let renderCanvasCalls = 0;
+  let syncFinalCalls = 0;
+  Object.assign(engine, {
+    capturedPhotos: [],
+    activeSlots: [{ x: 0, y: 0, width: 1800, height: 1200, pose_index: 1 }],
+    slotAssignments: [],
+    slotTransforms: [],
+    selectedSlotIdx: 0,
+    filesOnlyMode: false,
+    renderResultCanvas: async () => { renderCanvasCalls++; },
+    syncFinalImageOnly: async () => { syncFinalCalls++; }
+  });
+
+  // 1. resetSessionCaptureState must NOT destroy child picker elements
+  engine.resetSessionCaptureState();
+  assert.equal(slotBarEl.style.display, 'none');
+  assert.ok(elements.get('mingleResultSlotTabs'), 'resetSessionCaptureState must preserve #mingleResultSlotTabs');
+  assert.ok(elements.get('mingleResultPhotoPicker'), 'resetSessionCaptureState must preserve #mingleResultPhotoPicker');
+
+  // 2. Taking 2 photos on a 1-slot frame displays BOTH photos in the Result picker
+  engine.capturedPhotos = ['data:image/jpeg;base64,ONE', 'data:image/jpeg;base64,TWO'];
+  engine.slotAssignments = [0];
+  engine.renderResultSlotBar();
+
+  assert.equal(slotBarEl.style.display, 'flex', 'Slot picker bar must be visible when capturedPhotos > 1');
+  assert.match(elements.get('mingleResultSlotHint').innerText, /Slot #1.*2 foto/);
+  assert.match(elements.get('mingleResultSlotTabs').innerHTML, /Slot #1 \(Foto #1\)/);
+  assert.match(elements.get('mingleResultPhotoPicker').innerHTML, /assignPhotoToActiveSlot\(0\)/);
+  assert.match(elements.get('mingleResultPhotoPicker').innerHTML, /assignPhotoToActiveSlot\(1\)/);
+
+  // 3. Clicking photo #2 switches slot assignment, redraws canvas & re-syncs gallery output
+  await engine.assignPhotoToActiveSlot(1);
+  assert.equal(engine.slotAssignments[0], 1);
+  assert.equal(renderCanvasCalls, 1);
+  assert.equal(syncFinalCalls, 1);
+  assert.match(elements.get('mingleResultSlotTabs').innerHTML, /Slot #1 \(Foto #2\)/);
+  assert.match(
+    elements.get('mingleResultPhotoPicker').innerHTML,
+    /mingle-thumb-item active"\s+onclick="mingle\.assignPhotoToActiveSlot\(1\)"/
+  );
+});

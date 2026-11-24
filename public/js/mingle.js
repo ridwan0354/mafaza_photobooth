@@ -963,7 +963,13 @@ class MingleBoothEngine {
     const readyRow = document.getElementById('mingleReadyStripRow');
     if (readyRow) readyRow.innerHTML = '';
     const slotBar = document.getElementById('mingleResultSlotBar');
-    if (slotBar) slotBar.innerHTML = '';
+    if (slotBar) slotBar.style.display = 'none';
+    const slotHint = document.getElementById('mingleResultSlotHint');
+    if (slotHint) slotHint.innerText = '';
+    const slotTabs = document.getElementById('mingleResultSlotTabs');
+    if (slotTabs) slotTabs.innerHTML = '';
+    const slotPicker = document.getElementById('mingleResultPhotoPicker');
+    if (slotPicker) slotPicker.innerHTML = '';
     const filesStrip = document.getElementById('mingleFilesStrip');
     if (filesStrip) filesStrip.innerHTML = '';
     const qrImg = document.getElementById('mingleQrImg');
@@ -2068,15 +2074,36 @@ class MingleBoothEngine {
 
   renderResultSlotBar() {
     const bar = document.getElementById('mingleResultSlotBar');
-    const tabsEl = document.getElementById('mingleResultSlotTabs');
-    const pickerEl = document.getElementById('mingleResultPhotoPicker');
-    if (!bar || !tabsEl || !pickerEl) return;
+    if (!bar) return;
 
-    const showBar = !this.filesOnlyMode && this.capturedPhotos.length > 1;
+    const showBar = !this.filesOnlyMode && Array.isArray(this.capturedPhotos) && this.capturedPhotos.length > 1;
     bar.style.display = showBar ? 'flex' : 'none';
     if (!showBar) return;
 
+    let hintEl = document.getElementById('mingleResultSlotHint');
+    let tabsEl = document.getElementById('mingleResultSlotTabs');
+    let pickerEl = document.getElementById('mingleResultPhotoPicker');
+    if (!tabsEl || !pickerEl) {
+      bar.innerHTML = `
+        <div id="mingleResultSlotHint" style="font-size: 11.5px; font-weight: 800; color: var(--caramel-brown);"></div>
+        <div id="mingleResultSlotTabs" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
+        <div id="mingleResultPhotoPicker" class="mingle-captured-strip" style="flex-wrap: wrap; max-height: 154px; overflow-y: auto; min-height: 0; padding: 2px 0;"></div>
+      `;
+      hintEl = document.getElementById('mingleResultSlotHint');
+      tabsEl = document.getElementById('mingleResultSlotTabs');
+      pickerEl = document.getElementById('mingleResultPhotoPicker');
+    }
+    if (!tabsEl || !pickerEl) return;
+
     const slotsCount = (this.activeSlots && this.activeSlots.length) || 1;
+    const rawSlotIdx = typeof this.selectedSlotIdx === 'number' ? this.selectedSlotIdx : 0;
+    this.selectedSlotIdx = Math.max(0, Math.min(slotsCount - 1, rawSlotIdx));
+    if (!Array.isArray(this.slotAssignments)) this.slotAssignments = [];
+
+    if (hintEl) {
+      hintEl.innerText = `📷 Pilih Foto untuk Slot #${this.selectedSlotIdx + 1} (${this.capturedPhotos.length} foto tersimpan):`;
+    }
+
     tabsEl.innerHTML = Array.from({ length: slotsCount }, (_, idx) => `
       <button type="button" class="mingle-filter-btn ${idx === this.selectedSlotIdx ? 'active' : ''}" onclick="mingle.selectResultSlot(${idx})">
         Slot #${idx + 1} (Foto #${(this.slotAssignments[idx] || 0) + 1})
@@ -2085,7 +2112,7 @@ class MingleBoothEngine {
 
     const activePhotoIdx = this.slotAssignments[this.selectedSlotIdx] || 0;
     pickerEl.innerHTML = this.capturedPhotos.map((src, pIdx) => `
-      <div class="mingle-thumb-item ${pIdx === activePhotoIdx ? 'active' : ''}" onclick="mingle.assignPhotoToActiveSlot(${pIdx})">
+      <div class="mingle-thumb-item ${pIdx === activePhotoIdx ? 'active' : ''}" onclick="mingle.assignPhotoToActiveSlot(${pIdx})" title="Pakai Foto #${pIdx + 1} ke Slot #${this.selectedSlotIdx + 1}">
         <img src="${src}" alt="Foto ${pIdx + 1}">
         <span class="mingle-thumb-badge">#${pIdx + 1}</span>
       </div>

@@ -1217,9 +1217,10 @@
           </div>
 
           <!-- Pemilih Slot & Hasil Foto di Bawah QR -->
-          <div id="mingleResultSlotBar" style="display: none; flex-direction: column; gap: 8px; background: #FFF; border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 10px;">
+          <div id="mingleResultSlotBar" style="display: none; flex-shrink: 0; flex-direction: column; gap: 8px; background: #FFF; border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 10px;">
+            <div id="mingleResultSlotHint" style="font-size: 11.5px; font-weight: 800; color: var(--caramel-brown);"></div>
             <div id="mingleResultSlotTabs" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
-            <div id="mingleResultPhotoPicker" class="mingle-captured-strip" style="min-height: 0; padding: 2px 0;"></div>
+            <div id="mingleResultPhotoPicker" class="mingle-captured-strip" style="flex-wrap: wrap; max-height: 154px; overflow-y: auto; min-height: 0; padding: 2px 0;"></div>
           </div>
 
           <div class="mingle-result-actions" style="display: flex; flex-direction: column; gap: 10px; margin-top: auto;">
@@ -1428,6 +1429,6 @@
   <script src="/js/event-gallery-viewer.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.7"></script>
   <script src="/js/photo-filters.js?v=1.0"></script>
-  <script src="/js/mingle.js?v=3.6"></script>
+  <script src="/js/mingle.js?v=3.7"></script>
 </body>
 </html>
