@@ -3689,25 +3689,14 @@
   <!-- 6. GALERI KHUSUS MODAL (PILIH POSE SESI, GANTI FRAME & CETAK 4R / 5R) -->
   <div id="specialGalleryModal" style="display: none; position: fixed; inset: 0; z-index: 10003; background: rgba(30, 15, 10, 0.84); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 16px;" onclick="if(event.target===this) closeSpecialGalleryModal()">
     <div class="card-pop" style="max-width: 1160px; width: 100%; max-height: 94vh; overflow-y: auto; background: #FFFDF9; border: 2px solid var(--border-soft, #EAD8C7); padding: 20px 22px; position: relative; border-radius: 24px; box-shadow: 0 28px 70px rgba(0,0,0,0.45);" onclick="event.stopPropagation()">
-      <!-- Header -->
-      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1.5px dashed var(--border-soft);">
-        <div>
-          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-            <span class="sticker-badge sticker-purple">🎨 Galeri Khusus Studio</span>
-            <span id="specialGallerySessionBadge" class="sticker-badge sticker-teal">Pilih Sesi Foto</span>
-          </div>
-          <h3 style="margin: 0; font-size: 20px; font-weight: 800; color: var(--caramel-brown);">Cetak Ulang Semua Pose &amp; Ganti-Ganti Frame</h3>
-          <p style="margin: 2px 0 0; font-size: 12.5px; color: var(--text-muted);">Pilih foto/pose dari sesi ini, ganti frame event kapan saja, lalu cetak lokal atau kirim ke antrean server (4R / 5R).</p>
-        </div>
-        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <select id="specialGalleryEventFilter" onchange="loadSpecialGallerySessions()" style="padding: 8px 10px; background: #fff; border: 2px solid var(--border-soft); border-radius: 10px; font-size: 12.5px; font-weight: 700; color: var(--caramel-brown);">
-            <option value="">Semua Event</option>
-          </select>
-          <select id="specialGallerySessionSelect" onchange="selectSpecialGallerySession(this.value)" title="Pilih sesi customer lain" style="padding: 8px 10px; background: #fff; border: 2px solid var(--border-soft); border-radius: 10px; font-size: 12.5px; font-weight: 700; color: var(--caramel-brown); max-width: 220px;">
+      <!-- Header (Minimalist) -->
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1.5px dashed var(--border-soft);">
+        <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: var(--caramel-brown);">🎨 Cetak Ulang Semua Pose &amp; Ganti-Ganti Frame</h3>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <select id="specialGallerySessionSelect" onchange="selectSpecialGallerySession(this.value)" title="Pilih sesi foto" style="padding: 6px 10px; background: #fff; border: 1.5px solid var(--border-soft); border-radius: 10px; font-size: 12px; font-weight: 700; color: var(--caramel-brown); max-width: 210px;">
             <option value="">Memuat sesi...</option>
           </select>
-          <button type="button" class="btn btn-secondary" style="padding: 8px 12px; font-size: 12.5px; font-weight: 700; background: #fff;" onclick="loadSpecialGallerySessions()">🔄 Muat Ulang</button>
-          <button type="button" onclick="closeSpecialGalleryModal()" style="width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--border-soft); background: var(--cream-card); color: var(--caramel-brown); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">✕</button>
+          <button type="button" onclick="closeSpecialGalleryModal()" style="width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--border-soft); background: var(--cream-card); color: var(--caramel-brown); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 15px;">✕</button>
         </div>
       </div>
 
@@ -3715,8 +3704,8 @@
       <div class="special-gallery-grid">
         <!-- KOLOM KIRI (LEBAR): PREVIEW LIVE CANVAS & KONTROL SLOT/ZOOM/FILTER -->
         <div style="display: flex; flex-direction: column; gap: 10px; min-width: 0;">
-          <div id="specialGalleryCanvasWrap" style="background: #2C1D15; border-radius: 18px; padding: 12px; display: flex; align-items: center; justify-content: center; min-height: 330px; max-height: 440px; border: 2px solid var(--border-soft); position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none;">
-            <canvas id="specialGalleryCanvas" style="max-width: 100%; max-height: 416px; border-radius: 10px; box-shadow: 0 12px 28px rgba(0,0,0,0.38); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;"></canvas>
+          <div id="specialGalleryCanvasWrap" style="background: #2C1D15; border-radius: 18px; padding: 12px; display: flex; align-items: center; justify-content: center; min-height: 340px; max-height: 465px; border: 2px solid var(--border-soft); position: relative; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none;">
+            <canvas id="specialGalleryCanvas" style="max-width: 100%; max-height: 440px; border-radius: 10px; box-shadow: 0 12px 28px rgba(0,0,0,0.38); cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none;"></canvas>
           </div>
 
           <!-- Slot Selector + Pan/Zoom Toolbar -->
@@ -3729,11 +3718,8 @@
                 <span id="specialGalleryZoomLabel" style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); min-width: 40px; text-align: center;">1.0×</span>
                 <button type="button" class="sg-slot-pill" onclick="adjustSpecialGalleryZoom(0.15)" title="Perbesar foto dalam slot">➕</button>
                 <button type="button" class="sg-slot-pill" onclick="resetSpecialGalleryTransform()" title="Reset posisi & zoom">↺ Reset</button>
+                <button type="button" id="sgBtnApplyPoseAll" class="sg-slot-pill" onclick="applyActivePoseToAllSlots()" style="display: none; background: #fff; border-color: var(--dusty-teal); color: var(--dusty-teal);">🪄 Pakai Semua Slot</button>
               </div>
-            </div>
-            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
-              <span style="font-size: 11px; color: var(--text-muted);">💡 Geser 1 jari untuk atur posisi · Cubit 2 jari / slider / scroll untuk zoom.</span>
-              <button type="button" id="sgBtnApplyPoseAll" class="sg-slot-pill" onclick="applyActivePoseToAllSlots()" style="background: #fff; border-color: var(--dusty-teal); color: var(--dusty-teal);">🪄 Pakai Foto Ini di Semua Slot</button>
             </div>
             <!-- Filter Pills -->
             <div id="specialGalleryFilterBar" style="display: flex; gap: 6px; overflow-x: auto; max-width: 100%; padding-top: 4px; border-top: 1px dashed var(--border-soft);"></div>
@@ -3820,6 +3806,6 @@
   <script src="/js/offline-store.js?v=1.7"></script>
   <script src="/js/print-client.js?v=1.8"></script>
   <script src="/js/photo-filters.js?v=1.0"></script>
-  <script src="/js/admin.js?v=responsive-v8.6"></script>
+  <script src="/js/admin.js?v=responsive-v8.7"></script>
 </body>
 </html>

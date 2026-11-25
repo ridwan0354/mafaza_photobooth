@@ -6722,6 +6722,7 @@ window.exportSalesCsv = exportSalesCsv;
 const sgState = {
   sessions: [],
   allTemplates: null,
+  eventId: '',
   selectedSessionId: null,
   selectedTemplateId: null,
   slotAssignments: [],
@@ -6748,24 +6749,15 @@ function openSpecialGalleryModal(targetSessionId = null, targetEventId = null) {
   if (!modal) return;
   modal.style.display = 'flex';
 
-  // Isi opsi event pada dropdown Galeri Khusus
-  const sgEventSelect = document.getElementById('specialGalleryEventFilter');
   const mainEventSelect = document.getElementById('galleryEventFilter');
-  if (sgEventSelect) {
-    sgEventSelect.innerHTML = '<option value="">Semua Event</option>';
-    (eventsList || []).forEach(ev => {
-      const opt = document.createElement('option');
-      opt.value = ev.id;
-      opt.textContent = ev.id === activeKioskEventId ? `${ev.name} ⭐` : ev.name;
-      sgEventSelect.appendChild(opt);
-    });
-    if (targetEventId !== null && targetEventId !== undefined) {
-      sgEventSelect.value = targetEventId;
-    } else if (targetSessionId) {
-      sgEventSelect.value = '';
-    } else if (mainEventSelect && mainEventSelect.value) {
-      sgEventSelect.value = mainEventSelect.value;
-    }
+  if (targetEventId !== null && targetEventId !== undefined) {
+    sgState.eventId = targetEventId;
+  } else if (targetSessionId) {
+    sgState.eventId = '';
+  } else if (mainEventSelect && mainEventSelect.value) {
+    sgState.eventId = mainEventSelect.value;
+  } else {
+    sgState.eventId = '';
   }
 
   const tplFilterEl = document.getElementById('specialGalleryTplFilter');
@@ -6810,8 +6802,7 @@ window.closeSpecialGalleryModal = closeSpecialGalleryModal;
 async function loadSpecialGallerySessions(preferredSessionId = null) {
   const sessionSelectEl = document.getElementById('specialGallerySessionSelect');
   const posesGrid = document.getElementById('specialGalleryPosesGrid');
-  const eventFilterEl = document.getElementById('specialGalleryEventFilter');
-  const eventId = eventFilterEl ? eventFilterEl.value : '';
+  const eventId = sgState.eventId || '';
 
   if (sessionSelectEl) {
     sessionSelectEl.innerHTML = '<option value="">Memuat sesi...</option>';
@@ -6836,8 +6827,8 @@ async function loadSpecialGallerySessions(preferredSessionId = null) {
       if (posesGrid && eventId) {
         posesGrid.innerHTML = `
           <div style="grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--text-muted); padding: 12px; display: flex; flex-direction: column; gap: 8px; align-items: center;">
-            <span>Belum ada sesi foto di filter event ini.</span>
-            <button type="button" class="sg-slot-pill" onclick="document.getElementById('specialGalleryEventFilter').value=''; loadSpecialGallerySessions();" style="background: var(--coral); color: #fff; border-color: var(--coral);">
+            <span>Belum ada sesi foto di event ini.</span>
+            <button type="button" class="sg-slot-pill" onclick="sgState.eventId=''; loadSpecialGallerySessions();" style="background: var(--coral); color: #fff; border-color: var(--coral);">
               📂 Tampilkan Semua Event
             </button>
           </div>
@@ -6894,11 +6885,6 @@ function getSelectedSpecialTemplate() {
 function selectSpecialGallerySession(sessionId) {
   sgState.selectedSessionId = sessionId;
   const session = getSelectedSpecialSession();
-
-  const badgeEl = document.getElementById('specialGallerySessionBadge');
-  if (badgeEl && session) {
-    badgeEl.textContent = `${session.eventName || 'Event'} · ${session.poseCount} Foto`;
-  }
 
   // Utamakan frame milik event dari sesi yang dipilih (jangan langsung pakai frame global/event lain)
   const list = getSpecialGalleryTemplatesPool();
