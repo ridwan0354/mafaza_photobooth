@@ -2060,7 +2060,7 @@ test('Mingle result photo picker stays intact across session reset and lets oper
   assert.match(mingleHtml, /id="mingleResultSlotHint"/);
   assert.match(mingleHtml, /id="mingleResultSlotTabs"/);
   assert.match(mingleHtml, /id="mingleResultPhotoPicker"/);
-  assert.match(mingleHtml, /\/js\/mingle\.js\?v=3\.9/);
+  assert.match(mingleHtml, /\/js\/mingle\.js\?v=4\.0/);
 
   const createEl = (id) => ({
     id,
@@ -2720,4 +2720,114 @@ test('Admin Galeri Khusus API lists multi-pose sessions numerically and supports
       try { fs.unlinkSync(path.join(process.cwd(), 'public/uploads', fname)); } catch (e) {}
     }
   }
+});
+
+test('Mingle Live Mirror defaults OFF (normal), toggles scaleX(-1) on live viewfinder only, and preserves un-mirrored capture', async () => {
+  const vm = await import('node:vm');
+  const root = process.cwd();
+  const mingleHtml = fs.readFileSync(path.join(root, 'public/mingle.html'), 'utf8');
+  const mingleJs = fs.readFileSync(path.join(root, 'public/js/mingle.js'), 'utf8');
+
+  assert.match(mingleHtml, /id="btnMingleMirrorLive"/);
+  assert.match(mingleHtml, /toggleLiveMirror\(\)/);
+
+  const trimmed = mingleJs.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
+  const lsStore = new Map();
+  const makeEl = (extra = {}) => ({
+    style: {},
+    innerText: '',
+    classList: {
+      set: new Set(),
+      toggle(cls, force) {
+        if (force) this.set.add(cls);
+        else this.set.delete(cls);
+      },
+      contains(cls) { return this.set.has(cls); }
+    },
+    ...extra
+  });
+  const videoEl = makeEl({ videoWidth: 1280, videoHeight: 720 });
+  const liveCanvasEl = makeEl();
+  const btnEl = makeEl();
+  const vfEl = makeEl({ clientWidth: 800, clientHeight: 450 });
+  const dom = new Map([
+    ['mingleVideoFeed', videoEl],
+    ['mingleLiveCanvas', liveCanvasEl],
+    ['btnMingleMirrorLive', btnEl],
+    ['mingleViewfinder', vfEl]
+  ]);
+
+  let captureScaled = false;
+  const ctx = vm.createContext({
+    URL, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    window: { location: { origin: 'http://localhost', search: '' }, addEventListener: () => {} },
+    document: {
+      getElementById: (id) => dom.get(id) || null,
+      createElement: () => ({
+        width: 0,
+        height: 0,
+        getContext: () => ({
+          translate: () => {},
+          rotate: () => {},
+          scale: () => { captureScaled = true; },
+          drawImage: () => {}
+        }),
+        toDataURL: () => 'data:image/jpeg;base64,RAW_NORMAL'
+      }),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener: () => {}
+    },
+    localStorage: {
+      getItem: (k) => lsStore.get(k) ?? null,
+      setItem: (k, v) => lsStore.set(k, String(v)),
+      removeItem: (k) => lsStore.delete(k)
+    },
+    navigator: { onLine: true, mediaDevices: {} },
+    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    setTimeout, clearTimeout, setInterval, clearInterval, console
+  });
+  vm.runInContext(trimmed, ctx);
+
+  const engine = vm.runInContext('Object.create(MingleBoothEngine.prototype)', ctx);
+  Object.assign(engine, {
+    cameraRotation: 0,
+    liveMirror: false,
+    eventConfig: {},
+    activeFilter: 'normal',
+    usbStatus: null,
+    isProcessingCapture: false,
+    playShutterSound: () => {},
+    setProcessingOverlay: () => {},
+    showToast: () => {},
+    getFilterCss: () => 'none',
+    enforceCaptureOrientationDataUrl: async (u) => u,
+    finalizeCapturedDataUrl: async (u) => { engine._lastCaptured = u; }
+  });
+
+  // 1. Default OFF: no mirror on live video or live canvas
+  engine.updateLiveMirrorUI();
+  engine.applyMingleVideoTransform();
+  assert.equal(btnEl.innerText, '🪞 Mirror: OFF');
+  assert.equal(videoEl.style.transform, '');
+  assert.equal(liveCanvasEl.style.transform, '');
+
+  // 2. Toggle ON: applies scaleX(-1) ONLY to live viewfinder elements + persists
+  engine.toggleLiveMirror();
+  assert.equal(engine.liveMirror, true);
+  assert.equal(lsStore.get('pb_mingle_live_mirror'), 'true');
+  assert.equal(btnEl.innerText, '🪞 Mirror: ON');
+  assert.equal(videoEl.style.transform, 'scaleX(-1)');
+  assert.equal(liveCanvasEl.style.transform, 'scaleX(-1)');
+
+  // 3. Rotate + Mirror combines cleanly (scaleX(-1) rotate(90deg) scale(...))
+  engine.cameraRotation = 90;
+  engine.applyMingleVideoTransform();
+  assert.match(videoEl.style.transform, /^scaleX\(-1\) rotate\(90deg\)/);
+
+  // 4. Captured still via triggerBackupCapture never flips pixels horizontally
+  engine.cameraRotation = 0;
+  await engine.triggerBackupCapture();
+  assert.equal(captureScaled, false, 'Captured image must stay un-mirrored so text is never flipped');
+  assert.equal(engine._lastCaptured, 'data:image/jpeg;base64,RAW_NORMAL');
 });

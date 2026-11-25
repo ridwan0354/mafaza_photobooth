@@ -55,6 +55,7 @@ class MingleBoothEngine {
     this.canonLiveViewInMingle = true;
     const savedRot = parseInt(localStorage.getItem('pb_camera_rotation') || '0', 10);
     this.cameraRotation = [0, 90, 180, 270].includes(savedRot) ? savedRot : 0;
+    this.liveMirror = localStorage.getItem('pb_mingle_live_mirror') === 'true';
     const savedCamOrient = localStorage.getItem('pb_camera_capture_orientation') || 'auto';
     this.cameraCaptureOrientation = ['auto', 'portrait', 'landscape'].includes(savedCamOrient) ? savedCamOrient : 'auto';
     this.liveViewTimerId = null;
@@ -77,6 +78,7 @@ class MingleBoothEngine {
     await this.hydrateCacheFirst();
 
     this.updateCameraRotationUI();
+    this.updateLiveMirrorUI();
     this.updateCameraCaptureOrientationUI();
     this.applyTopLiveLayout();
     this.startStatusPolling();
@@ -1249,6 +1251,31 @@ class MingleBoothEngine {
     }
   }
 
+  toggleLiveMirror() {
+    this.liveMirror = !this.liveMirror;
+    try {
+      localStorage.setItem('pb_mingle_live_mirror', this.liveMirror ? 'true' : 'false');
+    } catch (e) {}
+    this.updateLiveMirrorUI();
+    this.applyMingleVideoTransform();
+    this.showToast(
+      this.liveMirror
+        ? '🪞 Live Preview Mirror ON (hasil foto tetap normal agar tulisan tidak kebalik)'
+        : '📷 Live Preview Normal OFF (tampilan sama persis dengan hasil foto)',
+      '🪞',
+      2200
+    );
+  }
+
+  updateLiveMirrorUI() {
+    const btn = document.getElementById('btnMingleMirrorLive');
+    if (btn) {
+      btn.innerText = this.liveMirror ? '🪞 Mirror: ON' : '🪞 Mirror: OFF';
+      btn.classList.toggle('btn-coral', Boolean(this.liveMirror));
+      btn.classList.toggle('btn-secondary', !this.liveMirror);
+    }
+  }
+
   applyMingleVideoTransform() {
     const video = document.getElementById('mingleVideoFeed');
     const vf = document.getElementById('mingleViewfinder');
@@ -1266,8 +1293,13 @@ class MingleBoothEngine {
       if (ph > 0 && pw > 0) rotScale = Math.max(W / ph, H / pw);
     }
     video.style.objectFit = (rot === 90 || rot === 270) ? 'contain' : 'cover';
-    video.style.transform = rot ? `rotate(${rot}deg) scale(${rotScale.toFixed(3)})` : '';
+    const mirrorPrefix = this.liveMirror ? 'scaleX(-1) ' : '';
+    const rotPart = rot ? `rotate(${rot}deg) scale(${rotScale.toFixed(3)})` : '';
+    video.style.transform = `${mirrorPrefix}${rotPart}`.trim();
     const liveCanvas = document.getElementById('mingleLiveCanvas');
+    if (liveCanvas && liveCanvas.style) {
+      liveCanvas.style.transform = this.liveMirror ? 'scaleX(-1)' : '';
+    }
     const liveArtEnabled = Boolean(this.eventConfig && this.eventConfig.livePhotoFilter);
     const artCss = liveArtEnabled && this.activeFilter !== 'normal' ? this.getFilterCss(this.activeFilter) : 'none';
     [video, liveCanvas].forEach(el => {
