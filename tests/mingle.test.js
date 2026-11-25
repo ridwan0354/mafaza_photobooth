@@ -2696,11 +2696,16 @@ test('Admin Galeri Khusus API lists multi-pose sessions numerically and supports
     assert.match(adminHtml, /id="sgBtnPaper5R"/);
     assert.match(adminHtml, /id="btnSpecialPrintLocal"/);
     assert.match(adminHtml, /id="btnSpecialPrintServer"/);
+    assert.match(adminHtml, /id="specialGalleryZoomSlider"/);
+    assert.match(adminHtml, /<option value="event" selected>Frame Event Ini<\/option>/);
     assert.match(adminHtml, /\/js\/photo-filters\.js/);
     assert.match(adminJs, /function openSpecialGalleryModal/);
     assert.match(adminJs, /async function executeSpecialGalleryPrint/);
     assert.match(adminJs, /function assignPoseToActiveSpecialSlot/);
     assert.match(adminJs, /function selectSpecialGalleryTemplate/);
+    assert.match(adminJs, /function setSpecialGalleryZoomPercent/);
+    assert.match(adminJs, /addEventListener\('touchstart'/);
+    assert.match(adminJs, /addEventListener\('wheel'/);
   } finally {
     await new Promise(resolve => srv.close(resolve));
     const sessRow = db.prepare('SELECT guest_pass_id FROM photo_sessions WHERE id = ?').get(sessId);

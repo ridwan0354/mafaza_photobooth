@@ -6768,7 +6768,10 @@ function openSpecialGalleryModal(targetSessionId = null, targetEventId = null) {
     }
   }
 
-  // Muat seluruh template (semua event + global) agar bebas ganti-ganti frame
+  const tplFilterEl = document.getElementById('specialGalleryTplFilter');
+  if (tplFilterEl) tplFilterEl.value = 'event';
+
+  // Muat seluruh template (semua event + global) agar dapat difilter sesuai event sesi
   const boot = async () => {
     try {
       const tplRes = await fetch('/api/templates', { cache: 'no-store' });
@@ -6876,17 +6879,18 @@ function renderSpecialGallerySessionsList() {
     const timeStr = dt ? dt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-';
     const dateStr = dt ? dt.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) : '';
     const thumb = s.previewUrl || (s.poses && s.poses[0] ? s.poses[0].filePath : '/assets/templates/strip-green-template.svg');
+    const tplLabel = s.templateName ? `Frame: ${s.templateName}` : 'Sesi Booth';
     return `
       <button type="button" class="sg-session-card ${isActive ? 'active' : ''}" onclick="selectSpecialGallerySession('${escapeHtml(s.sessionId)}')">
         <img src="${escapeHtml(thumb)}" onerror="this.onerror=null; this.style.opacity='0.2';" style="width: 48px; height: 60px; object-fit: cover; border-radius: 9px; background: #FFF5EA; flex-shrink: 0; border: 1px solid var(--border-soft);">
         <div style="min-width: 0; flex: 1;">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 2px;">
-            <span style="font-size: 11.5px; font-weight: 800; color: var(--caramel-brown); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(s.eventName || 'Event')}</span>
+            <span style="font-size: 11.5px; font-weight: 800; color: var(--caramel-brown); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Customer · ${escapeHtml(timeStr)}</span>
             <span style="font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 999px; background: #EAF7F4; color: #197B6C; flex-shrink: 0;">${s.poseCount} Pose</span>
           </div>
-          <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(dateStr)} · ${escapeHtml(timeStr)}</div>
+          <div style="font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(s.eventName || 'Event')} · ${escapeHtml(dateStr)}</div>
           <div style="font-size: 10.5px; color: var(--coral); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            ${escapeHtml(s.templateName || 'Frame Booth')}
+            ${escapeHtml(tplLabel)}
           </div>
         </div>
       </button>
@@ -6912,13 +6916,18 @@ function selectSpecialGallerySession(sessionId) {
     badgeEl.textContent = `${session.eventName || 'Event'} · ${session.poseCount} Foto`;
   }
 
-  // Pilih frame sesi sebagai titik awal bila valid
+  // Utamakan frame milik event dari sesi yang dipilih (jangan langsung pakai frame global/event lain)
   const list = getSpecialGalleryTemplatesPool();
+  const eventOwnTpls = session && session.eventId ? list.filter(t => t.event_id === session.eventId) : [];
   if (session && session.templateId && list.some(t => t.id === session.templateId)) {
     sgState.selectedTemplateId = session.templateId;
+  } else if (eventOwnTpls.length > 0) {
+    if (!sgState.selectedTemplateId || !eventOwnTpls.some(t => t.id === sgState.selectedTemplateId)) {
+      sgState.selectedTemplateId = eventOwnTpls[0].id;
+    }
   } else if (!sgState.selectedTemplateId || !list.some(t => t.id === sgState.selectedTemplateId)) {
-    const evMatch = session && list.find(t => t.event_id === session.eventId);
-    sgState.selectedTemplateId = (evMatch && evMatch.id) || (list[0] && list[0].id) || null;
+    const fallbackGlobal = list.find(t => !t.event_id) || list[0];
+    sgState.selectedTemplateId = fallbackGlobal ? fallbackGlobal.id : null;
   }
 
   syncSpecialGalleryPaperWithTemplate(getSelectedSpecialTemplate());
@@ -7119,20 +7128,28 @@ function renderSpecialGalleryTemplates() {
   const grid = document.getElementById('specialGalleryTemplatesGrid');
   if (!grid) return;
 
-  const filterVal = (document.getElementById('specialGalleryTplFilter')?.value) || 'all';
+  const filterVal = (document.getElementById('specialGalleryTplFilter')?.value) || 'event';
   const session = getSelectedSpecialSession();
   const targetEventId = session ? session.eventId : activeKioskEventId;
-
-  let list = [...getSpecialGalleryTemplatesPool()];
-  if (filterVal === 'event' && targetEventId) {
-    list = list.filter(t => t.event_id === targetEventId || !t.event_id);
-  } else if (filterVal === 'portrait') {
-    list = list.filter(t => String(t.orientation || '').toLowerCase() !== 'landscape' && Number(t.width || 0) <= Number(t.height || 1));
-  } else if (filterVal === 'landscape') {
-    list = list.filter(t => String(t.orientation || '').toLowerCase() === 'landscape' || Number(t.width || 0) > Number(t.height || 0));
+  const eventBadge = document.getElementById('sgTemplateEventBadge');
+  if (eventBadge) {
+    eventBadge.textContent = (session && session.eventName && filterVal !== 'all') ? `(${session.eventName})` : '';
   }
 
-  // Taruh frame dari event aktif di atas
+  const fullPool = [...getSpecialGalleryTemplatesPool()];
+  const eventOwn = targetEventId ? fullPool.filter(t => t.event_id === targetEventId) : [];
+  const eventScoped = eventOwn.length > 0 ? eventOwn : (targetEventId ? fullPool.filter(t => !t.event_id) : fullPool);
+
+  let list = eventScoped;
+  if (filterVal === 'all') {
+    list = fullPool;
+  } else if (filterVal === 'portrait') {
+    list = eventScoped.filter(t => String(t.orientation || '').toLowerCase() !== 'landscape' && Number(t.width || 0) <= Number(t.height || 1));
+  } else if (filterVal === 'landscape') {
+    list = eventScoped.filter(t => String(t.orientation || '').toLowerCase() === 'landscape' || Number(t.width || 0) > Number(t.height || 0));
+  }
+
+  // Taruh frame dari event sesi di posisi paling atas
   list.sort((a, b) => {
     const aMatch = targetEventId && a.event_id === targetEventId ? 0 : 1;
     const bMatch = targetEventId && b.event_id === targetEventId ? 0 : 1;
@@ -7140,7 +7157,7 @@ function renderSpecialGalleryTemplates() {
   });
 
   if (list.length === 0) {
-    grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--text-muted); padding: 12px;">Tidak ada frame di filter ini</div>';
+    grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--text-muted); padding: 12px;">Belum ada frame dengan orientasi ini pada event tersebut.</div>';
     return;
   }
 
@@ -7197,19 +7214,32 @@ window.setSpecialGalleryFilter = setSpecialGalleryFilter;
 
 function updateSpecialGalleryZoomLabel() {
   const label = document.getElementById('specialGalleryZoomLabel');
+  const slider = document.getElementById('specialGalleryZoomSlider');
   const assign = sgState.slotAssignments[sgState.activeSlotIdx];
-  const z = assign ? (assign.zoom || 1) : 1;
+  const z = Math.max(0.35, Math.min(3.5, Number(assign ? (assign.zoom || 1) : 1)));
   if (label) label.textContent = `${z.toFixed(1)}×`;
+  if (slider) slider.value = String(Math.round(z * 100));
 }
 
 function adjustSpecialGalleryZoom(delta) {
   const assign = sgState.slotAssignments[sgState.activeSlotIdx];
   if (!assign) return;
-  assign.zoom = Math.max(0.8, Math.min(2.6, Number((assign.zoom + delta).toFixed(2))));
+  assign.zoom = Math.max(0.35, Math.min(3.5, Number(((assign.zoom || 1) + delta).toFixed(2))));
   updateSpecialGalleryZoomLabel();
   scheduleSpecialGalleryRender();
 }
 window.adjustSpecialGalleryZoom = adjustSpecialGalleryZoom;
+
+function setSpecialGalleryZoomPercent(pct) {
+  const assign = sgState.slotAssignments[sgState.activeSlotIdx];
+  if (!assign) return;
+  const parsed = parseFloat(pct);
+  if (!Number.isFinite(parsed)) return;
+  assign.zoom = Math.max(0.35, Math.min(3.5, Number((parsed / 100).toFixed(2))));
+  updateSpecialGalleryZoomLabel();
+  scheduleSpecialGalleryRender();
+}
+window.setSpecialGalleryZoomPercent = setSpecialGalleryZoomPercent;
 
 function resetSpecialGalleryTransform() {
   const assign = sgState.slotAssignments[sgState.activeSlotIdx];
@@ -7490,17 +7520,25 @@ async function renderSpecialGalleryCanvas(forExport = false) {
 
 function bindSpecialGalleryCanvasDrag() {
   const canvas = document.getElementById('specialGalleryCanvas');
+  const touchSurface = document.getElementById('specialGalleryCanvasWrap') || canvas;
   if (!canvas || canvas.dataset.sgDragBound === 'true') return;
   canvas.dataset.sgDragBound = 'true';
+  canvas.style.touchAction = 'none';
+  touchSurface.style.touchAction = 'none';
 
-  canvas.addEventListener('pointerdown', (e) => {
+  const getCanvasCoords = (clientX, clientY) => {
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / Math.max(1, rect.width);
     const scaleY = canvas.height / Math.max(1, rect.height);
-    const cx = (e.clientX - rect.left) * scaleX;
-    const cy = (e.clientY - rect.top) * scaleY;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
+      scaleX,
+      scaleY
+    };
+  };
 
-    // Jika user klik pada slot lain, otomatis aktifkan slot tersebut
+  const activateSlotAtPoint = (cx, cy) => {
     const meta = sgState.lastRenderedMeta;
     if (meta && Array.isArray(meta.slots)) {
       const hitIdx = meta.slots.findIndex(s => cx >= s.x && cx <= s.x + s.width && cy >= s.y && cy <= s.y + s.height);
@@ -7511,32 +7549,210 @@ function bindSpecialGalleryCanvasDrag() {
         updateSpecialGalleryZoomLabel();
       }
     }
+  };
 
-    sgState.drag = { active: true, pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY };
+  let isDragging = false;
+  let isPinching = false;
+  let dragState = { lastX: 0, lastY: 0, scaleX: 1, scaleY: 1 };
+  let pinchState = { initialDist: 1, initialZoom: 1, initialPanX: 0, initialPanY: 0, midX: 0, midY: 0, scaleX: 1, scaleY: 1 };
+
+  // 1. MOUSE DRAG (Desktop / Laptop Mouse)
+  touchSurface.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const coords = getCanvasCoords(e.clientX, e.clientY);
+    activateSlotAtPoint(coords.x, coords.y);
+    isDragging = true;
+    isPinching = false;
+    dragState = { lastX: e.clientX, lastY: e.clientY, scaleX: coords.scaleX, scaleY: coords.scaleY };
     canvas.style.cursor = 'grabbing';
-    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
   });
 
-  canvas.addEventListener('pointermove', (e) => {
-    if (!sgState.drag.active) return;
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
     const assign = sgState.slotAssignments[sgState.activeSlotIdx];
     if (!assign) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / Math.max(1, rect.width);
-    const scaleY = canvas.height / Math.max(1, rect.height);
-    assign.panX = (assign.panX || 0) + (e.clientX - sgState.drag.lastX) * scaleX;
-    assign.panY = (assign.panY || 0) + (e.clientY - sgState.drag.lastY) * scaleY;
-    sgState.drag.lastX = e.clientX;
-    sgState.drag.lastY = e.clientY;
+    assign.panX = (assign.panX || 0) + (e.clientX - dragState.lastX) * dragState.scaleX;
+    assign.panY = (assign.panY || 0) + (e.clientY - dragState.lastY) * dragState.scaleY;
+    dragState.lastX = e.clientX;
+    dragState.lastY = e.clientY;
     scheduleSpecialGalleryRender();
   });
 
-  const endDrag = () => {
-    sgState.drag.active = false;
-    canvas.style.cursor = 'grab';
+  window.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      canvas.style.cursor = 'grab';
+    }
+  });
+
+  // 2. MOUSE WHEEL / TRACKPAD PINCH ZOOM
+  touchSurface.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const coords = getCanvasCoords(e.clientX, e.clientY);
+    activateSlotAtPoint(coords.x, coords.y);
+    const assign = sgState.slotAssignments[sgState.activeSlotIdx];
+    if (!assign) return;
+    const step = e.ctrlKey ? (-e.deltaY * 0.01) : (e.deltaY < 0 ? 0.1 : -0.1);
+    assign.zoom = Math.max(0.35, Math.min(3.5, Number(((assign.zoom || 1) + step).toFixed(2))));
+    updateSpecialGalleryZoomLabel();
+    scheduleSpecialGalleryRender();
+  }, { passive: false });
+
+  // Safari Mac/iPadOS gesture guard agar cubit 2 jari tidak men-zoom halaman
+  touchSurface.addEventListener('gesturestart', (e) => { e.preventDefault(); }, { passive: false });
+  touchSurface.addEventListener('gesturechange', (e) => { e.preventDefault(); }, { passive: false });
+
+  // 3. MULTI-TOUCH GESTURES (HP, Tablet, Layar Sentuh: 1 Jari Geser + 2 Jari Pinch-to-Zoom)
+  touchSurface.addEventListener('touchstart', (e) => {
+    if (!e.touches || e.touches.length === 0) return;
+    e.preventDefault();
+
+    const coords = getCanvasCoords(e.touches[0].clientX, e.touches[0].clientY);
+    activateSlotAtPoint(coords.x, coords.y);
+    const assign = sgState.slotAssignments[sgState.activeSlotIdx];
+    if (!assign) return;
+
+    if (e.touches.length === 1) {
+      isDragging = true;
+      isPinching = false;
+      dragState = { lastX: e.touches[0].clientX, lastY: e.touches[0].clientY, scaleX: coords.scaleX, scaleY: coords.scaleY };
+    } else if (e.touches.length >= 2) {
+      isDragging = false;
+      isPinching = true;
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      pinchState = {
+        initialDist: Math.max(12, dist),
+        initialZoom: assign.zoom || 1.0,
+        initialPanX: assign.panX || 0,
+        initialPanY: assign.panY || 0,
+        midX,
+        midY,
+        scaleX: coords.scaleX,
+        scaleY: coords.scaleY
+      };
+    }
+  }, { passive: false });
+
+  window.addEventListener('touchmove', (e) => {
+    if (!isDragging && !isPinching) return;
+    if (!e.touches || e.touches.length === 0) return;
+    e.preventDefault();
+
+    const assign = sgState.slotAssignments[sgState.activeSlotIdx];
+    if (!assign) return;
+
+    if (isPinching && e.touches.length >= 2) {
+      const currentDist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      const scaleRatio = currentDist / pinchState.initialDist;
+      assign.zoom = Math.max(0.35, Math.min(3.5, Number((pinchState.initialZoom * scaleRatio).toFixed(2))));
+
+      const currentMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const currentMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      assign.panX = pinchState.initialPanX + (currentMidX - pinchState.midX) * pinchState.scaleX;
+      assign.panY = pinchState.initialPanY + (currentMidY - pinchState.midY) * pinchState.scaleY;
+
+      updateSpecialGalleryZoomLabel();
+      scheduleSpecialGalleryRender();
+    } else if (isDragging && e.touches.length === 1) {
+      assign.panX = (assign.panX || 0) + (e.touches[0].clientX - dragState.lastX) * dragState.scaleX;
+      assign.panY = (assign.panY || 0) + (e.touches[0].clientY - dragState.lastY) * dragState.scaleY;
+      dragState.lastX = e.touches[0].clientX;
+      dragState.lastY = e.touches[0].clientY;
+      scheduleSpecialGalleryRender();
+    }
+  }, { passive: false });
+
+  const stopTouch = (e) => {
+    if (e && e.touches && e.touches.length === 1 && isPinching) {
+      isPinching = false;
+      isDragging = true;
+      const coords = getCanvasCoords(e.touches[0].clientX, e.touches[0].clientY);
+      dragState = { lastX: e.touches[0].clientX, lastY: e.touches[0].clientY, scaleX: coords.scaleX, scaleY: coords.scaleY };
+      return;
+    }
+    if (!e || !e.touches || e.touches.length === 0) {
+      isDragging = false;
+      isPinching = false;
+    }
   };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
+  window.addEventListener('touchend', stopTouch);
+  window.addEventListener('touchcancel', stopTouch);
+
+  // 4. STYLUS / PEN POINTER FALLBACK (touch sudah ditangani touchstart/touchmove)
+  const activePointers = new Map();
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse' || e.pointerType === 'touch') return;
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    const coords = getCanvasCoords(e.clientX, e.clientY);
+    activateSlotAtPoint(coords.x, coords.y);
+    const assign = sgState.slotAssignments[sgState.activeSlotIdx];
+    if (!assign) return;
+
+    if (activePointers.size === 1) {
+      isDragging = true;
+      isPinching = false;
+      dragState = { lastX: e.clientX, lastY: e.clientY, scaleX: coords.scaleX, scaleY: coords.scaleY };
+    } else if (activePointers.size >= 2) {
+      const pts = Array.from(activePointers.values());
+      isDragging = false;
+      isPinching = true;
+      pinchState = {
+        initialDist: Math.max(12, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)),
+        initialZoom: assign.zoom || 1.0,
+        initialPanX: assign.panX || 0,
+        initialPanY: assign.panY || 0,
+        midX: (pts[0].x + pts[1].x) / 2,
+        midY: (pts[0].y + pts[1].y) / 2,
+        scaleX: coords.scaleX,
+        scaleY: coords.scaleY
+      };
+    }
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'mouse' || e.pointerType === 'touch' || !activePointers.has(e.pointerId)) return;
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const assign = sgState.slotAssignments[sgState.activeSlotIdx];
+    if (!assign) return;
+
+    if (isPinching && activePointers.size >= 2) {
+      const pts = Array.from(activePointers.values());
+      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      assign.zoom = Math.max(0.35, Math.min(3.5, Number((pinchState.initialZoom * (dist / pinchState.initialDist)).toFixed(2))));
+      const curMidX = (pts[0].x + pts[1].x) / 2;
+      const curMidY = (pts[0].y + pts[1].y) / 2;
+      assign.panX = pinchState.initialPanX + (curMidX - pinchState.midX) * pinchState.scaleX;
+      assign.panY = pinchState.initialPanY + (curMidY - pinchState.midY) * pinchState.scaleY;
+      updateSpecialGalleryZoomLabel();
+      scheduleSpecialGalleryRender();
+    } else if (isDragging && activePointers.size === 1) {
+      assign.panX = (assign.panX || 0) + (e.clientX - dragState.lastX) * dragState.scaleX;
+      assign.panY = (assign.panY || 0) + (e.clientY - dragState.lastY) * dragState.scaleY;
+      dragState.lastX = e.clientX;
+      dragState.lastY = e.clientY;
+      scheduleSpecialGalleryRender();
+    }
+  });
+
+  const endPen = (e) => {
+    if (e.pointerType === 'mouse' || e.pointerType === 'touch') return;
+    activePointers.delete(e.pointerId);
+    if (activePointers.size === 0) {
+      isDragging = false;
+      isPinching = false;
+    }
+  };
+  canvas.addEventListener('pointerup', endPen);
+  canvas.addEventListener('pointercancel', endPen);
 }
 
 async function executeSpecialGalleryPrint(printMode = 'server') {
