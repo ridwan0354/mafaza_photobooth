@@ -1468,6 +1468,7 @@ class MingleBoothEngine {
       } else {
         if (ovf) ovf.style.display = 'none';
         if (canvas) canvas.style.display = 'block';
+        this.applyMingleVideoTransform();
         this.startLiveViewLoop();
       }
       return;
