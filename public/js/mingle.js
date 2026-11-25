@@ -905,9 +905,6 @@ class MingleBoothEngine {
     if (this.currentScreen === 'screenMingleReady') {
       this.activeTargetShots = (v === 'unlimited') ? 'unlimited' : (parseInt(v, 10) || 1);
       this.updateReadyCaptureUI();
-      if (this.activeTargetShots !== 'unlimited' && this.capturedPhotos.length >= this.activeTargetShots) {
-        this.finishCaptureSession();
-      }
       return;
     }
     this.shotsOverride = v;
@@ -1036,15 +1033,41 @@ class MingleBoothEngine {
     const stripWrap = document.getElementById('mingleReadyStripWrap');
     const strip = document.getElementById('mingleCapturedStrip');
     const stripLbl = document.getElementById('mingleStripCountLabel');
+    const waitDesc = document.getElementById('mingleWaitDesc');
+    const targetNum = this.activeTargetShots !== 'unlimited' ? (Number(this.activeTargetShots) || 1) : 0;
+    const reachedMultiTarget = targetNum > 1 && count >= targetNum;
 
     if (pill) {
-      pill.innerText = this.activeTargetShots === 'unlimited'
-        ? `♾️ ${count} Foto Tersimpan`
-        : `📸 ${count} / ${this.activeTargetShots} Foto`;
+      if (reachedMultiTarget) {
+        pill.innerText = `✅ ${count} / ${targetNum} Foto Siap`;
+        pill.style.background = '#D8F5E5';
+        pill.style.color = '#165B3E';
+        pill.style.borderColor = '#6CC296';
+      } else {
+        pill.style.background = '';
+        pill.style.color = '';
+        pill.style.borderColor = '';
+        pill.innerText = this.activeTargetShots === 'unlimited'
+          ? `♾️ ${count} Foto Tersimpan`
+          : `📸 ${count} / ${this.activeTargetShots} Foto`;
+      }
     }
     if (finishBtn) {
       finishBtn.style.display = count >= 1 ? 'block' : 'none';
-      finishBtn.innerText = `✅ Selesai Foto (${count}) & Buat QR Galeri ➔`;
+      if (reachedMultiTarget) {
+        finishBtn.innerText = `✅ Pose Lengkap (${count}/${targetNum}) — Lanjut Hasil & QR ➔`;
+        finishBtn.style.background = '#177A57';
+        finishBtn.style.boxShadow = '0 8px 22px rgba(23, 122, 87, 0.35)';
+      } else {
+        finishBtn.innerText = `✅ Selesai Foto (${count}) & Buat QR Galeri ➔`;
+        finishBtn.style.background = '#1F5B56';
+        finishBtn.style.boxShadow = '';
+      }
+    }
+    if (waitDesc) {
+      waitDesc.innerText = reachedMultiTarget
+        ? `Semua ${targetNum} pose sudah terisi! Cek foto di atas, tekan ✕ untuk hapus & foto ulang pose yg kurang pas, atau tekan tombol Selesai.`
+        : 'Tekan langsung shutter fisik kamera Sony A7 III / Canon EOS Anda, atau klik Jepret dari Layar.';
     }
     if (stripWrap) {
       stripWrap.style.display = count >= 1 ? 'block' : 'none';
@@ -1121,6 +1144,7 @@ class MingleBoothEngine {
       this.syncedCaptureCount = this.capturedPhotos.length;
     }
     this.updateReadyCaptureUI();
+    this.showToast(`🗑️ Foto #${idx + 1} dihapus — silakan jepret ulang pose pengganti.`, '📸', 2200);
   }
 
   openSelectScreen() {
@@ -1607,20 +1631,25 @@ class MingleBoothEngine {
 
       const count = this.capturedPhotos.length;
       const target = this.activeTargetShots;
-      const reachedTarget = (target !== 'unlimited' && count >= Number(target));
+      const targetNum = target !== 'unlimited' ? (Number(target) || 1) : 0;
+      const shouldAutoFinish = (target !== 'unlimited' && targetNum === 1 && count >= 1);
 
-      if (reachedTarget) {
+      if (shouldAutoFinish) {
         await this.finishCaptureSession();
       } else {
         this.setProcessingOverlay(false);
         this.syncViewfinderForReadyScreen();
-        this.showToast(
-          target === 'unlimited'
-            ? `📸 Foto #${count} tersimpan! Terus jepret atau ketuk Selesai.`
-            : `📸 Foto ${count}/${target} tersimpan! Tekan shutter untuk pose berikutnya.`,
-          '✅',
-          2200
-        );
+        if (target !== 'unlimited' && count >= targetNum) {
+          this.showToast(`✅ ${count}/${targetNum} pose lengkap! Cek / hapus (✕) jika ingin ganti pose, lalu tekan Selesai.`, '🎯', 3200);
+        } else {
+          this.showToast(
+            target === 'unlimited'
+              ? `📸 Foto #${count} tersimpan! Terus jepret atau ketuk Selesai.`
+              : `📸 Foto ${count}/${target} tersimpan! Tekan shutter untuk pose berikutnya.`,
+            '✅',
+            2200
+          );
+        }
       }
     } finally {
       this.isProcessingCapture = false;

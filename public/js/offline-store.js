@@ -293,27 +293,94 @@
       }
     },
 
-    // 6. Unggah satu sesi ke server (mendukung batching 2 pose per request agar aman di WiFi lambat / limit proxy)
+    async _compressImageBlobForUpload(blob, { maxBytes = 700 * 1024, maxDim = 1600, quality = 0.83 } = {}) {
+      if (!blob || blob.size <= maxBytes) return blob;
+      if (typeof document === 'undefined' || typeof Image === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
+        return blob;
+      }
+      if (!String(blob.type || '').startsWith('image/')) return blob;
+      let objUrl = null;
+      try {
+        objUrl = URL.createObjectURL(blob);
+        const img = await new Promise((resolve) => {
+          const im = new Image();
+          im.onload = () => resolve(im.naturalWidth > 0 ? im : null);
+          im.onerror = () => resolve(null);
+          im.src = objUrl;
+        });
+        if (!img) return blob;
+        const iw = img.naturalWidth;
+        const ih = img.naturalHeight;
+        const maxSide = Math.max(iw, ih);
+        const scale = maxSide > maxDim ? (maxDim / maxSide) : 1;
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(iw * scale));
+        c.height = Math.max(1, Math.round(ih * scale));
+        const ctx = c.getContext('2d');
+        if (!ctx) return blob;
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const compressed = await new Promise((res) => c.toBlob(res, 'image/jpeg', quality));
+        c.width = 0; c.height = 0;
+        if (compressed && compressed.size > 0 && compressed.size < blob.size) {
+          return compressed;
+        }
+      } catch (e) {}
+      finally {
+        if (objUrl) {
+          try { URL.revokeObjectURL(objUrl); } catch (e) {}
+        }
+      }
+      return blob;
+    },
+
+    _formatUploadError(err) {
+      const raw = String((err && err.message) || err || 'Gagal terhubung ke server');
+      if ((err && err.name === 'AbortError') || /aborted|timeout/i.test(raw)) {
+        return 'Waktu unggah habis saat mengirim ke server (coba ulangi)';
+      }
+      if (/failed to fetch|load failed|networkerror|network request failed/i.test(raw)) {
+        return 'Koneksi terputus saat kirim foto ke server (Failed to fetch) — coba klik Kirim ulang atau periksa sinyal';
+      }
+      return raw;
+    },
+
+    // 6. Unggah satu sesi ke server (mendukung batching 2 pose per request, + auto-kompresi & fallback 1 foto per request jika jaringan/proxy membatasi ukuran)
     async uploadSession(session) {
       const caps = Array.isArray(session.captures) ? session.captures : [];
       const totalCaps = caps.length;
       const batchSize = 2;
-      const finalBlob = dataUrlToBlob(session.finalImage);
+      const rawFinalBlob = dataUrlToBlob(session.finalImage);
+      const finalBlob = await this._compressImageBlobForUpload(rawFinalBlob, { maxBytes: 750 * 1024, maxDim: 1800, quality: 0.86 });
       const url = `/api/kiosk/sessions/${encodeURIComponent(session.id)}/complete`;
 
-      const postFormWithTimeout = async (formData, timeoutMs = 35000) => {
-        const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
-        const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
-        try {
-          const res = await fetch(url, ctrl ? { method: 'POST', body: formData, signal: ctrl.signal } : { method: 'POST', body: formData });
-          if (!res.ok) {
-            const errJson = await res.json().catch(() => null);
-            throw new Error((errJson && errJson.error) || `Server returned HTTP ${res.status}`);
+      const postFormWithRetry = async (buildFormData, timeoutMs = 55000, maxAttempts = 2) => {
+        let lastErr = null;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+          const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+          const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+          try {
+            const fd = buildFormData();
+            const res = await fetch(url, ctrl ? { method: 'POST', body: fd, signal: ctrl.signal } : { method: 'POST', body: fd });
+            if (!res.ok) {
+              const errJson = await res.json().catch(() => null);
+              const errObj = new Error((errJson && errJson.error) || `Server returned HTTP ${res.status}`);
+              errObj.status = res.status;
+              throw errObj;
+            }
+            return await res.json();
+          } catch (err) {
+            lastErr = err;
+            const retryable = !err?.status || err.status >= 500 || err.status === 408 || err.status === 429;
+            if (attempt < maxAttempts && retryable) {
+              await new Promise((r) => setTimeout(r, 700));
+              continue;
+            }
+            throw err;
+          } finally {
+            if (timer) clearTimeout(timer);
           }
-          return await res.json();
-        } finally {
-          if (timer) clearTimeout(timer);
         }
+        throw lastErr;
       };
 
       const appendCommonFields = (fd, isLastBatch) => {
@@ -357,37 +424,95 @@
         }
       };
 
-      if (totalCaps === 0) {
-        const fd = new FormData();
-        appendCommonFields(fd, true);
-        if (finalBlob) fd.append('finalImage', finalBlob, `final_off_${session.id}.jpg`);
-        appendMotionAssets(fd);
-        return await postFormWithTimeout(fd);
+      const preparedCaps = [];
+      for (let i = 0; i < totalCaps; i++) {
+        const c = caps[i];
+        const rawBlob = c ? dataUrlToBlob(c.dataUrl) : null;
+        const smallBlob = rawBlob
+          ? await this._compressImageBlobForUpload(rawBlob, { maxBytes: 750 * 1024, maxDim: 1920, quality: 0.86 })
+          : null;
+        preparedCaps.push({ c, blob: smallBlob });
       }
 
-      let lastData = null;
-      for (let offset = 0; offset < totalCaps; offset += batchSize) {
-        const end = Math.min(totalCaps, offset + batchSize);
-        const isLastBatch = (end >= totalCaps);
-        const fd = new FormData();
-        appendCommonFields(fd, isLastBatch);
-        fd.append('captureStartIndex', String(offset));
-        if (offset === 0 && finalBlob) {
-          fd.append('finalImage', finalBlob, `final_off_${session.id}.jpg`);
-        }
-        for (let i = offset; i < end; i++) {
-          const c = caps[i];
-          const cBlob = c ? dataUrlToBlob(c.dataUrl) : null;
-          if (cBlob) {
-            fd.append('captures', cBlob, `pose_${c.poseIndex || (i + 1)}_${Date.now()}.jpg`);
-          }
-        }
-        if (isLastBatch) {
+      if (totalCaps === 0) {
+        return await postFormWithRetry(() => {
+          const fd = new FormData();
+          appendCommonFields(fd, true);
+          if (finalBlob) fd.append('finalImage', finalBlob, `final_off_${session.id}.jpg`);
           appendMotionAssets(fd);
-        }
-        lastData = await postFormWithTimeout(fd);
+          return fd;
+        });
       }
-      return lastData;
+
+      try {
+        let lastData = null;
+        for (let offset = 0; offset < totalCaps; offset += batchSize) {
+          const end = Math.min(totalCaps, offset + batchSize);
+          const isLastBatch = (end >= totalCaps);
+          lastData = await postFormWithRetry(() => {
+            const fd = new FormData();
+            appendCommonFields(fd, isLastBatch);
+            fd.append('captureStartIndex', String(offset));
+            if (offset === 0 && finalBlob) {
+              fd.append('finalImage', finalBlob, `final_off_${session.id}.jpg`);
+            }
+            for (let i = offset; i < end; i++) {
+              const item = preparedCaps[i];
+              if (item && item.blob) {
+                fd.append('captures', item.blob, `pose_${item.c.poseIndex || (i + 1)}_${Date.now()}.jpg`);
+              }
+            }
+            if (isLastBatch) {
+              appendMotionAssets(fd);
+            }
+            return fd;
+          });
+        }
+        return lastData;
+      } catch (batchErr) {
+        const msg = String((batchErr && batchErr.message) || batchErr || '');
+        const shouldFallback = !batchErr?.status || batchErr.status === 413 || batchErr.status >= 500 || /failed to fetch|load failed|network|aborted|timeout|413/i.test(msg);
+        if (!shouldFallback) throw batchErr;
+
+        // Fallback ringan: kirim finalImage terpisah, lalu 1 pose per request (masing-masing dikompres <= 450KB agar tembus proxy ketat)
+        const hasMotion = Boolean((session.liveClips && session.liveClips.length > 0) || (session.boomerang && session.boomerang.dataUrl));
+        let lastData = null;
+
+        if (finalBlob) {
+          const compactFinal = await this._compressImageBlobForUpload(finalBlob, { maxBytes: 450 * 1024, maxDim: 1440, quality: 0.80 });
+          lastData = await postFormWithRetry(() => {
+            const fd = new FormData();
+            appendCommonFields(fd, totalCaps === 0 && !hasMotion);
+            fd.append('finalImage', compactFinal, `final_off_${session.id}.jpg`);
+            return fd;
+          }, 60000, 2);
+        }
+
+        for (let i = 0; i < totalCaps; i++) {
+          const item = preparedCaps[i];
+          if (!item || !item.blob) continue;
+          const isLastCap = (i === totalCaps - 1) && !hasMotion;
+          const compactCap = await this._compressImageBlobForUpload(item.blob, { maxBytes: 450 * 1024, maxDim: 1600, quality: 0.80 });
+          lastData = await postFormWithRetry(() => {
+            const fd = new FormData();
+            appendCommonFields(fd, isLastCap);
+            fd.append('captureStartIndex', String(i));
+            fd.append('captures', compactCap, `pose_${item.c.poseIndex || (i + 1)}_${Date.now()}.jpg`);
+            return fd;
+          }, 60000, 2);
+        }
+
+        if (hasMotion) {
+          lastData = await postFormWithRetry(() => {
+            const fd = new FormData();
+            appendCommonFields(fd, true);
+            appendMotionAssets(fd);
+            return fd;
+          }, 65000, 2);
+        }
+
+        return lastData;
+      }
     },
 
     // 7. Sinkronkan semua sesi yang pending secara berurutan
@@ -421,9 +546,8 @@
             await this.deleteSession(item.id);
             successCount++;
           } catch (err) {
-            lastErrorMsg = String((err && err.message) || err || 'Gagal terhubung ke server');
+            lastErrorMsg = this._formatUploadError(err);
             console.warn(`Gagal mengunggah sesi ${item.id}:`, err);
-            // Tambahkan hitungan percobaan & simpan pesan error agar terlihat di Galeri Lokal
             const db = await openDB();
             await new Promise((res) => {
               const tx = db.transaction(STORE_SESSIONS, 'readwrite');
@@ -457,14 +581,31 @@
         throw new Error('Perangkat masih offline');
       }
       this.isSyncing = true;
+      let cur = null;
       try {
         const pending = await this.getPendingSessions();
-        const cur = pending.find(x => x.id === sessionId);
+        cur = pending.find(x => x.id === sessionId);
         if (!cur) return { missing: true };
         const uploadRes = await this.uploadSession(cur);
         this.recordSyncedSummary(cur, uploadRes);
         await this.deleteSession(cur.id);
         return { success: true, uploadRes };
+      } catch (err) {
+        const friendlyMsg = this._formatUploadError(err);
+        if (cur) {
+          try {
+            const db = await openDB();
+            await new Promise((res) => {
+              const tx = db.transaction(STORE_SESSIONS, 'readwrite');
+              cur.syncAttempts = (cur.syncAttempts || 0) + 1;
+              cur.lastSyncError = friendlyMsg;
+              tx.objectStore(STORE_SESSIONS).put(cur);
+              tx.oncomplete = res;
+              tx.onerror = res;
+            });
+          } catch (e) {}
+        }
+        throw new Error(friendlyMsg);
       } finally {
         this.isSyncing = false;
         this.notifyChange();
@@ -937,12 +1078,16 @@
             await this.renderLocalGalleryModal();
           } else if (action === 'upload') {
             if (!navigator.onLine) return;
+            el.disabled = true;
+            el.textContent = '⏳ Mengirim ke Server...';
             try {
               const syncRes = await this.syncSingleSessionById(id);
               if (syncRes && syncRes.busy) return;
-              await this.renderLocalGalleryModal();
+              if (window.pbToast) window.pbToast('✅ Foto berhasil dikirim ke server!', 'success', 3200);
             } catch (err) {
-              if (window.pbToast) window.pbToast(`Gagal kirim: ${err.message}`, 'error', 3500);
+              if (window.pbToast) window.pbToast(`Gagal kirim: ${err.message}`, 'error', 4000);
+            } finally {
+              await this.renderLocalGalleryModal();
             }
           } else if (action === 'delete') {
             if (!confirm('Hapus foto offline ini dari tablet? Foto yang dihapus tidak akan dikirim ke server.')) return;

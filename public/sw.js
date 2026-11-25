@@ -6,7 +6,7 @@
  * dan tetap bisa dibuka kembali saat di-refresh (F5 / reload).
  */
 
-const CACHE_NAME = 'mafaza-offline-v4.16';
+const CACHE_NAME = 'mafaza-offline-v4.17';
 
 const PRECACHE_ASSETS = [
   '/',

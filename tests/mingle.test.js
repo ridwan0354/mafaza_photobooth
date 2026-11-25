@@ -2060,7 +2060,7 @@ test('Mingle result photo picker stays intact across session reset and lets oper
   assert.match(mingleHtml, /id="mingleResultSlotHint"/);
   assert.match(mingleHtml, /id="mingleResultSlotTabs"/);
   assert.match(mingleHtml, /id="mingleResultPhotoPicker"/);
-  assert.match(mingleHtml, /\/js\/mingle\.js\?v=3\.8/);
+  assert.match(mingleHtml, /\/js\/mingle\.js\?v=3\.9/);
 
   const createEl = (id) => ({
     id,
@@ -2348,4 +2348,169 @@ test('Printed sheets always stamp configured QR codes across Editor save, Browse
     srv.closeAllConnections?.();
     srv.close();
   }
+});
+
+test('Mingle 3x Pose pauses for review/retake of pose #3 before entering Result screen, while 1x auto-advances', async () => {
+  const vm = await import('node:vm');
+  const mingleSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+  const trimmed = mingleSrc.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
+
+  const createEl = (id) => ({ id, style: {}, innerText: '', innerHTML: '' });
+  const dom = new Map([
+    ['mingleShotsProgressPill', createEl('mingleShotsProgressPill')],
+    ['btnMingleFinishSession', createEl('btnMingleFinishSession')],
+    ['mingleReadyStripWrap', createEl('mingleReadyStripWrap')],
+    ['mingleCapturedStrip', createEl('mingleCapturedStrip')],
+    ['mingleStripCountLabel', createEl('mingleStripCountLabel')],
+    ['mingleWaitDesc', createEl('mingleWaitDesc')]
+  ]);
+
+  const ctx = vm.createContext({
+    URL, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    window: { location: { origin: 'http://localhost', search: '' }, addEventListener: () => {} },
+    document: { getElementById: (id) => dom.get(id) || null, querySelector: () => null, querySelectorAll: () => [], addEventListener: () => {} },
+    localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+    navigator: { onLine: true, mediaDevices: {} },
+    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    setTimeout, clearTimeout, setInterval, clearInterval, console
+  });
+  vm.runInContext(trimmed, ctx);
+
+  const engine = vm.runInContext('Object.create(MingleBoothEngine.prototype)', ctx);
+  let finishCalls = 0;
+  let overlayStates = [];
+  let viewfinderSynced = 0;
+  const toasts = [];
+  Object.assign(engine, {
+    capturedPhotos: [],
+    syncedCaptureCount: 0,
+    activeTargetShots: 3,
+    currentScreen: 'screenMingleReady',
+    finishCaptureSession: async () => { finishCalls++; },
+    setProcessingOverlay: (v) => { overlayStates.push(Boolean(v)); },
+    syncViewfinderForReadyScreen: () => { viewfinderSynced++; },
+    showToast: (msg) => { toasts.push(msg); }
+  });
+
+  // 1. Capture 3 poses in 3x Pose mode -> must NOT auto-enter finishCaptureSession()
+  await engine.finalizeCapturedDataUrl('data:image/jpeg;base64,POSE1');
+  await engine.finalizeCapturedDataUrl('data:image/jpeg;base64,POSE2');
+  await engine.finalizeCapturedDataUrl('data:image/jpeg;base64,POSE3_BAD');
+
+  assert.equal(finishCalls, 0, '3x Pose must pause on Ready screen after shot #3 instead of auto-entering Result');
+  assert.equal(engine.capturedPhotos.length, 3);
+  assert.equal(dom.get('btnMingleFinishSession').style.display, 'block');
+  assert.match(dom.get('btnMingleFinishSession').innerText, /3\/3/);
+  assert.match(dom.get('mingleShotsProgressPill').innerText, /3 \/ 3 Foto Siap/);
+  assert.ok(viewfinderSynced >= 3);
+
+  // 2. Delete bad pose #3 and re-capture new pose #3 -> stays at 3/3 ready to confirm
+  engine.deleteCapturedPhoto(2);
+  assert.equal(engine.capturedPhotos.length, 2);
+  assert.match(dom.get('mingleShotsProgressPill').innerText, /2 \/ 3 Foto/);
+
+  await engine.finalizeCapturedDataUrl('data:image/jpeg;base64,POSE3_GOOD');
+  assert.equal(finishCalls, 0, 'After retaking pose #3, still waits for operator confirmation button');
+  assert.equal(engine.capturedPhotos.length, 3);
+  assert.equal(engine.capturedPhotos[2], 'data:image/jpeg;base64,POSE3_GOOD');
+
+  // 3. 1x Langsung Jadi still transitions directly after 1 shot
+  engine.capturedPhotos = [];
+  engine.activeTargetShots = 1;
+  await engine.finalizeCapturedDataUrl('data:image/jpeg;base64,SINGLE');
+  assert.equal(finishCalls, 1, '1x single-shot mode finishes automatically after 1 photo');
+});
+
+test('Offline uploadSession automatically falls back to lightweight single-file uploads when multi-file batch hits Failed to fetch', async () => {
+  const vm = await import('node:vm');
+  const offlineSrc = fs.readFileSync(path.join(process.cwd(), 'public/js/offline-store.js'), 'utf8');
+  const requests = [];
+
+  class FakeFormData {
+    constructor() { this.fields = []; }
+    append(k, v, name) { this.fields.push({ k, v, name }); }
+  }
+
+  const tinyJpg = 'data:image/jpeg;base64,' + Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString('base64');
+  const mockIdb = {
+    open() {
+      const req = {};
+      setTimeout(() => {
+        req.result = {
+          transaction() {
+            return {
+              objectStore() {
+                return {
+                  getAll() {
+                    const r = {};
+                    setTimeout(() => { r.result = []; if (r.onsuccess) r.onsuccess(); }, 0);
+                    return r;
+                  }
+                };
+              }
+            };
+          }
+        };
+        if (req.onsuccess) req.onsuccess();
+      }, 0);
+      return req;
+    }
+  };
+  const oCtx = vm.createContext({
+    indexedDB: mockIdb,
+    window: { addEventListener: () => {} },
+    document: { addEventListener: () => {}, getElementById: () => null },
+    localStorage: { getItem: () => null, setItem: () => {} },
+    navigator: { onLine: true },
+    FormData: FakeFormData,
+    Blob: globalThis.Blob,
+    AbortController: globalThis.AbortController,
+    atob: globalThis.atob,
+    Uint8Array, Promise, Math, Date, JSON, Array, Number, String, Boolean,
+    setTimeout, clearTimeout, setInterval: () => 1, console,
+    fetch: async (url, opts) => {
+      const capFields = opts.body.fields.filter(f => f.k === 'captures');
+      const finalFields = opts.body.fields.filter(f => f.k === 'finalImage');
+      // Simulate Cloudflare/proxy dropping combined multi-photo batch (>1 file in a POST) with TypeError: Failed to fetch
+      if (capFields.length > 1 || (capFields.length >= 1 && finalFields.length >= 1)) {
+        throw new TypeError('Failed to fetch');
+      }
+      requests.push({
+        url,
+        startIdx: opts.body.fields.find(f => f.k === 'captureStartIndex')?.v ?? null,
+        hasFinal: finalFields.length > 0,
+        capCount: capFields.length,
+        printRequested: opts.body.fields.find(f => f.k === 'printRequested')?.v
+      });
+      return { ok: true, status: 200, json: async () => ({ success: true, printJob: { printJobId: 'pj_fb' } }) };
+    }
+  });
+  vm.runInContext(offlineSrc, oCtx);
+  const store = oCtx.window.pbOfflineStore;
+
+  const result = await store.uploadSession({
+    id: 'sess_fallback_test',
+    tenantId: 't1',
+    eventId: 'e1',
+    mode: 'multi',
+    finalImage: tinyJpg,
+    captures: [
+      { poseIndex: 1, dataUrl: tinyJpg },
+      { poseIndex: 2, dataUrl: tinyJpg },
+      { poseIndex: 3, dataUrl: tinyJpg }
+    ],
+    printRequested: true,
+    printCopies: 1,
+    printPaperSize: '4x6'
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(requests.length, 4, 'Falls back cleanly: 1 finalImage + 3 separate single-pose uploads');
+  assert.equal(requests[0].hasFinal, true);
+  assert.equal(requests[0].capCount, 0);
+  assert.equal(requests[0].printRequested, 'false');
+  assert.equal(requests[1].startIdx, '0');
+  assert.equal(requests[2].startIdx, '1');
+  assert.equal(requests[3].startIdx, '2');
+  assert.equal(requests[3].printRequested, 'true', 'printRequested fires only on final fallback request');
 });
