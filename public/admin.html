@@ -582,15 +582,119 @@
       #photoPreviewModal .card-pop,
       #photoQrDetailModal .card-pop,
       #eventQrModal .card-pop,
-      #quickPrintModal .card-pop {
-        width: 95vw !important;
-        max-width: 95vw !important;
-        padding: 18px 14px !important;
+      #quickPrintModal .card-pop,
+      #specialGalleryModal .card-pop {
+        width: 96vw !important;
+        max-width: 96vw !important;
+        box-sizing: border-box !important;
+        overflow-x: hidden !important;
+        padding: 14px 12px !important;
         border-radius: 18px !important;
       }
-      #photoPreviewModal {
+      .special-gallery-grid {
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 12px !important;
+      }
+      .special-gallery-grid > * {
+        min-width: 0 !important;
+        max-width: 100% !important;
+      }
+      #specialGalleryCanvasWrap {
+        min-height: 230px !important;
+        max-height: 340px !important;
         padding: 10px !important;
       }
+      #specialGalleryCanvas {
+        max-height: 315px !important;
+      }
+      #photoPreviewModal,
+      #specialGalleryModal {
+        padding: 8px !important;
+      }
+    }
+
+    .special-gallery-grid {
+      display: grid;
+      grid-template-columns: 245px minmax(0, 1.05fr) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .special-gallery-grid > * {
+      min-width: 0;
+      box-sizing: border-box;
+    }
+    @media (max-width: 1120px) {
+      .special-gallery-grid {
+        grid-template-columns: 220px minmax(0, 1fr);
+      }
+      .special-gallery-controls-col {
+        grid-column: 1 / -1;
+      }
+    }
+    .sg-session-card {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      padding: 9px;
+      border-radius: 14px;
+      border: 2px solid var(--border-soft);
+      background: #fff;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-align: left;
+      width: 100%;
+    }
+    .sg-session-card:hover {
+      border-color: var(--coral);
+      transform: translateY(-1px);
+    }
+    .sg-session-card.active {
+      border-color: var(--coral);
+      background: #FFF3EF;
+      box-shadow: 0 4px 12px rgba(226, 98, 79, 0.14);
+    }
+    .sg-thumb-btn {
+      position: relative;
+      border-radius: 12px;
+      border: 2px solid var(--border-soft);
+      background: #fff;
+      padding: 5px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: center;
+      min-width: 0;
+      width: 100%;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .sg-thumb-btn:hover {
+      border-color: var(--dusty-teal);
+    }
+    .sg-thumb-btn.active {
+      border-color: var(--coral);
+      background: #FFF3EF;
+      box-shadow: 0 0 0 2px rgba(226, 98, 79, 0.18);
+    }
+    .sg-slot-pill {
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1.5px solid var(--border-soft);
+      background: #fff;
+      color: var(--caramel-brown);
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .sg-slot-pill.active {
+      background: var(--coral);
+      border-color: var(--coral);
+      color: #fff;
     }
 
     /* Small Phones (<= 600px) */
@@ -1084,6 +1188,9 @@
               <select id="galleryEventFilter" onchange="filterGalleryByEvent()" style="padding: 10px 14px; background: #fff; border: 2px solid var(--soft-gray); border-radius: 12px; font-size: 13.5px; font-weight: 700; color: var(--caramel-brown);">
                 <option value="">Semua Event</option>
               </select>
+              <button type="button" id="btnOpenSpecialGallery" class="btn btn-coral" style="font-size: 13px; font-weight: 800; padding: 10px 16px; display: flex; align-items: center; gap: 6px;" onclick="openSpecialGalleryModal()" title="Pilih foto dari satu sesi, ganti-ganti frame, dan cetak ulang 4R/5R">
+                🎨 Galeri Khusus (Ganti Frame &amp; Pose)
+              </button>
               <button class="btn btn-secondary" style="font-size: 13px; font-weight: 700; padding: 10px 16px; display: flex; align-items: center; gap: 6px; background: #fff;" onclick="filterGalleryByEvent()">
                 🔄 Segarkan Galeri
               </button>
@@ -3216,8 +3323,11 @@
             <button id="modalBtnReprint" class="btn btn-coral" style="width: 100%; font-size: 14px; padding: 11px; font-weight: 800; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 6px;" onclick="executeModalReprint()">
               🖨️ Kirim Cetak ke Spooler
             </button>
-            <button type="button" class="btn" style="width: 100%; padding: 7px 10px; font-weight: 700; font-size: 11.5px; background: rgba(123,72,46,0.06); color: var(--caramel-brown); border: 1px dashed var(--border-soft); border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;" onclick="printModalPhotoViaDevice()" title="Gunakan dialog printer bawaan komputer jika spooler tidak terhubung">
+            <button type="button" class="btn" style="width: 100%; padding: 7px 10px; font-weight: 700; font-size: 11.5px; background: rgba(123,72,46,0.06); color: var(--caramel-brown); border: 1px dashed var(--border-soft); border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; margin-bottom: 6px;" onclick="printModalPhotoViaDevice()" title="Gunakan dialog printer bawaan komputer jika spooler tidak terhubung">
               🖨️ Cetak via Dialog Browser (Cadangan)
+            </button>
+            <button type="button" id="modalBtnOpenSpecialGallery" class="btn btn-secondary" style="width: 100%; padding: 8px 10px; font-weight: 800; font-size: 12px; background: #FFF5F0; color: var(--coral); border: 1.5px solid rgba(226,98,79,0.35); border-radius: 9px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;" onclick="openSpecialGalleryFromModal()">
+              🎨 Pilih Pose Sesi &amp; Ganti Frame (Galeri Khusus)
             </button>
           </div>
 
@@ -3584,9 +3694,147 @@
     </div>
   </div>
 
+  <!-- 6. GALERI KHUSUS MODAL (PILIH POSE SESI, GANTI FRAME & CETAK 4R / 5R) -->
+  <div id="specialGalleryModal" style="display: none; position: fixed; inset: 0; z-index: 10003; background: rgba(30, 15, 10, 0.84); backdrop-filter: blur(8px); align-items: center; justify-content: center; padding: 16px;" onclick="if(event.target===this) closeSpecialGalleryModal()">
+    <div class="card-pop" style="max-width: 1220px; width: 100%; max-height: 94vh; overflow-y: auto; background: #FFFDF9; border: 2px solid var(--border-soft, #EAD8C7); padding: 22px 24px; position: relative; border-radius: 24px; box-shadow: 0 28px 70px rgba(0,0,0,0.45);" onclick="event.stopPropagation()">
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1.5px dashed var(--border-soft);">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+            <span class="sticker-badge sticker-purple">🎨 Galeri Khusus Studio</span>
+            <span id="specialGallerySessionBadge" class="sticker-badge sticker-teal">Pilih Sesi Foto</span>
+          </div>
+          <h3 style="margin: 0; font-size: 21px; font-weight: 800; color: var(--caramel-brown);">Cetak Ulang Semua Pose &amp; Ganti-Ganti Frame</h3>
+          <p style="margin: 2px 0 0; font-size: 12.5px; color: var(--text-muted);">Pilih sesi tamu, pilih foto/pose yang ingin dicetak, ganti frame kapan saja, lalu cetak lokal atau kirim ke antrean server (4R / 5R).</p>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <select id="specialGalleryEventFilter" onchange="loadSpecialGallerySessions()" style="padding: 8px 12px; background: #fff; border: 2px solid var(--border-soft); border-radius: 10px; font-size: 12.5px; font-weight: 700; color: var(--caramel-brown);">
+            <option value="">Semua Event</option>
+          </select>
+          <button type="button" class="btn btn-secondary" style="padding: 8px 12px; font-size: 12.5px; font-weight: 700; background: #fff;" onclick="loadSpecialGallerySessions()">🔄 Muat Ulang</button>
+          <button type="button" onclick="closeSpecialGalleryModal()" style="width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--border-soft); background: var(--cream-card); color: var(--caramel-brown); font-weight: 800; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px;">✕</button>
+        </div>
+      </div>
+
+      <!-- 3-Column Studio Grid -->
+      <div class="special-gallery-grid">
+        <!-- KOLOM 1: DAFTAR SESI TAMU -->
+        <div style="background: var(--cream-card); border: 1.5px solid var(--border-soft); border-radius: 18px; padding: 12px; display: flex; flex-direction: column; gap: 10px; min-width: 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); text-transform: uppercase; letter-spacing: 0.4px;">📂 Daftar Sesi Tamu</span>
+            <span id="sgSessionCountLabel" style="font-size: 11px; font-weight: 700; color: var(--text-muted);">0 sesi</span>
+          </div>
+          <div id="specialGallerySessionsList" style="display: flex; flex-direction: column; gap: 8px; max-height: 500px; overflow-y: auto; padding-right: 2px;">
+            <div style="padding: 20px; text-align: center; font-size: 12.5px; color: var(--text-muted);">Memuat sesi...</div>
+          </div>
+        </div>
+
+        <!-- KOLOM 2: PREVIEW LIVE CANVAS & KONTROL SLOT/ZOOM/FILTER -->
+        <div style="display: flex; flex-direction: column; gap: 10px; min-width: 0;">
+          <div id="specialGalleryCanvasWrap" style="background: #2C1D15; border-radius: 18px; padding: 12px; display: flex; align-items: center; justify-content: center; min-height: 310px; max-height: 430px; border: 2px solid var(--border-soft); position: relative; overflow: hidden;">
+            <canvas id="specialGalleryCanvas" style="max-width: 100%; max-height: 400px; border-radius: 10px; box-shadow: 0 12px 28px rgba(0,0,0,0.38); cursor: grab; touch-action: none;"></canvas>
+          </div>
+
+          <!-- Slot Selector + Pan/Zoom Toolbar -->
+          <div style="background: var(--cream-card); border: 1.5px solid var(--border-soft); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; max-width: 100%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <div id="specialGallerySlotTabs" style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;"></div>
+              <div style="display: flex; align-items: center; gap: 5px;">
+                <button type="button" class="sg-slot-pill" onclick="adjustSpecialGalleryZoom(-0.1)" title="Perkecil foto dalam slot">➖</button>
+                <span id="specialGalleryZoomLabel" style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); min-width: 42px; text-align: center;">1.0×</span>
+                <button type="button" class="sg-slot-pill" onclick="adjustSpecialGalleryZoom(0.1)" title="Perbesar foto dalam slot">➕</button>
+                <button type="button" class="sg-slot-pill" onclick="resetSpecialGalleryTransform()" title="Reset posisi & zoom">↺ Reset</button>
+              </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+              <span style="font-size: 11px; color: var(--text-muted);">💡 Geser foto langsung di kanvas untuk menyesuaikan posisi dalam slot.</span>
+              <button type="button" id="sgBtnApplyPoseAll" class="sg-slot-pill" onclick="applyActivePoseToAllSlots()" style="background: #fff; border-color: var(--dusty-teal); color: var(--dusty-teal);">🪄 Pakai Foto Ini di Semua Slot</button>
+            </div>
+            <!-- Filter Pills -->
+            <div id="specialGalleryFilterBar" style="display: flex; gap: 6px; overflow-x: auto; max-width: 100%; padding-top: 4px; border-top: 1px dashed var(--border-soft);"></div>
+          </div>
+        </div>
+
+        <!-- KOLOM 3: PILIH POSE + PILIH FRAME + OPSI CETAK (4R / 5R + JUMLAH + LOKAL / SERVER) -->
+        <div class="special-gallery-controls-col" style="display: flex; flex-direction: column; gap: 10px; min-width: 0;">
+          <!-- 1. Pilih Foto dari Sesi Ini -->
+          <div style="background: var(--cream-card); border: 1.5px solid var(--border-soft); border-radius: 16px; padding: 11px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; flex-wrap: wrap;">
+              <span style="font-size: 12px; font-weight: 800; color: var(--caramel-brown);">1️⃣ Foto di Sesi Ini (<span id="sgPoseCountText">0</span>)</span>
+              <button type="button" class="sg-slot-pill" style="padding: 4px 9px; font-size: 11px;" onclick="autoFillSpecialGallerySlots()">✨ Isi Berurutan</button>
+            </div>
+            <div id="specialGalleryPosesGrid" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; max-height: 150px; overflow-y: auto;">
+              <div style="grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--text-muted); padding: 12px;">Pilih sesi di sebelah kiri</div>
+            </div>
+          </div>
+
+          <!-- 2. Pilih Frame / Template -->
+          <div style="background: var(--cream-card); border: 1.5px solid var(--border-soft); border-radius: 16px; padding: 11px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; flex-wrap: wrap;">
+              <span style="font-size: 12px; font-weight: 800; color: var(--caramel-brown);">2️⃣ Pilih Frame / Template</span>
+              <select id="specialGalleryTplFilter" onchange="renderSpecialGalleryTemplates()" style="padding: 4px 8px; border-radius: 8px; border: 1.5px solid var(--border-soft); background: #fff; font-size: 11.5px; font-weight: 700; color: var(--caramel-brown); max-width: 100%;">
+                <option value="all">Semua Frame</option>
+                <option value="event">Frame Event Ini</option>
+                <option value="portrait">Potret</option>
+                <option value="landscape">Lanskap</option>
+              </select>
+            </div>
+            <div id="specialGalleryTemplatesGrid" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; max-height: 150px; overflow-y: auto;">
+              <div style="grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--text-muted); padding: 12px;">Memuat frame...</div>
+            </div>
+          </div>
+
+          <!-- 3. Opsi Kertas, Jumlah & Tombol Cetak -->
+          <div style="background: #fff; border: 2px solid var(--border-soft); border-radius: 16px; padding: 12px;">
+            <div style="font-size: 12px; font-weight: 800; color: var(--caramel-brown); margin-bottom: 8px;">3️⃣ Ukuran Kertas, Jumlah &amp; Cetak</div>
+
+            <!-- Kertas 4R vs 5R -->
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; margin-bottom: 9px;">
+              <button type="button" id="sgBtnPaper4R" onclick="selectSpecialGalleryPaper('4R')" style="padding: 8px 6px; border-radius: 10px; border: 2px solid var(--coral); background: #FFF2ED; font-size: 12px; font-weight: 800; color: var(--caramel-brown); cursor: pointer; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                📄 4R (10×15)
+              </button>
+              <button type="button" id="sgBtnPaper5R" onclick="selectSpecialGalleryPaper('5R')" style="padding: 8px 6px; border-radius: 10px; border: 2px solid var(--border-soft); background: #fff; font-size: 12px; font-weight: 800; color: var(--caramel-brown); cursor: pointer; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                🖼️ 5R (13×18)
+              </button>
+            </div>
+
+            <!-- Konfirmasi 5R -->
+            <div id="specialGallery5rConfirmBox" style="display: none; background: #FFF5E6; border: 1.5px solid #F2B04D; border-radius: 10px; padding: 8px 9px; margin-bottom: 9px;">
+              <label style="display: flex; align-items: flex-start; gap: 7px; font-size: 11px; font-weight: 700; color: #7C4408; cursor: pointer; line-height: 1.35;">
+                <input type="checkbox" id="specialGallery5rConfirmed" style="margin-top: 2px; width: 15px; height: 15px; flex-shrink: 0;">
+                <span>Kertas 5R (13×18 cm) sudah dipasang di printer — langsung proses tanpa menahan antrean.</span>
+              </label>
+            </div>
+
+            <!-- Jumlah Lembar -->
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
+              <span style="font-size: 12px; font-weight: 800; color: var(--text-muted);">Jumlah Cetak:</span>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <button type="button" class="sg-slot-pill" onclick="changeSpecialGalleryCopies(-1)" style="min-width: 30px; padding: 5px 10px;">−</button>
+                <input type="number" id="specialGalleryCopies" value="1" min="1" max="20" style="width: 46px; text-align: center; padding: 4px 2px; border: 2px solid var(--border-soft); border-radius: 9px; font-size: 13.5px; font-weight: 900; color: var(--caramel-brown);">
+                <button type="button" class="sg-slot-pill" onclick="changeSpecialGalleryCopies(1)" style="min-width: 30px; padding: 5px 10px;">+</button>
+              </div>
+            </div>
+
+            <!-- Tombol Cetak Lokal & Server -->
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px;">
+              <button type="button" id="btnSpecialPrintLocal" class="btn btn-secondary" style="padding: 10px 8px; font-size: 12px; font-weight: 800; background: #FFFDF9; border: 2px solid var(--dusty-teal); color: var(--dusty-teal); border-radius: 11px; min-width: 0;" onclick="executeSpecialGalleryPrint('local')">
+                🖨️ Cetak Lokal
+              </button>
+              <button type="button" id="btnSpecialPrintServer" class="btn btn-coral" style="padding: 10px 8px; font-size: 12px; font-weight: 800; border-radius: 11px; min-width: 0;" onclick="executeSpecialGalleryPrint('server')">
+                🚀 Cetak Server
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="/js/notify.js?v=warm-retro-v3.4"></script>
   <script src="/js/offline-store.js?v=1.7"></script>
   <script src="/js/print-client.js?v=1.8"></script>
-  <script src="/js/admin.js?v=responsive-v8.1"></script>
+  <script src="/js/photo-filters.js?v=1.0"></script>
+  <script src="/js/admin.js?v=responsive-v8.3"></script>
 </body>
 </html>

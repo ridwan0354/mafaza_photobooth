@@ -1629,6 +1629,243 @@ apiRouter.post('/print-jobs/:id/cancel', authMiddleware(), (req, res) => {
 });
 
 // Photo Gallery & On-Demand Reprint
+// Galeri Khusus: daftar sesi beserta seluruh pose mentah (raw_capture) untuk ganti frame & cetak ulang 4R/5R
+apiRouter.get('/photos/sessions/special-gallery', authMiddleware(), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const eventId = req.query.eventId ? String(req.query.eventId).trim() : null;
+    const targetSessionId = req.query.sessionId ? String(req.query.sessionId).trim() : null;
+
+    let query = `
+      SELECT ps.id as session_id, ps.event_id, ps.mode as session_mode, ps.status as session_status,
+             ps.template_id, ps.guest_pass_id, ps.started_at, ps.ended_at,
+             COALESCE(ps.ended_at, ps.started_at) as session_time,
+             e.name as event_name,
+             t.name as template_name,
+             gp.token_plain as guest_token
+      FROM photo_sessions ps
+      LEFT JOIN events e ON ps.event_id = e.id
+      LEFT JOIN templates t ON ps.template_id = t.id
+      LEFT JOIN guest_passes gp ON ps.guest_pass_id = gp.id
+      WHERE ps.tenant_id = ?
+        AND ps.id NOT LIKE 'sess_print_test_%'
+        AND ps.id NOT LIKE 'sess_test_print_%'
+        AND ps.id NOT LIKE 'sess_test_0%'
+        AND EXISTS (
+          SELECT 1 FROM media_assets ma
+          WHERE ma.photo_session_id = ps.id
+            AND ma.type IN ('raw_capture', 'final_photo')
+            AND ma.file_path NOT LIKE '%.mp4'
+            AND ma.file_path NOT LIKE '%.webm'
+        )
+    `;
+    const params = [tenantId];
+    if (eventId) {
+      query += ' AND ps.event_id = ?';
+      params.push(eventId);
+    }
+    query += ' ORDER BY COALESCE(ps.ended_at, ps.started_at) DESC LIMIT 60';
+
+    const sessions = db.prepare(query).all(...params);
+
+    if (targetSessionId && !sessions.some(s => s.session_id === targetSessionId)) {
+      const extraSession = db.prepare(`
+        SELECT ps.id as session_id, ps.event_id, ps.mode as session_mode, ps.status as session_status,
+               ps.template_id, ps.guest_pass_id, ps.started_at, ps.ended_at,
+               COALESCE(ps.ended_at, ps.started_at) as session_time,
+               e.name as event_name,
+               t.name as template_name,
+               gp.token_plain as guest_token
+        FROM photo_sessions ps
+        LEFT JOIN events e ON ps.event_id = e.id
+        LEFT JOIN templates t ON ps.template_id = t.id
+        LEFT JOIN guest_passes gp ON ps.guest_pass_id = gp.id
+        WHERE ps.id = ? AND ps.tenant_id = ?
+      `).get(targetSessionId, tenantId);
+      if (extraSession) {
+        sessions.unshift(extraSession);
+      }
+    }
+
+    const assetsStmt = db.prepare(`
+      SELECT id as asset_id, type, variant, file_path, created_at
+      FROM media_assets
+      WHERE photo_session_id = ? AND tenant_id = ?
+        AND type IN ('raw_capture', 'final_photo')
+        AND file_path NOT LIKE '%.mp4'
+        AND file_path NOT LIKE '%.webm'
+      ORDER BY created_at ASC
+    `);
+
+    const extractPoseNum = (variant) => {
+      const m = String(variant || '').match(/pose_(\d+)/i);
+      return m ? parseInt(m[1], 10) : 9999;
+    };
+
+    const payload = [];
+    for (const s of sessions) {
+      const assets = assetsStmt.all(s.session_id, tenantId);
+      const rawAssets = assets
+        .filter(a => a.type === 'raw_capture')
+        .map((a, i) => ({
+          assetId: a.asset_id,
+          variant: a.variant || `pose_${i + 1}`,
+          poseNumber: extractPoseNum(a.variant) !== 9999 ? extractPoseNum(a.variant) : (i + 1),
+          filePath: a.file_path,
+          isFinalFallback: false
+        }))
+        .sort((a, b) => a.poseNumber - b.poseNumber);
+
+      const finalAssets = assets.filter(a => a.type === 'final_photo');
+      const latestFinal = finalAssets.length > 0 ? finalAssets[finalAssets.length - 1] : null;
+
+      const poses = rawAssets.length > 0
+        ? rawAssets
+        : (latestFinal ? [{
+            assetId: latestFinal.asset_id,
+            variant: latestFinal.variant || 'final',
+            poseNumber: 1,
+            filePath: latestFinal.file_path,
+            isFinalFallback: true
+          }] : []);
+
+      if (poses.length === 0) continue;
+
+      payload.push({
+        sessionId: s.session_id,
+        eventId: s.event_id,
+        eventName: s.event_name || 'Event Mafaza',
+        mode: s.session_mode || 'single',
+        status: s.session_status || 'completed',
+        templateId: s.template_id || null,
+        templateName: s.template_name || null,
+        guestPassId: s.guest_pass_id || null,
+        guestToken: s.guest_token || null,
+        createdAt: s.session_time,
+        previewUrl: latestFinal ? latestFinal.file_path : poses[0].filePath,
+        poseCount: poses.length,
+        hasRawCaptures: rawAssets.length > 0,
+        poses
+      });
+    }
+
+    res.json(payload);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Galeri Khusus: simpan komposisi frame baru dari sesi yang sama lalu cetak lokal / antrean server (4R / 5R)
+apiRouter.post('/photos/sessions/:sessionId/custom-print', authMiddleware(), upload.single('finalImage'), (req, res) => {
+  try {
+    const tenantId = req.user.tenantId;
+    const sessionId = req.params.sessionId;
+    if (!req.file) {
+      return res.status(400).json({ error: 'Gambar hasil frame baru wajib diunggah' });
+    }
+
+    const session = db.prepare('SELECT * FROM photo_sessions WHERE id = ? AND tenant_id = ?').get(sessionId, tenantId);
+    if (!session) {
+      safelyDeleteUploadedFile(`/uploads/${req.file.filename}`);
+      return res.status(404).json({ error: 'Sesi foto tidak ditemukan' });
+    }
+
+    const opt = optimizePhotoFile(req.file.path, { quality: 90, maxDimension: 1920 });
+    const finalFileName = opt ? path.basename(opt.path) : req.file.filename;
+    const finalFileSize = opt ? opt.size : req.file.size;
+    const finalUrl = `/uploads/${finalFileName}`;
+
+    const customAssetId = 'asset_custom_' + crypto.randomBytes(8).toString('hex');
+    db.prepare(`
+      INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, size_bytes, status)
+      VALUES (?, ?, ?, ?, 'final_photo', 'custom_reframe', ?, ?, 'ready')
+    `).run(customAssetId, tenantId, session.event_id, sessionId, finalUrl, finalFileSize);
+
+    const requestedTemplateId = req.body && req.body.templateId ? String(req.body.templateId).trim() : null;
+    const resolvedTpl = requestedTemplateId ? templateService.getTemplateById(requestedTemplateId, tenantId) : null;
+
+    const rawPaper = String((req.body && req.body.paperSize) || '4x6').trim();
+    const upPaper = rawPaper.toUpperCase();
+    const normalizedPaperSize = upPaper === '5R' ? '5x7' : (upPaper === '4R' ? '4x6' : rawPaper);
+    const copies = Math.max(1, Math.min(20, parseInt((req.body && req.body.copies) || '1', 10) || 1));
+    const paperConfirmed = req.body && (req.body.paperConfirmed === true || req.body.paperConfirmed === 'true' || req.body.paperConfirmed === '1');
+    const printMode = (req.body && String(req.body.printMode || '').toLowerCase() === 'local') ? 'local' : 'server';
+    const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
+
+    // Pastikan sesi memiliki guest_pass_id jika template memakai QR
+    let guestToken = null;
+    if (session.guest_pass_id) {
+      const existingPass = db.prepare('SELECT token_plain FROM guest_passes WHERE id = ?').get(session.guest_pass_id);
+      if (existingPass && existingPass.token_plain) guestToken = existingPass.token_plain;
+    }
+    const tplHasQrCoords = resolvedTpl && Array.isArray(resolvedTpl.qr_coords) && resolvedTpl.qr_coords.length > 0;
+    const tplQrEnabled = !resolvedTpl || tplHasQrCoords || (resolvedTpl.qr_position && resolvedTpl.qr_position !== 'none');
+    if (!guestToken && tplQrEnabled) {
+      try {
+        const autoPass = qrService.createGuestPassRecordSync(tenantId, session.event_id, 'print_auto');
+        if (autoPass && autoPass.token_plain) {
+          db.prepare('UPDATE photo_sessions SET guest_pass_id = ? WHERE id = ?').run(autoPass.id, sessionId);
+          guestToken = autoPass.token_plain;
+        }
+      } catch (e) {}
+    }
+
+    const extraPrintOpts = {
+      baseUrl,
+      paperSize: normalizedPaperSize,
+      paperConfirmed,
+      templateId: resolvedTpl ? resolvedTpl.id : null,
+      qrPosition: resolvedTpl ? resolvedTpl.qr_position : null,
+      qrCoords: tplHasQrCoords ? resolvedTpl.qr_coords : null,
+      qrTemplateWidth: resolvedTpl ? resolvedTpl.width : null,
+      qrTemplateHeight: resolvedTpl ? resolvedTpl.height : null,
+      autoIssuePass: true
+    };
+
+    if (printMode === 'local') {
+      const sheetUrl = `/api/photos/${encodeURIComponent(customAssetId)}/sheet?paperSize=${encodeURIComponent(normalizedPaperSize)}${resolvedTpl ? `&templateId=${encodeURIComponent(resolvedTpl.id)}` : ''}`;
+      const is5r = /^5x7$/i.test(normalizedPaperSize);
+      return res.json({
+        success: true,
+        mode: 'local',
+        assetId: customAssetId,
+        sessionId,
+        finalImageUrl: finalUrl,
+        sheetUrl,
+        paperSize: normalizedPaperSize,
+        paperWidthIn: is5r ? 5 : 4,
+        paperHeightIn: is5r ? 7 : 6,
+        copies,
+        guestToken,
+        templateId: resolvedTpl ? resolvedTpl.id : null
+      });
+    }
+
+    const printJob = printService.createPrintJob(
+      tenantId,
+      session.event_id,
+      session.device_id || null,
+      sessionId,
+      customAssetId,
+      copies,
+      extraPrintOpts
+    );
+
+    res.json({
+      success: true,
+      mode: 'server',
+      message: 'Foto frame baru berhasil disimpan & dikirim ke antrean cetak server!',
+      assetId: customAssetId,
+      sessionId,
+      finalImageUrl: finalUrl,
+      guestToken,
+      printJob
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 apiRouter.get('/photos/recent', authMiddleware(), (req, res) => {
   try {
     const tenantId = req.user.tenantId;
@@ -1883,6 +2120,7 @@ apiRouter.get('/photos/:assetId/sheet', authMiddleware(), (req, res) => {
     const baseUrl = `${req.headers['x-forwarded-proto'] || req.protocol}://${req.get('host')}`;
     const sheet = printService.getPrintSheetForAsset(req.params.assetId, req.user.tenantId, {
       paperSize: req.query.paperSize || null,
+      templateId: req.query.templateId ? String(req.query.templateId).trim() : null,
       baseUrl
     });
     if (!sheet) return res.status(404).json({ error: 'Lembar cetak tidak ditemukan' });

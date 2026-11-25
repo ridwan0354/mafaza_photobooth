@@ -2514,3 +2514,205 @@ test('Offline uploadSession automatically falls back to lightweight single-file 
   assert.equal(requests[3].startIdx, '2');
   assert.equal(requests[3].printRequested, 'true', 'printRequested fires only on final fallback request');
 });
+
+test('Admin Galeri Khusus API lists multi-pose sessions numerically and supports local & server custom-frame 4R/5R print with new template QR', async () => {
+  const express = (await import('express')).default;
+  const { apiRouter } = await import('../src/routes/api.js');
+  const { createToken } = await import('../src/services/auth.js');
+  const sheet = await import('../src/services/sheet.js');
+
+  const tenantId = 'tenant_studiokeren_01';
+  const otherTenantId = 'tenant_other_sg_' + Date.now();
+  const eventId = 'event_wedding_dimas_sarah';
+  const suffix = Date.now() + '_' + Math.floor(Math.random() * 10000);
+  const sessId = 'sess_sg_test_' + suffix;
+  const raw1Id = 'asset_sg_raw1_' + suffix;
+  const raw2Id = 'asset_sg_raw2_' + suffix;
+  const raw10Id = 'asset_sg_raw10_' + suffix;
+
+  const tplNew = templateService.createTemplate(tenantId, {
+    name: 'SG Custom Frame 5R ' + suffix,
+    eventId,
+    boothMode: 'both',
+    formatPreset: 'portrait_5r',
+    qrPosition: 'bottom-right',
+    qrCoords: [{ x: 120, y: 1700, size: 220 }]
+  });
+
+  // Create dummy PNG for test uploads
+  const sampleBuf = sheet.encodePng({
+    width: 120,
+    height: 180,
+    channels: 4,
+    data: Buffer.alloc(120 * 180 * 4, 240)
+  });
+
+  db.prepare(`
+    INSERT INTO photo_sessions (id, tenant_id, event_id, device_id, mode, status, started_at, ended_at)
+    VALUES (?, ?, ?, NULL, 'mingle', 'completed', datetime('now'), datetime('now'))
+  `).run(sessId, tenantId, eventId);
+
+  db.prepare(`
+    INSERT INTO media_assets (id, tenant_id, event_id, photo_session_id, type, variant, file_path, status)
+    VALUES
+      (?, ?, ?, ?, 'raw_capture', 'pose_1', '/uploads/sg_pose1.png', 'ready'),
+      (?, ?, ?, ?, 'raw_capture', 'pose_2', '/uploads/sg_pose2.png', 'ready'),
+      (?, ?, ?, ?, 'raw_capture', 'pose_10', '/uploads/sg_pose10.png', 'ready')
+  `).run(raw1Id, tenantId, eventId, sessId, raw2Id, tenantId, eventId, sessId, raw10Id, tenantId, eventId, sessId);
+
+  const app = express();
+  app.use(express.json());
+  app.use('/api', apiRouter);
+
+  const srv = await new Promise((resolve) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s));
+  });
+  const baseUrl = `http://127.0.0.1:${srv.address().port}`;
+  const adminToken = createToken({ userId: 'u_sg_admin', tenantId, role: 'super_admin' });
+  const otherToken = createToken({ userId: 'u_sg_other', tenantId: otherTenantId, role: 'super_admin' });
+  const createdFileNames = [];
+
+  try {
+    // 1. Unauthenticated must fail with 401
+    const unauthRes = await fetch(`${baseUrl}/api/photos/sessions/special-gallery`);
+    assert.equal(unauthRes.status, 401);
+
+    // 2. Authenticated tenant receives session with numerically sorted poses [1, 2, 10]
+    const listRes = await fetch(`${baseUrl}/api/photos/sessions/special-gallery?sessionId=${encodeURIComponent(sessId)}`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.equal(listRes.status, 200);
+    const sessions = await listRes.json();
+    const targetSess = sessions.find(s => s.sessionId === sessId);
+    assert.ok(targetSess, 'Special gallery lists target multi-pose session');
+    assert.equal(targetSess.poseCount, 3);
+    assert.deepEqual(targetSess.poses.map(p => p.poseNumber), [1, 2, 10], 'Poses sort numerically instead of lexicographically');
+
+    // 3. Tenant isolation check
+    const otherRes = await fetch(`${baseUrl}/api/photos/sessions/special-gallery?sessionId=${encodeURIComponent(sessId)}`, {
+      headers: { Authorization: `Bearer ${otherToken}` }
+    });
+    assert.equal(otherRes.status, 200);
+    const otherSessions = await otherRes.json();
+    assert.equal(otherSessions.some(s => s.sessionId === sessId), false, 'Other tenant cannot read sessions');
+
+    // 4. Local print with custom 5R template -> returns sheetUrl with templateId and stamps new frame QR on 5R sheet
+    const localForm = new FormData();
+    localForm.append('finalImage', new Blob([sampleBuf], { type: 'image/png' }), 'custom_local.png');
+    localForm.append('templateId', tplNew.id);
+    localForm.append('paperSize', '5R');
+    localForm.append('copies', '3');
+    localForm.append('printMode', 'local');
+
+    const localRes = await fetch(`${baseUrl}/api/photos/sessions/${encodeURIComponent(sessId)}/custom-print`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: localForm
+    });
+    const localData = await localRes.json();
+    assert.equal(localRes.status, 200, `local custom-print failed: ${JSON.stringify(localData)}`);
+    assert.equal(localData.success, true);
+    assert.equal(localData.mode, 'local');
+    assert.equal(localData.paperSize, '5x7');
+    assert.equal(localData.paperWidthIn, 5);
+    assert.equal(localData.paperHeightIn, 7);
+    assert.equal(localData.copies, 3);
+    assert.match(localData.sheetUrl, new RegExp(`templateId=${tplNew.id}`));
+    if (localData.finalImageUrl) createdFileNames.push(path.basename(localData.finalImageUrl));
+
+    // Fetch generated local print sheet & verify 5R dims (1500x2100) + dark QR pixels stamped at custom QR coords
+    const sheetRes = await fetch(`${baseUrl}${localData.sheetUrl}`, {
+      headers: { Authorization: `Bearer ${adminToken}` }
+    });
+    assert.equal(sheetRes.status, 200);
+    const sheetBuf = Buffer.from(await sheetRes.arrayBuffer());
+    const decSheet = sheet.decodePng(sheetBuf);
+    assert.equal(decSheet.width, 1500);
+    assert.equal(decSheet.height, 2100);
+    let darkQrPixels = 0;
+    for (let y = 1710; y < 1910; y += 4) {
+      for (let x = 130; x < 330; x += 4) {
+        const idx = (y * decSheet.width + x) * decSheet.channels;
+        if (decSheet.data[idx] < 60 && decSheet.data[idx + 1] < 60 && decSheet.data[idx + 2] < 60) {
+          darkQrPixels++;
+        }
+      }
+    }
+    assert.ok(darkQrPixels > 25, 'Custom template QR coordinates are stamped onto local 5R sheet');
+
+    // 5. Server print 4R with copies=2 -> queues immediately with new template QR options
+    const server4rForm = new FormData();
+    server4rForm.append('finalImage', new Blob([sampleBuf], { type: 'image/png' }), 'custom_4r.png');
+    server4rForm.append('templateId', tplNew.id);
+    server4rForm.append('paperSize', '4R');
+    server4rForm.append('copies', '2');
+    server4rForm.append('printMode', 'server');
+
+    const srv4rRes = await fetch(`${baseUrl}/api/photos/sessions/${encodeURIComponent(sessId)}/custom-print`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: server4rForm
+    });
+    const srv4rData = await srv4rRes.json();
+    assert.equal(srv4rRes.status, 200);
+    assert.equal(srv4rData.mode, 'server');
+    assert.equal(srv4rData.printJob.paperLabel, '4R');
+    assert.equal(srv4rData.printJob.copies, 2);
+    assert.equal(srv4rData.printJob.state, 'queued');
+    if (srv4rData.finalImageUrl) createdFileNames.push(path.basename(srv4rData.finalImageUrl));
+
+    // 6. Server print 5R without paperConfirmed -> awaits paper confirmation
+    const server5rForm = new FormData();
+    server5rForm.append('finalImage', new Blob([sampleBuf], { type: 'image/png' }), 'custom_5r.png');
+    server5rForm.append('templateId', tplNew.id);
+    server5rForm.append('paperSize', '5R');
+    server5rForm.append('copies', '1');
+    server5rForm.append('paperConfirmed', 'false');
+    server5rForm.append('printMode', 'server');
+
+    const srv5rRes = await fetch(`${baseUrl}/api/photos/sessions/${encodeURIComponent(sessId)}/custom-print`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: server5rForm
+    });
+    const srv5rData = await srv5rRes.json();
+    assert.equal(srv5rRes.status, 200);
+    assert.equal(srv5rData.printJob.paperLabel, '5R');
+    assert.equal(srv5rData.printJob.state, 'awaiting_paper');
+    assert.equal(srv5rData.printJob.requiresPaperConfirm, true);
+    if (srv5rData.finalImageUrl) createdFileNames.push(path.basename(srv5rData.finalImageUrl));
+
+    // Original raw poses remain preserved in session
+    const remainingRaw = db.prepare("SELECT COUNT(*) as c FROM media_assets WHERE photo_session_id = ? AND type = 'raw_capture'").get(sessId);
+    assert.equal(remainingRaw.c, 3);
+
+    // 7. Static wiring verification in Admin HTML & JS
+    const adminHtml = fs.readFileSync(path.join(process.cwd(), 'public/admin.html'), 'utf8');
+    const adminJs = fs.readFileSync(path.join(process.cwd(), 'public/js/admin.js'), 'utf8');
+    assert.match(adminHtml, /id="btnOpenSpecialGallery"/);
+    assert.match(adminHtml, /id="specialGalleryModal"/);
+    assert.match(adminHtml, /id="modalBtnOpenSpecialGallery"/);
+    assert.match(adminHtml, /id="sgBtnPaper4R"/);
+    assert.match(adminHtml, /id="sgBtnPaper5R"/);
+    assert.match(adminHtml, /id="btnSpecialPrintLocal"/);
+    assert.match(adminHtml, /id="btnSpecialPrintServer"/);
+    assert.match(adminHtml, /\/js\/photo-filters\.js/);
+    assert.match(adminJs, /function openSpecialGalleryModal/);
+    assert.match(adminJs, /async function executeSpecialGalleryPrint/);
+    assert.match(adminJs, /function assignPoseToActiveSpecialSlot/);
+    assert.match(adminJs, /function selectSpecialGalleryTemplate/);
+  } finally {
+    await new Promise(resolve => srv.close(resolve));
+    const sessRow = db.prepare('SELECT guest_pass_id FROM photo_sessions WHERE id = ?').get(sessId);
+    db.prepare('DELETE FROM print_jobs WHERE photo_session_id = ?').run(sessId);
+    db.prepare('DELETE FROM media_assets WHERE photo_session_id = ?').run(sessId);
+    db.prepare('DELETE FROM photo_sessions WHERE id = ?').run(sessId);
+    if (sessRow && sessRow.guest_pass_id) {
+      db.prepare('DELETE FROM guest_passes WHERE id = ?').run(sessRow.guest_pass_id);
+    }
+    db.prepare('DELETE FROM templates WHERE id = ?').run(tplNew.id);
+    for (const fname of createdFileNames) {
+      try { fs.unlinkSync(path.join(process.cwd(), 'public/uploads', fname)); } catch (e) {}
+    }
+  }
+});

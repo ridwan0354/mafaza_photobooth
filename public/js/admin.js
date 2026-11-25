@@ -6717,6 +6717,927 @@ async function exportSalesCsv() {
 window.exportSalesCsv = exportSalesCsv;
 
 // -------------------------------------------------------------
+// GALERI KHUSUS: PILIH POSE SESI, GANTI FRAME & CETAK 4R / 5R
+// -------------------------------------------------------------
+const sgState = {
+  sessions: [],
+  allTemplates: null,
+  selectedSessionId: null,
+  selectedTemplateId: null,
+  slotAssignments: [],
+  activeSlotIdx: 0,
+  paperChoice: '4R',
+  filterKey: 'normal',
+  imgCache: new Map(),
+  frameCache: new Map(),
+  isPrinting: false,
+  renderScheduled: false,
+  drag: { active: false, pointerId: null, lastX: 0, lastY: 0 },
+  lastRenderedMeta: null
+};
+
+function getSpecialGalleryTemplatesPool() {
+  if (Array.isArray(sgState.allTemplates) && sgState.allTemplates.length > 0) {
+    return sgState.allTemplates;
+  }
+  return Array.isArray(templatesList) ? templatesList : [];
+}
+
+function openSpecialGalleryModal(targetSessionId = null, targetEventId = null) {
+  const modal = document.getElementById('specialGalleryModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  // Isi opsi event pada dropdown Galeri Khusus
+  const sgEventSelect = document.getElementById('specialGalleryEventFilter');
+  const mainEventSelect = document.getElementById('galleryEventFilter');
+  if (sgEventSelect) {
+    sgEventSelect.innerHTML = '<option value="">Semua Event</option>';
+    (eventsList || []).forEach(ev => {
+      const opt = document.createElement('option');
+      opt.value = ev.id;
+      opt.textContent = ev.id === activeKioskEventId ? `${ev.name} ⭐` : ev.name;
+      sgEventSelect.appendChild(opt);
+    });
+    if (targetEventId !== null && targetEventId !== undefined) {
+      sgEventSelect.value = targetEventId;
+    } else if (targetSessionId) {
+      sgEventSelect.value = '';
+    } else if (mainEventSelect && mainEventSelect.value) {
+      sgEventSelect.value = mainEventSelect.value;
+    }
+  }
+
+  // Muat seluruh template (semua event + global) agar bebas ganti-ganti frame
+  const boot = async () => {
+    try {
+      const tplRes = await fetch('/api/templates', { cache: 'no-store' });
+      if (tplRes.ok) {
+        sgState.allTemplates = await tplRes.json();
+      }
+    } catch (e) {}
+    if (getSpecialGalleryTemplatesPool().length === 0) {
+      try { await loadTemplates(); } catch (e) {}
+    }
+    bindSpecialGalleryCanvasDrag();
+    renderSpecialGalleryFilterBar();
+    renderSpecialGalleryTemplates();
+    await loadSpecialGallerySessions(targetSessionId);
+  };
+  boot();
+}
+window.openSpecialGalleryModal = openSpecialGalleryModal;
+
+function openSpecialGalleryFromModal() {
+  const sessId = (activeModalPhoto && activeModalPhoto.session_id) ? activeModalPhoto.session_id : null;
+  const evId = (activeModalPhoto && activeModalPhoto.event_id) ? activeModalPhoto.event_id : null;
+  if (typeof closePhotoPreviewModal === 'function') {
+    closePhotoPreviewModal();
+  }
+  openSpecialGalleryModal(sessId, evId);
+}
+window.openSpecialGalleryFromModal = openSpecialGalleryFromModal;
+
+function closeSpecialGalleryModal() {
+  const modal = document.getElementById('specialGalleryModal');
+  if (modal) modal.style.display = 'none';
+}
+window.closeSpecialGalleryModal = closeSpecialGalleryModal;
+
+async function loadSpecialGallerySessions(preferredSessionId = null) {
+  const listEl = document.getElementById('specialGallerySessionsList');
+  const countEl = document.getElementById('sgSessionCountLabel');
+  const eventFilterEl = document.getElementById('specialGalleryEventFilter');
+  const eventId = eventFilterEl ? eventFilterEl.value : '';
+
+  if (listEl) {
+    listEl.innerHTML = '<div style="padding: 20px; text-align: center; font-size: 12.5px; color: var(--text-muted);">Memuat daftar sesi...</div>';
+  }
+
+  try {
+    const qs = new URLSearchParams();
+    if (eventId) qs.set('eventId', eventId);
+    if (preferredSessionId) qs.set('sessionId', preferredSessionId);
+    const res = await fetch(`/api/photos/sessions/special-gallery${qs.toString() ? `?${qs.toString()}` : ''}`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal memuat sesi Galeri Khusus');
+
+    sgState.sessions = Array.isArray(data) ? data : [];
+    if (countEl) countEl.textContent = `${sgState.sessions.length} sesi`;
+
+    if (sgState.sessions.length === 0) {
+      sgState.selectedSessionId = null;
+      if (listEl) {
+        if (eventId) {
+          listEl.innerHTML = `
+            <div style="padding: 18px 12px; text-align: center; font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 10px; align-items: center;">
+              <span>Belum ada sesi foto di filter event ini.</span>
+              <button type="button" class="sg-slot-pill" onclick="document.getElementById('specialGalleryEventFilter').value=''; loadSpecialGallerySessions();" style="background: var(--coral); color: #fff; border-color: var(--coral);">
+                📂 Tampilkan Semua Event
+              </button>
+            </div>
+          `;
+        } else {
+          listEl.innerHTML = '<div style="padding: 24px 12px; text-align: center; font-size: 12.5px; color: var(--text-muted);">Belum ada sesi foto tersimpan.</div>';
+        }
+      }
+      renderSpecialGalleryPoses();
+      renderSpecialGalleryCanvasSafe();
+      return;
+    }
+
+    const pickId = (preferredSessionId && sgState.sessions.some(s => s.sessionId === preferredSessionId))
+      ? preferredSessionId
+      : (sgState.selectedSessionId && sgState.sessions.some(s => s.sessionId === sgState.selectedSessionId))
+        ? sgState.selectedSessionId
+        : sgState.sessions[0].sessionId;
+
+    selectSpecialGallerySession(pickId);
+  } catch (err) {
+    if (listEl) {
+      listEl.innerHTML = `<div style="padding: 18px; text-align: center; font-size: 12px; color: #B3402F;">${escapeHtml(err.message)}</div>`;
+    }
+  }
+}
+window.loadSpecialGallerySessions = loadSpecialGallerySessions;
+
+function renderSpecialGallerySessionsList() {
+  const listEl = document.getElementById('specialGallerySessionsList');
+  if (!listEl) return;
+
+  if (!sgState.sessions || sgState.sessions.length === 0) {
+    listEl.innerHTML = '<div style="padding: 20px; text-align: center; font-size: 12.5px; color: var(--text-muted);">Tidak ada sesi tersedia</div>';
+    return;
+  }
+
+  listEl.innerHTML = sgState.sessions.map(s => {
+    const isActive = s.sessionId === sgState.selectedSessionId;
+    const dt = s.createdAt ? new Date(s.createdAt) : null;
+    const timeStr = dt ? dt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-';
+    const dateStr = dt ? dt.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) : '';
+    const thumb = s.previewUrl || (s.poses && s.poses[0] ? s.poses[0].filePath : '/assets/templates/strip-green-template.svg');
+    return `
+      <button type="button" class="sg-session-card ${isActive ? 'active' : ''}" onclick="selectSpecialGallerySession('${escapeHtml(s.sessionId)}')">
+        <img src="${escapeHtml(thumb)}" onerror="this.onerror=null; this.style.opacity='0.2';" style="width: 48px; height: 60px; object-fit: cover; border-radius: 9px; background: #FFF5EA; flex-shrink: 0; border: 1px solid var(--border-soft);">
+        <div style="min-width: 0; flex: 1;">
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 2px;">
+            <span style="font-size: 11.5px; font-weight: 800; color: var(--caramel-brown); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(s.eventName || 'Event')}</span>
+            <span style="font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 999px; background: #EAF7F4; color: #197B6C; flex-shrink: 0;">${s.poseCount} Pose</span>
+          </div>
+          <div style="font-size: 11px; color: var(--text-muted);">${escapeHtml(dateStr)} · ${escapeHtml(timeStr)}</div>
+          <div style="font-size: 10.5px; color: var(--coral); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            ${escapeHtml(s.templateName || 'Frame Booth')}
+          </div>
+        </div>
+      </button>
+    `;
+  }).join('');
+}
+
+function getSelectedSpecialSession() {
+  return (sgState.sessions || []).find(s => s.sessionId === sgState.selectedSessionId) || null;
+}
+
+function getSelectedSpecialTemplate() {
+  const list = getSpecialGalleryTemplatesPool();
+  return list.find(t => t.id === sgState.selectedTemplateId) || list[0] || null;
+}
+
+function selectSpecialGallerySession(sessionId) {
+  sgState.selectedSessionId = sessionId;
+  const session = getSelectedSpecialSession();
+
+  const badgeEl = document.getElementById('specialGallerySessionBadge');
+  if (badgeEl && session) {
+    badgeEl.textContent = `${session.eventName || 'Event'} · ${session.poseCount} Foto`;
+  }
+
+  // Pilih frame sesi sebagai titik awal bila valid
+  const list = getSpecialGalleryTemplatesPool();
+  if (session && session.templateId && list.some(t => t.id === session.templateId)) {
+    sgState.selectedTemplateId = session.templateId;
+  } else if (!sgState.selectedTemplateId || !list.some(t => t.id === sgState.selectedTemplateId)) {
+    const evMatch = session && list.find(t => t.event_id === session.eventId);
+    sgState.selectedTemplateId = (evMatch && evMatch.id) || (list[0] && list[0].id) || null;
+  }
+
+  syncSpecialGalleryPaperWithTemplate(getSelectedSpecialTemplate());
+  resetSlotAssignmentsForTemplate(true);
+  renderSpecialGallerySessionsList();
+  renderSpecialGalleryPoses();
+  renderSpecialGalleryTemplates();
+  scheduleSpecialGalleryRender();
+}
+window.selectSpecialGallerySession = selectSpecialGallerySession;
+
+function syncSpecialGalleryPaperWithTemplate(tpl) {
+  if (!tpl) return;
+  const is5r = String(tpl.paper_size || '').toLowerCase() === '5x7';
+  selectSpecialGalleryPaper(is5r ? '5R' : '4R');
+}
+
+function selectSpecialGalleryPaper(choice) {
+  sgState.paperChoice = choice === '5R' ? '5R' : '4R';
+  const btn4r = document.getElementById('sgBtnPaper4R');
+  const btn5r = document.getElementById('sgBtnPaper5R');
+  const confirmBox = document.getElementById('specialGallery5rConfirmBox');
+  if (btn4r) {
+    btn4r.style.borderColor = sgState.paperChoice === '4R' ? 'var(--coral)' : 'var(--border-soft)';
+    btn4r.style.background = sgState.paperChoice === '4R' ? '#FFF2ED' : '#fff';
+  }
+  if (btn5r) {
+    btn5r.style.borderColor = sgState.paperChoice === '5R' ? 'var(--coral)' : 'var(--border-soft)';
+    btn5r.style.background = sgState.paperChoice === '5R' ? '#FFF2ED' : '#fff';
+  }
+  if (confirmBox) {
+    confirmBox.style.display = sgState.paperChoice === '5R' ? 'block' : 'none';
+  }
+}
+window.selectSpecialGalleryPaper = selectSpecialGalleryPaper;
+
+function changeSpecialGalleryCopies(delta) {
+  const input = document.getElementById('specialGalleryCopies');
+  if (!input) return;
+  const cur = parseInt(input.value, 10) || 1;
+  input.value = Math.max(1, Math.min(20, cur + delta));
+}
+window.changeSpecialGalleryCopies = changeSpecialGalleryCopies;
+
+function resetSlotAssignmentsForTemplate(preserveExisting = false) {
+  const tpl = getSelectedSpecialTemplate();
+  const session = getSelectedSpecialSession();
+  const poses = (session && session.poses) || [];
+  const rawSlots = (tpl && Array.isArray(tpl.slots) && tpl.slots.length > 0)
+    ? tpl.slots
+    : [{ id: 'slot_1', pose_index: 1 }];
+
+  const prev = sgState.slotAssignments || [];
+  sgState.slotAssignments = rawSlots.map((slot, idx) => {
+    const prevItem = preserveExisting && prev[idx] ? prev[idx] : null;
+    const maxIdx = Math.max(0, poses.length - 1);
+    let poseIdx = 0;
+    if (poses.length > 0) {
+      if (prevItem && Number.isFinite(prevItem.poseIndex)) {
+        poseIdx = Math.max(0, Math.min(maxIdx, prevItem.poseIndex));
+      } else {
+        const wantedPose = (parseInt(slot.pose_index, 10) || (idx + 1)) - 1;
+        poseIdx = wantedPose % poses.length;
+      }
+    }
+    return {
+      poseIndex: poseIdx,
+      panX: prevItem ? (prevItem.panX || 0) : 0,
+      panY: prevItem ? (prevItem.panY || 0) : 0,
+      zoom: prevItem ? (prevItem.zoom || 1) : 1
+    };
+  });
+
+  if (sgState.activeSlotIdx >= sgState.slotAssignments.length) {
+    sgState.activeSlotIdx = 0;
+  }
+  renderSpecialGallerySlotTabs();
+  updateSpecialGalleryZoomLabel();
+}
+
+function renderSpecialGallerySlotTabs() {
+  const wrap = document.getElementById('specialGallerySlotTabs');
+  const applyAllBtn = document.getElementById('sgBtnApplyPoseAll');
+  if (!wrap) return;
+  const count = Math.max(1, (sgState.slotAssignments || []).length);
+  if (applyAllBtn) {
+    applyAllBtn.style.display = count > 1 ? 'inline-flex' : 'none';
+  }
+  wrap.innerHTML = Array.from({ length: count }).map((_, idx) => {
+    const assign = sgState.slotAssignments[idx] || { poseIndex: 0 };
+    const isActive = idx === sgState.activeSlotIdx;
+    return `
+      <button type="button" class="sg-slot-pill ${isActive ? 'active' : ''}" onclick="selectSpecialGallerySlot(${idx})">
+        Slot #${idx + 1} · Foto #${assign.poseIndex + 1}
+      </button>
+    `;
+  }).join('');
+}
+
+function selectSpecialGallerySlot(slotIdx) {
+  sgState.activeSlotIdx = Math.max(0, Math.min((sgState.slotAssignments || []).length - 1, slotIdx));
+  renderSpecialGallerySlotTabs();
+  renderSpecialGalleryPoses();
+  updateSpecialGalleryZoomLabel();
+  scheduleSpecialGalleryRender();
+}
+window.selectSpecialGallerySlot = selectSpecialGallerySlot;
+
+function renderSpecialGalleryPoses() {
+  const grid = document.getElementById('specialGalleryPosesGrid');
+  const countEl = document.getElementById('sgPoseCountText');
+  const session = getSelectedSpecialSession();
+  const poses = (session && session.poses) || [];
+  if (countEl) countEl.textContent = String(poses.length);
+  if (!grid) return;
+
+  if (poses.length === 0) {
+    grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--text-muted); padding: 12px;">Belum ada foto pada sesi ini</div>';
+    return;
+  }
+
+  const activeAssign = sgState.slotAssignments[sgState.activeSlotIdx] || { poseIndex: 0 };
+  grid.innerHTML = poses.map((pose, idx) => {
+    const isSelected = activeAssign.poseIndex === idx;
+    const usedSlots = (sgState.slotAssignments || [])
+      .map((a, sIdx) => (a.poseIndex === idx ? `#${sIdx + 1}` : null))
+      .filter(Boolean);
+    const label = pose.isFinalFallback ? 'Foto Hasil' : `Pose #${pose.poseNumber}`;
+    return `
+      <button type="button" class="sg-thumb-btn ${isSelected ? 'active' : ''}" onclick="assignPoseToActiveSpecialSlot(${idx})">
+        <img src="${escapeHtml(pose.filePath)}" onerror="this.onerror=null; this.style.opacity='0.2';" style="width: 100%; height: 64px; object-fit: cover; border-radius: 8px; background: #FFF5EA;">
+        <span style="font-size: 11px; font-weight: 800; color: var(--caramel-brown);">${escapeHtml(label)}</span>
+        ${usedSlots.length > 0 ? `<span style="position: absolute; top: 7px; right: 7px; background: var(--coral); color: #fff; font-size: 9.5px; font-weight: 800; padding: 1px 5px; border-radius: 999px;">Slot ${usedSlots.join(',')}</span>` : ''}
+      </button>
+    `;
+  }).join('');
+}
+
+function assignPoseToActiveSpecialSlot(poseIdx) {
+  const session = getSelectedSpecialSession();
+  if (!session || !session.poses || !session.poses[poseIdx]) return;
+  if (!sgState.slotAssignments[sgState.activeSlotIdx]) {
+    sgState.slotAssignments[sgState.activeSlotIdx] = { poseIndex: 0, panX: 0, panY: 0, zoom: 1 };
+  }
+  sgState.slotAssignments[sgState.activeSlotIdx].poseIndex = poseIdx;
+  sgState.slotAssignments[sgState.activeSlotIdx].panX = 0;
+  sgState.slotAssignments[sgState.activeSlotIdx].panY = 0;
+  sgState.slotAssignments[sgState.activeSlotIdx].zoom = 1;
+  renderSpecialGallerySlotTabs();
+  renderSpecialGalleryPoses();
+  updateSpecialGalleryZoomLabel();
+  scheduleSpecialGalleryRender();
+}
+window.assignPoseToActiveSpecialSlot = assignPoseToActiveSpecialSlot;
+
+function applyActivePoseToAllSlots() {
+  const cur = sgState.slotAssignments[sgState.activeSlotIdx];
+  if (!cur) return;
+  sgState.slotAssignments = sgState.slotAssignments.map(() => ({
+    poseIndex: cur.poseIndex,
+    panX: 0,
+    panY: 0,
+    zoom: 1
+  }));
+  renderSpecialGallerySlotTabs();
+  renderSpecialGalleryPoses();
+  updateSpecialGalleryZoomLabel();
+  scheduleSpecialGalleryRender();
+}
+window.applyActivePoseToAllSlots = applyActivePoseToAllSlots;
+
+function autoFillSpecialGallerySlots() {
+  const session = getSelectedSpecialSession();
+  const poses = (session && session.poses) || [];
+  if (poses.length === 0) return;
+  const tpl = getSelectedSpecialTemplate();
+  const rawSlots = (tpl && Array.isArray(tpl.slots) && tpl.slots.length > 0)
+    ? tpl.slots
+    : [{ id: 'slot_1', pose_index: 1 }];
+
+  sgState.slotAssignments = rawSlots.map((slot, idx) => {
+    const wantedPose = (parseInt(slot.pose_index, 10) || (idx + 1)) - 1;
+    return {
+      poseIndex: wantedPose % poses.length,
+      panX: 0,
+      panY: 0,
+      zoom: 1
+    };
+  });
+  renderSpecialGallerySlotTabs();
+  renderSpecialGalleryPoses();
+  updateSpecialGalleryZoomLabel();
+  scheduleSpecialGalleryRender();
+}
+window.autoFillSpecialGallerySlots = autoFillSpecialGallerySlots;
+
+function renderSpecialGalleryTemplates() {
+  const grid = document.getElementById('specialGalleryTemplatesGrid');
+  if (!grid) return;
+
+  const filterVal = (document.getElementById('specialGalleryTplFilter')?.value) || 'all';
+  const session = getSelectedSpecialSession();
+  const targetEventId = session ? session.eventId : activeKioskEventId;
+
+  let list = [...getSpecialGalleryTemplatesPool()];
+  if (filterVal === 'event' && targetEventId) {
+    list = list.filter(t => t.event_id === targetEventId || !t.event_id);
+  } else if (filterVal === 'portrait') {
+    list = list.filter(t => String(t.orientation || '').toLowerCase() !== 'landscape' && Number(t.width || 0) <= Number(t.height || 1));
+  } else if (filterVal === 'landscape') {
+    list = list.filter(t => String(t.orientation || '').toLowerCase() === 'landscape' || Number(t.width || 0) > Number(t.height || 0));
+  }
+
+  // Taruh frame dari event aktif di atas
+  list.sort((a, b) => {
+    const aMatch = targetEventId && a.event_id === targetEventId ? 0 : 1;
+    const bMatch = targetEventId && b.event_id === targetEventId ? 0 : 1;
+    return aMatch - bMatch;
+  });
+
+  if (list.length === 0) {
+    grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--text-muted); padding: 12px;">Tidak ada frame di filter ini</div>';
+    return;
+  }
+
+  grid.innerHTML = list.map(tpl => {
+    const isActive = tpl.id === sgState.selectedTemplateId;
+    const fmt = String(tpl.paper_size || '4x6').toUpperCase() === '5X7' ? '5R' : (String(tpl.paper_size || '').toLowerCase() === '2x6' ? 'Strip' : '4R');
+    const slotCount = Array.isArray(tpl.slots) ? tpl.slots.length : 1;
+    return `
+      <button type="button" class="sg-thumb-btn ${isActive ? 'active' : ''}" onclick="selectSpecialGalleryTemplate('${escapeHtml(tpl.id)}')">
+        <img src="${escapeHtml(tpl.image_storage_key)}" style="width: 100%; height: 68px; object-fit: contain; border-radius: 7px; background: #FFF5EA;">
+        <span style="font-size: 10.5px; font-weight: 800; color: var(--caramel-brown); max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(tpl.name || 'Frame')}</span>
+        <span style="position: absolute; top: 6px; left: 6px; background: rgba(56,30,17,0.8); color: #fff; font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 999px;">${fmt} · ${slotCount}S</span>
+      </button>
+    `;
+  }).join('');
+}
+window.renderSpecialGalleryTemplates = renderSpecialGalleryTemplates;
+
+function selectSpecialGalleryTemplate(tplId) {
+  sgState.selectedTemplateId = tplId;
+  const tpl = getSelectedSpecialTemplate();
+  syncSpecialGalleryPaperWithTemplate(tpl);
+  resetSlotAssignmentsForTemplate(false);
+  renderSpecialGalleryTemplates();
+  renderSpecialGalleryPoses();
+  scheduleSpecialGalleryRender();
+}
+window.selectSpecialGalleryTemplate = selectSpecialGalleryTemplate;
+
+function renderSpecialGalleryFilterBar() {
+  const bar = document.getElementById('specialGalleryFilterBar');
+  if (!bar) return;
+  const presets = (window.MafazaPhotoFilters && typeof window.MafazaPhotoFilters.getPresets === 'function')
+    ? window.MafazaPhotoFilters.getPresets()
+    : [];
+  if (!presets.length) {
+    bar.style.display = 'none';
+    return;
+  }
+  bar.style.display = 'flex';
+  bar.innerHTML = presets.map(p => `
+    <button type="button" class="sg-slot-pill ${sgState.filterKey === p.key ? 'active' : ''}" style="font-size: 11px; padding: 4px 10px; white-space: nowrap;" onclick="setSpecialGalleryFilter('${escapeHtml(p.key)}')">
+      ${escapeHtml(p.shortLabel || p.label)}
+    </button>
+  `).join('');
+}
+
+function setSpecialGalleryFilter(key) {
+  sgState.filterKey = key || 'normal';
+  renderSpecialGalleryFilterBar();
+  scheduleSpecialGalleryRender();
+}
+window.setSpecialGalleryFilter = setSpecialGalleryFilter;
+
+function updateSpecialGalleryZoomLabel() {
+  const label = document.getElementById('specialGalleryZoomLabel');
+  const assign = sgState.slotAssignments[sgState.activeSlotIdx];
+  const z = assign ? (assign.zoom || 1) : 1;
+  if (label) label.textContent = `${z.toFixed(1)}×`;
+}
+
+function adjustSpecialGalleryZoom(delta) {
+  const assign = sgState.slotAssignments[sgState.activeSlotIdx];
+  if (!assign) return;
+  assign.zoom = Math.max(0.8, Math.min(2.6, Number((assign.zoom + delta).toFixed(2))));
+  updateSpecialGalleryZoomLabel();
+  scheduleSpecialGalleryRender();
+}
+window.adjustSpecialGalleryZoom = adjustSpecialGalleryZoom;
+
+function resetSpecialGalleryTransform() {
+  const assign = sgState.slotAssignments[sgState.activeSlotIdx];
+  if (!assign) return;
+  assign.panX = 0;
+  assign.panY = 0;
+  assign.zoom = 1;
+  updateSpecialGalleryZoomLabel();
+  scheduleSpecialGalleryRender();
+}
+window.resetSpecialGalleryTransform = resetSpecialGalleryTransform;
+
+function loadSgImage(url) {
+  if (!url) return Promise.resolve(null);
+  const cached = sgState.imgCache.get(url);
+  if (cached) return Promise.resolve(cached);
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      sgState.imgCache.set(url, img);
+      resolve(img);
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+}
+
+function isChromaGreenPixel(r, g, b, a) {
+  if (a < 50) return false;
+  if (g >= 150 && r <= 100 && b <= 100) return true;
+  if (g >= 135 && (g - r) >= 28 && (g - b) >= 32) return true;
+  return g >= 115 && (g - r) >= 35 && (g - b) >= 35;
+}
+
+async function prepareSpecialGalleryFrame(tpl) {
+  if (!tpl || !tpl.image_storage_key) return null;
+  const cacheKey = `${tpl.id}:${tpl.image_storage_key}:${Boolean(tpl.chroma_key)}:${JSON.stringify(tpl.slots || [])}`;
+  if (sgState.frameCache.has(cacheKey)) {
+    return sgState.frameCache.get(cacheKey);
+  }
+
+  const img = await loadSgImage(tpl.image_storage_key);
+  if (!img) return null;
+
+  const isSvgTpl = /^\/assets\/templates\/.*\.svg$/i.test(tpl.image_storage_key || '') || /\.svg(\?|$)/i.test(tpl.image_storage_key || '');
+  const dbW = Number(tpl.width) || 1200;
+  const dbH = Number(tpl.height) || 1800;
+  const tplW = isSvgTpl ? dbW : (img.naturalWidth || dbW);
+  const tplH = isSvgTpl ? dbH : (img.naturalHeight || dbH);
+
+  const rawSlots = Array.isArray(tpl.slots) ? tpl.slots : [];
+  const fitsNatural = rawSlots.every(s =>
+    (Number(s.x) || 0) >= -4 &&
+    (Number(s.y) || 0) >= -4 &&
+    ((Number(s.x) || 0) + (Number(s.width) || 0)) <= tplW + 4 &&
+    ((Number(s.y) || 0) + (Number(s.height) || 0)) <= tplH + 4
+  );
+  const shouldScale = (dbW > 0 && dbH > 0) && (dbW !== tplW || dbH !== tplH) && (isSvgTpl || !fitsNatural);
+  const sx = shouldScale ? (tplW / dbW) : 1;
+  const sy = shouldScale ? (tplH / dbH) : 1;
+
+  let slots = rawSlots.length > 0
+    ? rawSlots.map((s, idx) => ({
+        ...s,
+        id: s.id || `slot_${idx + 1}`,
+        x: Math.round((Number(s.x) || 0) * sx),
+        y: Math.round((Number(s.y) || 0) * sy),
+        width: Math.max(40, Math.round((Number(s.width) || tplW * 0.4) * sx)),
+        height: Math.max(40, Math.round((Number(s.height) || tplH * 0.4) * sy))
+      }))
+    : [{ id: 'slot_1', pose_index: 1, x: Math.round(tplW * 0.06), y: Math.round(tplH * 0.06), width: Math.round(tplW * 0.88), height: Math.round(tplH * 0.78) }];
+
+  const frameCanvas = document.createElement('canvas');
+  frameCanvas.width = tplW;
+  frameCanvas.height = tplH;
+  const fCtx = frameCanvas.getContext('2d');
+  fCtx.drawImage(img, 0, 0, tplW, tplH);
+
+  const useChromaKey = Boolean(tpl.chroma_key === true || tpl.chroma_key === 1 || isSvgTpl);
+  try {
+    const imgData = fCtx.getImageData(0, 0, tplW, tplH);
+    const data = imgData.data;
+
+    if (useChromaKey && slots.length === 1) {
+      let minGX = tplW, maxGX = -1, minGY = tplH, maxGY = -1, greenCount = 0;
+      const step = 6;
+      for (let y = 0; y < tplH; y += step) {
+        for (let x = 0; x < tplW; x += step) {
+          const i = (y * tplW + x) * 4;
+          if (isChromaGreenPixel(data[i], data[i + 1], data[i + 2], data[i + 3])) {
+            greenCount++;
+            if (x < minGX) minGX = x;
+            if (x > maxGX) maxGX = x;
+            if (y < minGY) minGY = y;
+            if (y > maxGY) maxGY = y;
+          }
+        }
+      }
+      if (greenCount > 30 && maxGX > minGX + 60 && maxGY > minGY + 60) {
+        const gW = (maxGX - minGX) + step;
+        const gH = (maxGY - minGY) + step;
+        if (!tpl.slots || tpl.slots.length === 0 || gW > slots[0].width * 1.15 || gH > slots[0].height * 1.15) {
+          slots = [{ id: slots[0].id || 'slot_1', pose_index: 1, x: minGX, y: minGY, width: gW, height: gH }];
+        }
+      }
+    }
+
+    const pad = 2;
+    for (const slot of slots) {
+      const sx0 = Math.max(0, Math.floor(slot.x));
+      const ex0 = Math.min(tplW, Math.ceil(slot.x + slot.width));
+      const sy0 = Math.max(0, Math.floor(slot.y));
+      const ey0 = Math.min(tplH, Math.ceil(slot.y + slot.height));
+
+      let sampled = 0, transCount = 0, greenCount = 0;
+      for (let y = sy0; y < ey0; y += 4) {
+        for (let x = sx0; x < ex0; x += 4) {
+          const idx = (y * tplW + x) * 4;
+          sampled++;
+          if (data[idx + 3] < 50) transCount++;
+          else if (useChromaKey && isChromaGreenPixel(data[idx], data[idx + 1], data[idx + 2], data[idx + 3])) greenCount++;
+        }
+      }
+
+      if (useChromaKey) {
+        const startX = Math.max(0, Math.floor(slot.x - pad));
+        const endX = Math.min(tplW, Math.ceil(slot.x + slot.width + pad));
+        const startY = Math.max(0, Math.floor(slot.y - pad));
+        const endY = Math.min(tplH, Math.ceil(slot.y + slot.height + pad));
+        for (let y = startY; y < endY; y++) {
+          for (let x = startX; x < endX; x++) {
+            const i = (y * tplW + x) * 4;
+            if (isChromaGreenPixel(data[i], data[i + 1], data[i + 2], data[i + 3])) {
+              data[i + 3] = 0;
+            }
+          }
+        }
+      }
+
+      if (sampled > 0 && (transCount / sampled) < 0.05 && (!useChromaKey || (greenCount / sampled) < 0.05)) {
+        const cx = Math.min(tplW - 1, Math.max(0, Math.floor(slot.x + slot.width / 2)));
+        const cy = Math.min(tplH - 1, Math.max(0, Math.floor(slot.y + slot.height / 2)));
+        const cIdx = (cy * tplW + cx) * 4;
+        const bgR = data[cIdx], bgG = data[cIdx + 1], bgB = data[cIdx + 2];
+        let matchCount = 0;
+        for (let y = sy0; y < ey0; y += 4) {
+          for (let x = sx0; x < ex0; x += 4) {
+            const idx = (y * tplW + x) * 4;
+            const diff = Math.abs(data[idx] - bgR) + Math.abs(data[idx + 1] - bgG) + Math.abs(data[idx + 2] - bgB);
+            if (diff <= 45) matchCount++;
+          }
+        }
+        if ((matchCount / sampled) > 0.35) {
+          for (let y = sy0; y < ey0; y++) {
+            for (let x = sx0; x < ex0; x++) {
+              const i = (y * tplW + x) * 4;
+              const diff = Math.abs(data[i] - bgR) + Math.abs(data[i + 1] - bgG) + Math.abs(data[i + 2] - bgB);
+              if (diff <= 45) data[i + 3] = 0;
+            }
+          }
+        }
+      }
+    }
+    fCtx.putImageData(imgData, 0, 0);
+  } catch (e) {
+    console.warn('Chroma-key preview warning:', e);
+  }
+
+  const res = { frameCanvas, slots, tplW, tplH };
+  sgState.frameCache.set(cacheKey, res);
+  return res;
+}
+
+function scheduleSpecialGalleryRender() {
+  if (sgState.renderScheduled) return;
+  sgState.renderScheduled = true;
+  requestAnimationFrame(() => {
+    sgState.renderScheduled = false;
+    renderSpecialGalleryCanvasSafe();
+  });
+}
+
+function renderSpecialGalleryCanvasSafe() {
+  renderSpecialGalleryCanvas(false).catch(err => console.warn('SG render error:', err));
+}
+
+async function renderSpecialGalleryCanvas(forExport = false) {
+  const canvas = document.getElementById('specialGalleryCanvas');
+  if (!canvas) return null;
+  const ctx = canvas.getContext('2d');
+  const session = getSelectedSpecialSession();
+  const tpl = getSelectedSpecialTemplate();
+  const poses = (session && session.poses) || [];
+
+  if (!tpl || poses.length === 0) {
+    canvas.width = 600;
+    canvas.height = 800;
+    ctx.fillStyle = '#FFF9F0';
+    ctx.fillRect(0, 0, 600, 800);
+    ctx.fillStyle = '#7B482E';
+    ctx.font = 'bold 20px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Pilih sesi & frame untuk pratinjau', 300, 400);
+    return null;
+  }
+
+  const prepared = await prepareSpecialGalleryFrame(tpl);
+  if (!prepared) return null;
+
+  const { frameCanvas, slots, tplW, tplH } = prepared;
+  if (sgState.slotAssignments.length !== slots.length) {
+    sgState.slotAssignments = slots.map((s, idx) => sgState.slotAssignments[idx] || {
+      poseIndex: idx % poses.length,
+      panX: 0,
+      panY: 0,
+      zoom: 1
+    });
+    renderSpecialGallerySlotTabs();
+  }
+
+  canvas.width = tplW;
+  canvas.height = tplH;
+  ctx.clearRect(0, 0, tplW, tplH);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fillRect(0, 0, tplW, tplH);
+
+  // Preload all needed pose images in parallel
+  const loadedImgs = await Promise.all(poses.map(p => loadSgImage(p.filePath)));
+
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    const assign = sgState.slotAssignments[i] || { poseIndex: i % poses.length, panX: 0, panY: 0, zoom: 1 };
+    const pIdx = Math.max(0, Math.min(poses.length - 1, assign.poseIndex || 0));
+    const pImg = loadedImgs[pIdx] || loadedImgs[0];
+    if (!pImg) continue;
+
+    const iw = pImg.naturalWidth || pImg.width || 1200;
+    const ih = pImg.naturalHeight || pImg.height || 900;
+    const baseScale = Math.max(slot.width / iw, slot.height / ih);
+    const scale = baseScale * (assign.zoom || 1);
+    const dw = iw * scale;
+    const dh = ih * scale;
+    const dx = slot.x + (slot.width - dw) / 2 + (assign.panX || 0);
+    const dy = slot.y + (slot.height - dh) / 2 + (assign.panY || 0);
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(slot.x - 1, slot.y - 1, slot.width + 2, slot.height + 2);
+    ctx.clip();
+
+    if (window.MafazaPhotoFilters && typeof window.MafazaPhotoFilters.drawFilteredImage === 'function' && sgState.filterKey && sgState.filterKey !== 'normal') {
+      window.MafazaPhotoFilters.drawFilteredImage(ctx, pImg, dx, dy, dw, dh, sgState.filterKey, 100, poses[pIdx].filePath);
+    } else {
+      ctx.drawImage(pImg, dx, dy, dw, dh);
+    }
+    ctx.restore();
+  }
+
+  // Tempelkan frame di atas seluruh slot foto
+  ctx.drawImage(frameCanvas, 0, 0, tplW, tplH);
+
+  // Sorot slot aktif hanya di mode pratinjau (JANGAN diikutkan saat ekspor/cetak)
+  if (!forExport && slots.length > 1 && slots[sgState.activeSlotIdx]) {
+    const s = slots[sgState.activeSlotIdx];
+    ctx.save();
+    ctx.strokeStyle = '#E2624F';
+    ctx.lineWidth = Math.max(4, Math.round(tplW * 0.004));
+    ctx.setLineDash([12, 8]);
+    ctx.strokeRect(s.x + 2, s.y + 2, Math.max(10, s.width - 4), Math.max(10, s.height - 4));
+    ctx.restore();
+  }
+
+  sgState.lastRenderedMeta = { tplW, tplH, slots };
+  return canvas;
+}
+
+function bindSpecialGalleryCanvasDrag() {
+  const canvas = document.getElementById('specialGalleryCanvas');
+  if (!canvas || canvas.dataset.sgDragBound === 'true') return;
+  canvas.dataset.sgDragBound = 'true';
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    const cx = (e.clientX - rect.left) * scaleX;
+    const cy = (e.clientY - rect.top) * scaleY;
+
+    // Jika user klik pada slot lain, otomatis aktifkan slot tersebut
+    const meta = sgState.lastRenderedMeta;
+    if (meta && Array.isArray(meta.slots)) {
+      const hitIdx = meta.slots.findIndex(s => cx >= s.x && cx <= s.x + s.width && cy >= s.y && cy <= s.y + s.height);
+      if (hitIdx !== -1 && hitIdx !== sgState.activeSlotIdx) {
+        sgState.activeSlotIdx = hitIdx;
+        renderSpecialGallerySlotTabs();
+        renderSpecialGalleryPoses();
+        updateSpecialGalleryZoomLabel();
+      }
+    }
+
+    sgState.drag = { active: true, pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY };
+    canvas.style.cursor = 'grabbing';
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+
+  canvas.addEventListener('pointermove', (e) => {
+    if (!sgState.drag.active) return;
+    const assign = sgState.slotAssignments[sgState.activeSlotIdx];
+    if (!assign) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / Math.max(1, rect.width);
+    const scaleY = canvas.height / Math.max(1, rect.height);
+    assign.panX = (assign.panX || 0) + (e.clientX - sgState.drag.lastX) * scaleX;
+    assign.panY = (assign.panY || 0) + (e.clientY - sgState.drag.lastY) * scaleY;
+    sgState.drag.lastX = e.clientX;
+    sgState.drag.lastY = e.clientY;
+    scheduleSpecialGalleryRender();
+  });
+
+  const endDrag = () => {
+    sgState.drag.active = false;
+    canvas.style.cursor = 'grab';
+  };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+}
+
+async function executeSpecialGalleryPrint(printMode = 'server') {
+  if (sgState.isPrinting) return;
+  const session = getSelectedSpecialSession();
+  const tpl = getSelectedSpecialTemplate();
+  if (!session || !tpl) {
+    window.pbToast && window.pbToast('Pilih sesi foto dan frame terlebih dahulu.', 'warn');
+    return;
+  }
+
+  sgState.isPrinting = true;
+  const btnLocal = document.getElementById('btnSpecialPrintLocal');
+  const btnServer = document.getElementById('btnSpecialPrintServer');
+  if (btnLocal) btnLocal.disabled = true;
+  if (btnServer) btnServer.disabled = true;
+
+  try {
+    const canvas = await renderSpecialGalleryCanvas(true);
+    if (!canvas) throw new Error('Kanvas foto belum siap');
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    if (!blob) throw new Error('Gagal merender gambar frame baru');
+
+    const paperSize = sgState.paperChoice === '5R' ? '5x7' : '4x6';
+    const copies = Math.max(1, Math.min(20, parseInt(document.getElementById('specialGalleryCopies')?.value || '1', 10) || 1));
+    const paperConfirmed = sgState.paperChoice === '5R' && Boolean(document.getElementById('specialGallery5rConfirmed')?.checked);
+
+    const form = new FormData();
+    form.append('finalImage', blob, `special_reframe_${Date.now()}.png`);
+    form.append('templateId', tpl.id);
+    form.append('paperSize', paperSize);
+    form.append('copies', String(copies));
+    form.append('paperConfirmed', paperConfirmed ? 'true' : 'false');
+    form.append('printMode', printMode === 'local' ? 'local' : 'server');
+
+    const res = await fetch(`/api/photos/sessions/${encodeURIComponent(session.sessionId)}/custom-print`, {
+      method: 'POST',
+      body: form
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Gagal memproses cetak Galeri Khusus');
+
+    if (printMode === 'local') {
+      let printableUrl = data.finalImageUrl;
+      let objectUrlToRevoke = null;
+      if (data.sheetUrl) {
+        try {
+          const sheetRes = await fetch(data.sheetUrl);
+          if (sheetRes.ok) {
+            const sheetBlob = await sheetRes.blob();
+            objectUrlToRevoke = URL.createObjectURL(sheetBlob);
+            printableUrl = objectUrlToRevoke;
+          }
+        } catch (e) {}
+      }
+
+      const is5r = sgState.paperChoice === '5R';
+      await window.pbPrintViaBrowser({
+        imageUrl: printableUrl,
+        copies,
+        job: {
+          paperSize,
+          paperWidthIn: is5r ? 5 : 4,
+          paperHeightIn: is5r ? 7 : 6,
+          borderless: true,
+          orientation: canvas.width > canvas.height ? 'landscape' : 'portrait'
+        }
+      });
+      if (objectUrlToRevoke) {
+        setTimeout(() => { try { URL.revokeObjectURL(objectUrlToRevoke); } catch (_) {} }, 15000);
+      }
+      window.pbToast && window.pbToast(`🖨️ Menyiapkan cetak lokal ${copies}× ${sgState.paperChoice} dengan frame "${tpl.name}"`, 'ok');
+    } else {
+      const printJob = data.printJob;
+      if (printJob) {
+        markPrintJobSeen(printJob);
+        if (printJob.requiresPaperConfirm || printJob.state === 'awaiting_paper') {
+          window.pbToast && window.pbToast(`📄 Antrean 5R (${copies}×) dikirim ke server! Menunggu konfirmasi pasang kertas 5R.`, 'warn', 4500);
+        } else {
+          await window.pbSmartPrint(printJob, data.finalImageUrl, copies);
+          window.pbToast && window.pbToast(`🚀 ${copies}× ${sgState.paperChoice} dengan frame "${tpl.name}" terkirim ke antrean server!`, 'ok');
+        }
+        await loadPrintJobs();
+      }
+    }
+
+    await loadRecentPhotos();
+    // Kembalikan sorotan slot preview setelah ekspor
+    scheduleSpecialGalleryRender();
+  } catch (err) {
+    window.pbToast && window.pbToast(`Gagal cetak: ${err.message}`, 'error');
+  } finally {
+    sgState.isPrinting = false;
+    if (btnLocal) btnLocal.disabled = false;
+    if (btnServer) btnServer.disabled = false;
+  }
+}
+window.executeSpecialGalleryPrint = executeSpecialGalleryPrint;
+
+// -------------------------------------------------------------
 // ADMIN LOGOUT & AUTHENTICATION SESSION GUARDS
 // -------------------------------------------------------------
 async function logoutAdmin() {

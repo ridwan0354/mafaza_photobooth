@@ -572,7 +572,8 @@ export function getPrintSheetForAsset(assetId, tenantId, extraOptions = {}) {
     options.qrTemplateWidth = qrCfg.qrTemplateWidth;
     options.qrTemplateHeight = qrCfg.qrTemplateHeight;
   }
-  const sheetPath = buildPrintSheetFile(abs, options, `asset_${assetId}`);
+  const sheetCacheKey = `asset_${assetId}_${String(options.paperSize || '4x6').replace(/[^a-z0-9]/gi, '')}${extraOptions.templateId ? `_tpl_${String(extraOptions.templateId).replace(/[^a-z0-9_-]/gi, '')}` : ''}`;
+  const sheetPath = buildPrintSheetFile(abs, options, sheetCacheKey);
   return { path: sheetPath, options };
 }
 
@@ -806,9 +807,27 @@ function resolveSessionPrintQrConfig(photoSessionId, tenantId, fallbackEventId, 
   let qrUrl = extraOptions.qrUrl || null;
   let qrPosition = extraOptions.qrPosition || null;
   let qrCoords = (Array.isArray(extraOptions.qrCoords) && extraOptions.qrCoords.length > 0) ? extraOptions.qrCoords : null;
-  let qrTemplateWidth = null;
-  let qrTemplateHeight = null;
+  let qrTemplateWidth = Number(extraOptions.qrTemplateWidth) || null;
+  let qrTemplateHeight = Number(extraOptions.qrTemplateHeight) || null;
+  let overrideTemplate = null;
   let session = null;
+
+  if (extraOptions.templateId) {
+    overrideTemplate = db.prepare(`
+      SELECT id, qr_position, qr_coords_json, width, height
+      FROM templates
+      WHERE id = ? AND (tenant_id = ? OR tenant_id = 'global')
+    `).get(extraOptions.templateId, tenantId);
+    if (overrideTemplate) {
+      if (!qrPosition) qrPosition = overrideTemplate.qr_position || 'bottom-right';
+      if ((!qrCoords || qrCoords.length === 0) && overrideTemplate.qr_coords_json) {
+        const parsed = parseJson(overrideTemplate.qr_coords_json, []);
+        if (Array.isArray(parsed) && parsed.length > 0) qrCoords = parsed;
+      }
+      if (!qrTemplateWidth) qrTemplateWidth = overrideTemplate.width || null;
+      if (!qrTemplateHeight) qrTemplateHeight = overrideTemplate.height || null;
+    }
+  }
 
   if (photoSessionId) {
     session = db.prepare(`
@@ -822,13 +841,15 @@ function resolveSessionPrintQrConfig(photoSessionId, tenantId, fallbackEventId, 
     `).get(photoSessionId);
 
     if (session) {
-      if (!qrPosition) qrPosition = session.qr_position || 'bottom-right';
-      if ((!qrCoords || qrCoords.length === 0) && session.qr_coords_json) {
-        const parsed = parseJson(session.qr_coords_json, []);
-        if (Array.isArray(parsed) && parsed.length > 0) qrCoords = parsed;
+      if (!overrideTemplate) {
+        if (!qrPosition) qrPosition = session.qr_position || 'bottom-right';
+        if ((!qrCoords || qrCoords.length === 0) && session.qr_coords_json) {
+          const parsed = parseJson(session.qr_coords_json, []);
+          if (Array.isArray(parsed) && parsed.length > 0) qrCoords = parsed;
+        }
+        if (!qrTemplateWidth) qrTemplateWidth = session.tpl_width || null;
+        if (!qrTemplateHeight) qrTemplateHeight = session.tpl_height || null;
       }
-      qrTemplateWidth = session.tpl_width || null;
-      qrTemplateHeight = session.tpl_height || null;
       if (!qrUrl) {
         let token = session.token_plain;
         if (!token && session.guest_pass_id) {
