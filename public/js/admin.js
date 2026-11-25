@@ -6808,13 +6808,13 @@ function closeSpecialGalleryModal() {
 window.closeSpecialGalleryModal = closeSpecialGalleryModal;
 
 async function loadSpecialGallerySessions(preferredSessionId = null) {
-  const listEl = document.getElementById('specialGallerySessionsList');
-  const countEl = document.getElementById('sgSessionCountLabel');
+  const sessionSelectEl = document.getElementById('specialGallerySessionSelect');
+  const posesGrid = document.getElementById('specialGalleryPosesGrid');
   const eventFilterEl = document.getElementById('specialGalleryEventFilter');
   const eventId = eventFilterEl ? eventFilterEl.value : '';
 
-  if (listEl) {
-    listEl.innerHTML = '<div style="padding: 20px; text-align: center; font-size: 12.5px; color: var(--text-muted);">Memuat daftar sesi...</div>';
+  if (sessionSelectEl) {
+    sessionSelectEl.innerHTML = '<option value="">Memuat sesi...</option>';
   }
 
   try {
@@ -6826,25 +6826,23 @@ async function loadSpecialGallerySessions(preferredSessionId = null) {
     if (!res.ok) throw new Error(data.error || 'Gagal memuat sesi Galeri Khusus');
 
     sgState.sessions = Array.isArray(data) ? data : [];
-    if (countEl) countEl.textContent = `${sgState.sessions.length} sesi`;
 
     if (sgState.sessions.length === 0) {
       sgState.selectedSessionId = null;
-      if (listEl) {
-        if (eventId) {
-          listEl.innerHTML = `
-            <div style="padding: 18px 12px; text-align: center; font-size: 12px; color: var(--text-muted); display: flex; flex-direction: column; gap: 10px; align-items: center;">
-              <span>Belum ada sesi foto di filter event ini.</span>
-              <button type="button" class="sg-slot-pill" onclick="document.getElementById('specialGalleryEventFilter').value=''; loadSpecialGallerySessions();" style="background: var(--coral); color: #fff; border-color: var(--coral);">
-                📂 Tampilkan Semua Event
-              </button>
-            </div>
-          `;
-        } else {
-          listEl.innerHTML = '<div style="padding: 24px 12px; text-align: center; font-size: 12.5px; color: var(--text-muted);">Belum ada sesi foto tersimpan.</div>';
-        }
+      if (sessionSelectEl) {
+        sessionSelectEl.innerHTML = '<option value="">0 Sesi Foto</option>';
       }
       renderSpecialGalleryPoses();
+      if (posesGrid && eventId) {
+        posesGrid.innerHTML = `
+          <div style="grid-column: 1 / -1; text-align: center; font-size: 12px; color: var(--text-muted); padding: 12px; display: flex; flex-direction: column; gap: 8px; align-items: center;">
+            <span>Belum ada sesi foto di filter event ini.</span>
+            <button type="button" class="sg-slot-pill" onclick="document.getElementById('specialGalleryEventFilter').value=''; loadSpecialGallerySessions();" style="background: var(--coral); color: #fff; border-color: var(--coral);">
+              📂 Tampilkan Semua Event
+            </button>
+          </div>
+        `;
+      }
       renderSpecialGalleryCanvasSafe();
       return;
     }
@@ -6857,44 +6855,30 @@ async function loadSpecialGallerySessions(preferredSessionId = null) {
 
     selectSpecialGallerySession(pickId);
   } catch (err) {
-    if (listEl) {
-      listEl.innerHTML = `<div style="padding: 18px; text-align: center; font-size: 12px; color: #B3402F;">${escapeHtml(err.message)}</div>`;
+    if (sessionSelectEl) {
+      sessionSelectEl.innerHTML = '<option value="">Gagal memuat sesi</option>';
+    }
+    if (posesGrid) {
+      posesGrid.innerHTML = `<div style="grid-column: 1 / -1; padding: 14px; text-align: center; font-size: 12px; color: #B3402F;">${escapeHtml(err.message)}</div>`;
     }
   }
 }
 window.loadSpecialGallerySessions = loadSpecialGallerySessions;
 
 function renderSpecialGallerySessionsList() {
-  const listEl = document.getElementById('specialGallerySessionsList');
-  if (!listEl) return;
+  const sessionSelectEl = document.getElementById('specialGallerySessionSelect');
+  if (!sessionSelectEl) return;
 
   if (!sgState.sessions || sgState.sessions.length === 0) {
-    listEl.innerHTML = '<div style="padding: 20px; text-align: center; font-size: 12.5px; color: var(--text-muted);">Tidak ada sesi tersedia</div>';
+    sessionSelectEl.innerHTML = '<option value="">0 Sesi Foto</option>';
     return;
   }
 
-  listEl.innerHTML = sgState.sessions.map(s => {
-    const isActive = s.sessionId === sgState.selectedSessionId;
+  sessionSelectEl.innerHTML = sgState.sessions.map(s => {
     const dt = s.createdAt ? new Date(s.createdAt) : null;
     const timeStr = dt ? dt.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '-';
-    const dateStr = dt ? dt.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' }) : '';
-    const thumb = s.previewUrl || (s.poses && s.poses[0] ? s.poses[0].filePath : '/assets/templates/strip-green-template.svg');
-    const tplLabel = s.templateName ? `Frame: ${s.templateName}` : 'Sesi Booth';
-    return `
-      <button type="button" class="sg-session-card ${isActive ? 'active' : ''}" onclick="selectSpecialGallerySession('${escapeHtml(s.sessionId)}')">
-        <img src="${escapeHtml(thumb)}" onerror="this.onerror=null; this.style.opacity='0.2';" style="width: 48px; height: 60px; object-fit: cover; border-radius: 9px; background: #FFF5EA; flex-shrink: 0; border: 1px solid var(--border-soft);">
-        <div style="min-width: 0; flex: 1;">
-          <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px; margin-bottom: 2px;">
-            <span style="font-size: 11.5px; font-weight: 800; color: var(--caramel-brown); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Customer · ${escapeHtml(timeStr)}</span>
-            <span style="font-size: 10px; font-weight: 800; padding: 2px 6px; border-radius: 999px; background: #EAF7F4; color: #197B6C; flex-shrink: 0;">${s.poseCount} Pose</span>
-          </div>
-          <div style="font-size: 10.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(s.eventName || 'Event')} · ${escapeHtml(dateStr)}</div>
-          <div style="font-size: 10.5px; color: var(--coral); font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-            ${escapeHtml(tplLabel)}
-          </div>
-        </div>
-      </button>
-    `;
+    const selected = s.sessionId === sgState.selectedSessionId ? 'selected' : '';
+    return `<option value="${escapeHtml(s.sessionId)}" ${selected}>🕒 ${escapeHtml(timeStr)} · ${s.poseCount} Pose (${escapeHtml(s.eventName || 'Event')})</option>`;
   }).join('');
 }
 
