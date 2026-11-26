@@ -11,7 +11,7 @@
   <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
   <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
   <title>Mafaza — Photobooth Kiosk</title>
-  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.7">
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.9">
   <style>
     /* Specific overrides for Konsep C: Warm Playful Retro */
     .template-retro-card {
@@ -665,7 +665,7 @@
         <video id="videoFeed" autoplay playsinline webkit-playsinline muted poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" style="width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1) scale(1); transform-origin: center center; display: block;"></video>
 
         <!-- Live Viewfinder Indicator Top Left + 1-Tap Reconnect UVC + Rotate Button -->
-        <div style="position: absolute; top: 12px; left: 14px; z-index: 26; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+        <div id="liveViewTopLeftHud" style="position: absolute; top: 12px; left: 14px; z-index: 26; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
           <div style="display: flex; align-items: center; gap: 6px; background: rgba(0, 0, 0, 0.72); padding: 4px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); pointer-events: none;">
             <span style="width: 7px; height: 7px; border-radius: 50%; background: #ff4757; box-shadow: 0 0 8px #ff4757; animation: dotBlink 1.2s infinite ease-in-out;"></span>
             <span id="liveCameraNameBadge" style="font-size: 11px; font-weight: 800; color: #ffffff; letter-spacing: 0.4px;">LIVE</span>
@@ -680,7 +680,7 @@
         </div>
 
         <!-- Quick Portrait / Landscape & Aspect Ratio Toggle Top Right -->
-        <div style="position: absolute; top: 12px; right: 14px; z-index: 26; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+        <div id="liveViewTopRightHud" style="position: absolute; top: 12px; right: 14px; z-index: 26; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
           <div onclick="event.stopPropagation()" style="display: inline-flex; align-items: center; background: rgba(0, 0, 0, 0.72); padding: 3px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.25); gap: 3px;">
             <button type="button" id="btnCaptureOrientPortrait" onclick="event.stopPropagation(); kiosk.setCameraCaptureOrientation('portrait')" title="Ambil Foto Potret (Tegak)" style="background: transparent; color: #fff; border: none; border-radius: 999px; padding: 3px 9px; font-size: 10.5px; font-weight: 800; cursor: pointer;">📱 Potret</button>
             <button type="button" id="btnCaptureOrientLandscape" onclick="event.stopPropagation(); kiosk.setCameraCaptureOrientation('landscape')" title="Ambil Foto Lanskap (Mendatar)" style="background: transparent; color: #fff; border: none; border-radius: 999px; padding: 3px 9px; font-size: 10.5px; font-weight: 800; cursor: pointer;">🖼️ Lanskap</button>
@@ -696,6 +696,35 @@
         <div class="camera-bracket-tr"></div>
         <div class="camera-bracket-bl"></div>
         <div class="camera-bracket-br"></div>
+
+        <!-- Tombol Full Layar Live (pojok kiri bawah viewfinder, selalu bebas dari overlap global bar) -->
+        <button type="button" id="btnLiveFullscreenExpand" class="live-fs-expand-btn" onclick="event.stopPropagation(); kiosk.toggleLiveViewFullscreen(true);" title="Perbesar Layar Live Camera Penuh">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="15 3 21 3 21 9"></polyline>
+            <polyline points="9 21 3 21 3 15"></polyline>
+            <line x1="21" y1="3" x2="14" y2="10"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+          <span>Full Layar Live</span>
+        </button>
+
+        <!-- Tombol Minimize Pojok Kanan Atas saat Mode Full Layar Live -->
+        <button type="button" id="btnLiveFullscreenMinimize" class="live-fs-minimize-btn" onclick="event.stopPropagation(); kiosk.toggleLiveViewFullscreen(false);" title="Minimize / Kembali ke tampilan normal">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="4 14 10 14 10 20"></polyline>
+            <polyline points="20 10 14 10 14 4"></polyline>
+            <line x1="14" y1="10" x2="21" y2="3"></line>
+            <line x1="3" y1="21" x2="10" y2="14"></line>
+          </svg>
+          <span>Minimize</span>
+        </button>
+
+        <!-- Bar aksi cepat saat semua pose selesai dalam mode Full Layar Live -->
+        <div id="liveFullscreenDoneBar" class="live-fs-done-bar" onclick="event.stopPropagation()" style="display: none;">
+          <span id="liveFullscreenDoneText" style="font-size: 13px; font-weight: 800; color: #FFFBF5;">✅ Semua Pose Selesai</span>
+          <button type="button" class="live-fs-done-btn secondary" onclick="event.stopPropagation(); kiosk.retakeAllPoses();">🔄 Foto Ulang</button>
+          <button type="button" class="live-fs-done-btn primary" onclick="event.stopPropagation(); kiosk.proceedToPreviewScreen();">✨ Lanjut ke Preview ➔</button>
+        </div>
 
         <!-- Big Centered Countdown Overlay (Animasi Melingkar) -->
         <div id="countdownBox" class="countdown-big-overlay" style="display: none;">
@@ -1500,6 +1529,6 @@
   <script src="/js/event-gallery-viewer.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.8"></script>
   <script src="/js/photo-filters.js?v=1.0"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v9.30"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v9.31"></script>
 </body>
 </html>

@@ -47,6 +47,7 @@ class KioskEngine {
     this.cameraCaptureOrientation = ['auto', 'portrait', 'landscape'].includes(savedCamOrient) ? savedCamOrient : 'auto';
     const savedRot = parseInt(localStorage.getItem('pb_camera_rotation') || '0', 10);
     this.cameraRotation = [0, 90, 180, 270].includes(savedRot) ? savedRot : 0;
+    this.liveViewFullscreen = localStorage.getItem('pb_kiosk_live_fullscreen') === 'true';
 
     // Interactive Photo Selection & Panning State in Preview
     this.slotAssignments = [];
@@ -104,6 +105,15 @@ class KioskEngine {
     }
     this.updateCameraRotationButtonsUI();
     this.applyCameraTransform();
+    this.syncLiveViewFullscreenUI();
+    if (!this._liveResizeBound) {
+      this._liveResizeBound = true;
+      window.addEventListener('resize', () => {
+        if (this.currentScreen === 'screenCapture') {
+          this.applyCameraTransform();
+        }
+      });
+    }
     this.startCanonUsbAutoDetector();
 
     // Deteksi iPad / Mobile: Jangan panggil getUserMedia saat #screenCapture masih display:none,
@@ -1054,6 +1064,7 @@ class KioskEngine {
       target.classList.add('active');
       this.currentScreen = screenId;
     }
+    this.syncLiveViewFullscreenUI();
     if (screenId === 'screenCapture' || screenId === 'screenQR') {
       requestAnimationFrame(() => {
         this.wakeUpVideoFeedOnVisibleScreen(screenId);
@@ -1887,10 +1898,66 @@ class KioskEngine {
   }
 
   handleCameraViewportClick(event) {
-    if (event && event.target && event.target.closest && event.target.closest('button')) {
-      return; // Jangan override tombol retake atau lanjut di dalam overlay
+    if (event && event.target && event.target.closest && (
+      event.target.closest('button') ||
+      event.target.closest('#liveFullscreenDoneBar')
+    )) {
+      return; // Jangan override tombol kontrol, retake, minimize, atau lanjut di dalam overlay
     }
     this.handleShutterClick();
+  }
+
+  toggleLiveViewFullscreen(forceState = null) {
+    const next = forceState !== null ? Boolean(forceState) : !this.liveViewFullscreen;
+    this.liveViewFullscreen = next;
+    try {
+      localStorage.setItem('pb_kiosk_live_fullscreen', next ? 'true' : 'false');
+    } catch (e) {}
+    if (next) {
+      this.toggleCameraZoomControls(false);
+      this.toggleCameraSettingsDrawer(false);
+    }
+    this.syncLiveViewFullscreenUI();
+    this.renderFilmstripDock();
+    this.applyCameraTransform();
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => this.applyCameraTransform());
+    }
+  }
+
+  syncLiveViewFullscreenUI() {
+    const isActive = Boolean(this.liveViewFullscreen && this.currentScreen === 'screenCapture');
+    if (document.body && document.body.classList && typeof document.body.classList.toggle === 'function') {
+      document.body.classList.toggle('kiosk-live-fullscreen', isActive);
+    }
+    const expandBtn = document.getElementById('btnLiveFullscreenExpand');
+    if (expandBtn) {
+      expandBtn.style.display = isActive ? 'none' : 'inline-flex';
+    }
+    const minBtn = document.getElementById('btnLiveFullscreenMinimize');
+    if (minBtn) {
+      minBtn.style.display = isActive ? 'inline-flex' : 'none';
+    }
+    this.syncLiveFullscreenDoneBar();
+  }
+
+  syncLiveFullscreenDoneBar() {
+    const doneBar = document.getElementById('liveFullscreenDoneBar');
+    if (!doneBar) return;
+    const isActive = Boolean(this.liveViewFullscreen && this.currentScreen === 'screenCapture');
+    const filledCount = Array.isArray(this.posesCaptured) ? this.posesCaptured.filter(p => p !== null).length : 0;
+    const allFilled = filledCount === this.totalPosesRequired && this.totalPosesRequired > 0;
+    const holdOverlay = document.getElementById('postCapturePreviewOverlay');
+    const holdVisible = Boolean(holdOverlay && holdOverlay.style && holdOverlay.style.display && holdOverlay.style.display !== 'none');
+    if (isActive && allFilled && !holdVisible) {
+      const textEl = document.getElementById('liveFullscreenDoneText');
+      if (textEl) {
+        textEl.innerText = `✅ ${filledCount}/${this.totalPosesRequired} Pose Selesai`;
+      }
+      doneBar.style.display = 'flex';
+    } else {
+      doneBar.style.display = 'none';
+    }
   }
 
   setupKeyboardRemoteListeners() {
@@ -3442,6 +3509,9 @@ class KioskEngine {
     if (countdownBox) countdownBox.style.display = 'none';
     const holdOverlay = document.getElementById('postCapturePreviewOverlay');
     if (holdOverlay) holdOverlay.style.display = 'none';
+    if (typeof this.syncLiveFullscreenDoneBar === 'function') {
+      this.syncLiveFullscreenDoneBar();
+    }
   }
 
   async startCountdownSequence() {
@@ -3897,9 +3967,10 @@ class KioskEngine {
     const video = document.getElementById('videoFeed');
     const fitMode = this.cameraFitMode || 'cover';
     const rot = [0, 90, 180, 270].includes(this.cameraRotation) ? this.cameraRotation : 0;
+    const isLiveFs = Boolean(this.liveViewFullscreen && this.currentScreen === 'screenCapture');
     const frame = document.getElementById('cameraRetroFrame');
     if (frame) {
-      frame.style.aspectRatio = (this.cameraAspectRatio || '16/9').replace('/', ' / ');
+      frame.style.aspectRatio = isLiveFs ? 'auto' : (this.cameraAspectRatio || '16/9').replace('/', ' / ');
     }
 
     let rotScale = 1.0;
@@ -4264,6 +4335,7 @@ class KioskEngine {
       }
       holdImg.src = capturedSrc;
       holdOverlay.style.display = 'flex';
+      this.syncLiveFullscreenDoneBar();
     }
     if (holdBadge) {
       holdBadge.innerText = `✅ Hasil Foto Pose ${justCapturedIndex + 1} dari ${this.totalPosesRequired}`;
@@ -4405,6 +4477,7 @@ class KioskEngine {
     if (btnRetakeAll) {
       btnRetakeAll.style.display = filledCount > 0 ? 'inline-flex' : 'none';
     }
+    this.syncLiveFullscreenDoneBar();
 
     if (!container) return;
     container.innerHTML = '';

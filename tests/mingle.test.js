@@ -2831,3 +2831,139 @@ test('Mingle Live Mirror defaults OFF (normal), toggles scaleX(-1) on live viewf
   assert.equal(captureScaled, false, 'Captured image must stay un-mirrored so text is never flipped');
   assert.equal(engine._lastCaptured, 'data:image/jpeg;base64,RAW_NORMAL');
 });
+
+test('Kiosk Capture Full Layar Live expands viewport and restores normal mode via Minimize', async () => {
+  const vm = await import('node:vm');
+  const kioskHtml = fs.readFileSync(path.join(process.cwd(), 'public/kiosk.html'), 'utf8');
+  const stylesCss = fs.readFileSync(path.join(process.cwd(), 'public/css/styles.css'), 'utf8');
+  const kioskJs = fs.readFileSync(path.join(process.cwd(), 'public/js/kiosk.js'), 'utf8');
+
+  // 1. Markup & CSS checks
+  assert.match(kioskHtml, /id="btnLiveFullscreenExpand"[^>]*onclick="event\.stopPropagation\(\); kiosk\.toggleLiveViewFullscreen\(true\);"/);
+  assert.match(kioskHtml, /id="btnLiveFullscreenMinimize"[^>]*onclick="event\.stopPropagation\(\); kiosk\.toggleLiveViewFullscreen\(false\);"/);
+  assert.match(kioskHtml, /id="liveFullscreenDoneBar"/);
+  assert.match(stylesCss, /body\.kiosk-live-fullscreen #screenCapture\.active #cameraRetroFrame[\s\S]*100vw[\s\S]*100dvh/);
+  assert.match(stylesCss, /body\.kiosk-live-fullscreen #kioskGlobalControls[\s\S]*display:\s*none\s*!important/);
+  assert.match(stylesCss, /body\.kiosk-live-fullscreen #screenCapture\.active \.live-fs-minimize-btn[\s\S]*display:\s*inline-flex\s*!important/);
+
+  // 2. VM runtime behavior checks
+  const trimmed = kioskJs.replace(/\n\/\/ Global kiosk instance[\s\S]*$/, '\n');
+  const lsStore = new Map();
+  const bodyClasses = new Set();
+  const makeEl = (id) => ({
+    id,
+    style: { removeProperty: () => {} },
+    innerText: '',
+    innerHTML: '',
+    appendChild: () => {},
+    clientWidth: 1280,
+    clientHeight: 720,
+    classList: {
+      toggle: (cls, force) => {
+        if (force === true) bodyClasses.add(cls);
+        else if (force === false) bodyClasses.delete(cls);
+      },
+      add: (cls) => bodyClasses.add(cls),
+      remove: (cls) => bodyClasses.delete(cls),
+      contains: (cls) => bodyClasses.has(cls)
+    },
+    closest: (sel) => (sel === 'button' && (id === 'btnLiveFullscreenExpand' || id === 'btnLiveFullscreenMinimize') ? makeEl(id) : null)
+  });
+
+  const ids = [
+    'cameraRetroFrame', 'videoFeed', 'btnLiveFullscreenExpand', 'btnLiveFullscreenMinimize',
+    'liveFullscreenDoneBar', 'liveFullscreenDoneText', 'postCapturePreviewOverlay',
+    'cameraZoomControls', 'btnToggleCameraControls', 'kioskCameraSettingsDrawer',
+    'poseThumbnails', 'capturedCountText', 'btnProceedToPreview', 'btnRetakeAll',
+    'screenCapture', 'screenPreview', 'screenTemplate', 'screenWelcome'
+  ];
+  const dom = new Map(ids.map((id) => [id, makeEl(id)]));
+  const ctx = vm.createContext({
+    URL, URLSearchParams, AbortController, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    window: { __pbNotifyInitialized: true, location: { origin: 'http://localhost', search: '' }, addEventListener: () => {} },
+    document: {
+      body: makeEl('body'),
+      head: { appendChild: () => {} },
+      getElementById: (id) => dom.get(id) || null,
+      querySelectorAll: () => [],
+      createElement: () => makeEl('dyn')
+    },
+    localStorage: {
+      getItem: (k) => lsStore.get(k) ?? null,
+      setItem: (k, v) => lsStore.set(k, String(v))
+    },
+    navigator: { onLine: true, mediaDevices: null },
+    requestAnimationFrame: (fn) => fn(),
+    setInterval: () => 1, clearInterval: () => {}, setTimeout, clearTimeout, console
+  });
+  vm.runInContext(trimmed, ctx);
+
+  const eng = vm.runInContext('Object.create(KioskEngine.prototype)', ctx);
+  let shutterCalled = 0;
+  Object.assign(eng, {
+    currentScreen: 'screenCapture',
+    liveViewFullscreen: false,
+    cameraZoom: 1.0,
+    cameraPanX: 0,
+    cameraPanY: 0,
+    cameraFitMode: 'cover',
+    cameraAspectRatio: '16/9',
+    cameraRotation: 0,
+    posesCaptured: [null, null, null],
+    totalPosesRequired: 3,
+    renderStepProgressBars: () => {},
+    wakeUpVideoFeedOnVisibleScreen: () => {},
+    getLiveViewfinderCssFilterString: () => '',
+    updateCameraFitButtonsUI: () => {},
+    updateCameraAspectRatioButtonsUI: () => {},
+    updateCameraCaptureOrientationUI: () => {},
+    updateCameraRotationButtonsUI: () => {},
+    handleShutterClick: () => { shutterCalled++; }
+  });
+
+  // Normal mode initial state
+  eng.syncLiveViewFullscreenUI();
+  eng.applyCameraTransform();
+  assert.equal(bodyClasses.has('kiosk-live-fullscreen'), false);
+  assert.equal(dom.get('btnLiveFullscreenExpand').style.display, 'inline-flex');
+  assert.equal(dom.get('btnLiveFullscreenMinimize').style.display, 'none');
+  assert.equal(dom.get('cameraRetroFrame').style.aspectRatio, '16 / 9');
+
+  // Expand to Full Layar Live
+  eng.toggleLiveViewFullscreen(true);
+  assert.equal(eng.liveViewFullscreen, true);
+  assert.equal(lsStore.get('pb_kiosk_live_fullscreen'), 'true');
+  assert.equal(bodyClasses.has('kiosk-live-fullscreen'), true);
+  assert.equal(dom.get('btnLiveFullscreenExpand').style.display, 'none');
+  assert.equal(dom.get('btnLiveFullscreenMinimize').style.display, 'inline-flex');
+  assert.equal(dom.get('cameraRetroFrame').style.aspectRatio, 'auto');
+
+  // Clicking Minimize or Expand button never triggers shutter snap
+  eng.handleCameraViewportClick({ target: dom.get('btnLiveFullscreenMinimize') });
+  assert.equal(shutterCalled, 0);
+
+  // All poses finished in Full Live reveals done bar only when hold overlay is closed
+  eng.posesCaptured = ['p1', 'p2', 'p3'];
+  dom.get('postCapturePreviewOverlay').style.display = 'flex';
+  eng.renderFilmstripDock();
+  assert.equal(dom.get('liveFullscreenDoneBar').style.display, 'none');
+  dom.get('postCapturePreviewOverlay').style.display = 'none';
+  eng.renderFilmstripDock();
+  assert.equal(dom.get('liveFullscreenDoneBar').style.display, 'flex');
+
+  // Leaving screenCapture (e.g. moving to screenPreview) strips body fullscreen class automatically
+  eng.showScreen('screenPreview');
+  assert.equal(bodyClasses.has('kiosk-live-fullscreen'), false);
+
+  // Returning & clicking Minimize restores normal mode cleanly
+  eng.showScreen('screenCapture');
+  assert.equal(bodyClasses.has('kiosk-live-fullscreen'), true);
+  eng.toggleLiveViewFullscreen(false);
+  assert.equal(eng.liveViewFullscreen, false);
+  assert.equal(lsStore.get('pb_kiosk_live_fullscreen'), 'false');
+  assert.equal(bodyClasses.has('kiosk-live-fullscreen'), false);
+  assert.equal(dom.get('btnLiveFullscreenExpand').style.display, 'inline-flex');
+  assert.equal(dom.get('btnLiveFullscreenMinimize').style.display, 'none');
+  assert.equal(dom.get('cameraRetroFrame').style.aspectRatio, '16 / 9');
+  assert.equal(dom.get('liveFullscreenDoneBar').style.display, 'none');
+});
