@@ -2060,7 +2060,7 @@ test('Mingle result photo picker stays intact across session reset and lets oper
   assert.match(mingleHtml, /id="mingleResultSlotHint"/);
   assert.match(mingleHtml, /id="mingleResultSlotTabs"/);
   assert.match(mingleHtml, /id="mingleResultPhotoPicker"/);
-  assert.match(mingleHtml, /\/js\/mingle\.js\?v=4\.0/);
+  assert.match(mingleHtml, /\/js\/mingle\.js\?v=4\.1/);
 
   const createEl = (id) => ({
     id,
@@ -2966,4 +2966,117 @@ test('Kiosk Capture Full Layar Live expands viewport and restores normal mode vi
   assert.equal(dom.get('btnLiveFullscreenMinimize').style.display, 'none');
   assert.equal(dom.get('cameraRetroFrame').style.aspectRatio, '16 / 9');
   assert.equal(dom.get('liveFullscreenDoneBar').style.display, 'none');
+});
+
+test('Mingle Ready screen Full Layar Live expands viewfinder and restores normal mode via Minimize', async () => {
+  const vm = await import('node:vm');
+  const mingleHtml = fs.readFileSync(path.join(process.cwd(), 'public/mingle.html'), 'utf8');
+  const mingleJs = fs.readFileSync(path.join(process.cwd(), 'public/js/mingle.js'), 'utf8');
+
+  assert.match(mingleHtml, /id="btnMingleLiveFullscreenExpand"[^>]*toggleLiveViewFullscreen\(true\)/);
+  assert.match(mingleHtml, /id="btnMingleLiveFullscreenMinimize"[^>]*toggleLiveViewFullscreen\(false\)/);
+  assert.match(mingleHtml, /id="mingleLiveFsActionBar"/);
+  assert.match(mingleHtml, /body\.mingle-live-fullscreen #screenMingleReady #mingleViewfinder[\s\S]*100vw[\s\S]*100dvh/);
+  assert.match(mingleHtml, /body\.mingle-live-fullscreen #screenMingleReady \.mingle-live-fs-minimize-btn[\s\S]*display:\s*inline-flex\s*!important/);
+
+  const trimmed = mingleJs.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
+  const lsStore = new Map();
+  const bodyClasses = new Set();
+  const makeEl = (id, extra = {}) => ({
+    id,
+    style: {},
+    innerText: '',
+    innerHTML: '',
+    clientWidth: 800,
+    clientHeight: 450,
+    classList: {
+      toggle: (cls, force) => {
+        if (force === true) bodyClasses.add(cls);
+        else if (force === false) bodyClasses.delete(cls);
+      },
+      contains: (cls) => bodyClasses.has(cls)
+    },
+    ...extra
+  });
+  const dom = new Map([
+    ['mingleVideoFeed', makeEl('mingleVideoFeed', { videoWidth: 1280, videoHeight: 720 })],
+    ['mingleLiveCanvas', makeEl('mingleLiveCanvas')],
+    ['mingleViewfinder', makeEl('mingleViewfinder')],
+    ['btnMingleLiveFullscreenExpand', makeEl('btnMingleLiveFullscreenExpand')],
+    ['btnMingleLiveFullscreenMinimize', makeEl('btnMingleLiveFullscreenMinimize')],
+    ['mingleLiveFsActionBar', makeEl('mingleLiveFsActionBar')],
+    ['btnMingleLiveFsFinish', makeEl('btnMingleLiveFsFinish')],
+    ['btnMingleFinishSession', makeEl('btnMingleFinishSession')]
+  ]);
+
+  const ctx = vm.createContext({
+    URL, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    window: { location: { origin: 'http://localhost', search: '' }, addEventListener: () => {} },
+    document: {
+      body: makeEl('body'),
+      getElementById: (id) => dom.get(id) || null,
+      querySelectorAll: () => [],
+      createElement: () => makeEl('dyn')
+    },
+    localStorage: {
+      getItem: (k) => lsStore.get(k) ?? null,
+      setItem: (k, v) => lsStore.set(k, String(v))
+    },
+    navigator: { onLine: true, mediaDevices: {} },
+    requestAnimationFrame: (fn) => fn(),
+    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    setTimeout, clearTimeout, setInterval, clearInterval, console
+  });
+  vm.runInContext(trimmed, ctx);
+
+  const eng = vm.runInContext('Object.create(MingleBoothEngine.prototype)', ctx);
+  Object.assign(eng, {
+    currentScreen: 'screenMingleReady',
+    liveViewFullscreen: false,
+    cameraRotation: 0,
+    liveMirror: false,
+    eventConfig: {},
+    activeFilter: 'normal',
+    capturedPhotos: [],
+    activeTargetShots: 3,
+    showToast: () => {},
+    getFilterCss: () => 'none'
+  });
+
+  // Initial normal state
+  eng.syncLiveViewFullscreenUI();
+  assert.equal(bodyClasses.has('mingle-live-fullscreen'), false);
+  assert.equal(dom.get('btnMingleLiveFullscreenExpand').style.display, 'inline-flex');
+  assert.equal(dom.get('btnMingleLiveFullscreenMinimize').style.display, 'none');
+  assert.equal(dom.get('mingleLiveFsActionBar').style.display, 'none');
+
+  // Toggle ON -> expands Full Layar Live + hides expand + shows minimize & quick action bar
+  eng.toggleLiveViewFullscreen(true);
+  assert.equal(eng.liveViewFullscreen, true);
+  assert.equal(lsStore.get('pb_mingle_live_fullscreen'), 'true');
+  assert.equal(bodyClasses.has('mingle-live-fullscreen'), true);
+  assert.equal(dom.get('btnMingleLiveFullscreenExpand').style.display, 'none');
+  assert.equal(dom.get('btnMingleLiveFullscreenMinimize').style.display, 'inline-flex');
+  assert.equal(dom.get('mingleLiveFsActionBar').style.display, 'inline-flex');
+  assert.equal(dom.get('btnMingleLiveFsFinish').style.display, 'none');
+
+  // Capturing 1+ photo reveals Selesai button in Full Live action bar
+  eng.capturedPhotos = ['data:image/jpeg;base64,ONE'];
+  eng.updateReadyCaptureUI();
+  assert.equal(dom.get('btnMingleLiveFsFinish').style.display, 'inline-flex');
+
+  // Leaving screenMingleReady (e.g. Result screen) strips mingle-live-fullscreen cleanly
+  eng.showScreen('screenMingleResult');
+  assert.equal(bodyClasses.has('mingle-live-fullscreen'), false);
+
+  // Returning & Minimize restores normal layout cleanly
+  eng.showScreen('screenMingleReady');
+  assert.equal(bodyClasses.has('mingle-live-fullscreen'), true);
+  eng.toggleLiveViewFullscreen(false);
+  assert.equal(eng.liveViewFullscreen, false);
+  assert.equal(lsStore.get('pb_mingle_live_fullscreen'), 'false');
+  assert.equal(bodyClasses.has('mingle-live-fullscreen'), false);
+  assert.equal(dom.get('btnMingleLiveFullscreenExpand').style.display, 'inline-flex');
+  assert.equal(dom.get('btnMingleLiveFullscreenMinimize').style.display, 'none');
+  assert.equal(dom.get('mingleLiveFsActionBar').style.display, 'none');
 });

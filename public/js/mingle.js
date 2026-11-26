@@ -56,6 +56,7 @@ class MingleBoothEngine {
     const savedRot = parseInt(localStorage.getItem('pb_camera_rotation') || '0', 10);
     this.cameraRotation = [0, 90, 180, 270].includes(savedRot) ? savedRot : 0;
     this.liveMirror = localStorage.getItem('pb_mingle_live_mirror') === 'true';
+    this.liveViewFullscreen = localStorage.getItem('pb_mingle_live_fullscreen') === 'true';
     const savedCamOrient = localStorage.getItem('pb_camera_capture_orientation') || 'auto';
     this.cameraCaptureOrientation = ['auto', 'portrait', 'landscape'].includes(savedCamOrient) ? savedCamOrient : 'auto';
     this.liveViewTimerId = null;
@@ -81,6 +82,7 @@ class MingleBoothEngine {
     this.updateLiveMirrorUI();
     this.updateCameraCaptureOrientationUI();
     this.applyTopLiveLayout();
+    this.syncLiveViewFullscreenUI();
     this.startStatusPolling();
     this.setUsbMingleListen(false);
 
@@ -303,6 +305,11 @@ class MingleBoothEngine {
     };
     window.addEventListener('pagehide', releaseResources);
     window.addEventListener('beforeunload', releaseResources);
+    window.addEventListener('resize', () => {
+      if (this.currentScreen === 'screenMingleReady') {
+        this.applyMingleVideoTransform();
+      }
+    });
 
     window.addEventListener('online', () => {
       this.updateOfflineGalleryBadge();
@@ -928,6 +935,7 @@ class MingleBoothEngine {
     document.body.classList.toggle('mingle-on-ready', id === 'screenMingleReady');
     document.body.classList.toggle('mingle-on-result', id === 'screenMingleResult');
     this.currentScreen = id;
+    this.syncLiveViewFullscreenUI();
   }
 
   enterFrameSelection() {
@@ -1064,6 +1072,17 @@ class MingleBoothEngine {
         finishBtn.innerText = `✅ Selesai Foto (${count}) & Buat QR Galeri ➔`;
         finishBtn.style.background = '#1F5B56';
         finishBtn.style.boxShadow = '';
+      }
+    }
+    const fsFinishBtn = document.getElementById('btnMingleLiveFsFinish');
+    if (fsFinishBtn) {
+      fsFinishBtn.style.display = count >= 1 ? 'inline-flex' : 'none';
+      if (reachedMultiTarget) {
+        fsFinishBtn.innerText = `✅ Pose Lengkap (${count}/${targetNum}) ➔`;
+        fsFinishBtn.style.background = '#177A57';
+      } else {
+        fsFinishBtn.innerText = `✅ Selesai (${count}) ➔`;
+        fsFinishBtn.style.background = '#1F5B56';
       }
     }
     if (waitDesc) {
@@ -1220,6 +1239,39 @@ class MingleBoothEngine {
       localStorage.setItem('pb_mingle_top_live', this.isTopLiveLayout ? 'true' : 'false');
     } catch (e) {}
     this.applyTopLiveLayout();
+  }
+
+  toggleLiveViewFullscreen(forceState = null) {
+    const next = forceState !== null ? Boolean(forceState) : !this.liveViewFullscreen;
+    this.liveViewFullscreen = next;
+    try {
+      localStorage.setItem('pb_mingle_live_fullscreen', next ? 'true' : 'false');
+    } catch (e) {}
+    this.syncLiveViewFullscreenUI();
+    this.updateReadyCaptureUI();
+    this.applyMingleVideoTransform();
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => this.applyMingleVideoTransform());
+    }
+  }
+
+  syncLiveViewFullscreenUI() {
+    const isActive = Boolean(this.liveViewFullscreen && this.currentScreen === 'screenMingleReady');
+    if (document.body && document.body.classList && typeof document.body.classList.toggle === 'function') {
+      document.body.classList.toggle('mingle-live-fullscreen', isActive);
+    }
+    const expandBtn = document.getElementById('btnMingleLiveFullscreenExpand');
+    if (expandBtn && expandBtn.style) {
+      expandBtn.style.display = isActive ? 'none' : 'inline-flex';
+    }
+    const minBtn = document.getElementById('btnMingleLiveFullscreenMinimize');
+    if (minBtn && minBtn.style) {
+      minBtn.style.display = isActive ? 'inline-flex' : 'none';
+    }
+    const actionBar = document.getElementById('mingleLiveFsActionBar');
+    if (actionBar && actionBar.style) {
+      actionBar.style.display = isActive ? 'inline-flex' : 'none';
+    }
   }
 
   setCameraRotation(deg) {

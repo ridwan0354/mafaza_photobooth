@@ -11,7 +11,7 @@
   <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
   <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
   <title>Mafaza — Mingle Booth (Roaming Camera)</title>
-  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.7">
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.9">
   <style>
     html, body {
       margin: 0;
@@ -914,6 +914,138 @@
     #pbPrintPortal {
       display: none;
     }
+
+    /* Full Layar Live View Mode di Mingle */
+    .mingle-live-fs-expand-btn {
+      position: absolute;
+      bottom: 14px;
+      left: 14px;
+      z-index: 26;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 13px;
+      border-radius: 999px;
+      background: rgba(230, 120, 107, 0.94);
+      border: 1.5px solid rgba(255, 255, 255, 0.55);
+      color: #ffffff;
+      font-size: 11.5px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.36);
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    .mingle-live-fs-expand-btn:hover {
+      background: var(--coral-hover, #d7685b);
+      transform: scale(1.04);
+    }
+    .mingle-live-fs-minimize-btn {
+      display: none;
+      position: fixed;
+      top: max(14px, env(safe-area-inset-top));
+      right: max(16px, env(safe-area-inset-right));
+      z-index: 650;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 15px;
+      border-radius: 999px;
+      background: rgba(24, 14, 10, 0.74);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1.5px solid rgba(255, 255, 255, 0.42);
+      color: #ffffff;
+      font-size: 12.5px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.42);
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    .mingle-live-fs-minimize-btn:hover {
+      background: rgba(230, 120, 107, 0.92);
+      transform: scale(1.04);
+    }
+    .mingle-live-fs-action-bar {
+      display: none;
+      position: fixed;
+      bottom: max(16px, env(safe-area-inset-bottom));
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 650;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: rgba(24, 14, 10, 0.72);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1.5px solid rgba(255, 255, 255, 0.34);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42);
+      max-width: calc(100vw - 24px);
+    }
+    body.mingle-live-fullscreen {
+      height: 100dvh !important;
+      overflow: hidden !important;
+    }
+    body.mingle-live-fullscreen .mingle-wrapper {
+      height: 100dvh !important;
+      min-height: 100dvh !important;
+      overflow: hidden !important;
+    }
+    body.mingle-live-fullscreen .mingle-shell {
+      z-index: 500 !important;
+      max-width: 100% !important;
+      width: 100vw !important;
+      height: 100dvh !important;
+      max-height: 100dvh !important;
+      padding: 0 !important;
+      overflow: hidden !important;
+    }
+    body.mingle-live-fullscreen .mingle-topbar,
+    body.mingle-live-fullscreen .retro-corner-tl,
+    body.mingle-live-fullscreen .retro-corner-br,
+    body.mingle-live-fullscreen .mingle-ready-controls-card,
+    body.mingle-live-fullscreen #mingleReadyControlsHeader,
+    body.mingle-live-fullscreen #btnMingleLiveFullscreenExpand {
+      display: none !important;
+    }
+    body.mingle-live-fullscreen .mingle-wrapper.has-custom-bg .mingle-card,
+    body.mingle-live-fullscreen #screenMingleReady .mingle-card {
+      position: static !important;
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+      background: transparent !important;
+      border: none !important;
+      padding: 0 !important;
+      box-shadow: none !important;
+      overflow: visible !important;
+    }
+    body.mingle-live-fullscreen #screenMingleReady #mingleViewfinder {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      height: 100dvh !important;
+      max-width: none !important;
+      max-height: none !important;
+      aspect-ratio: auto !important;
+      margin: 0 !important;
+      border: none !important;
+      border-radius: 0 !important;
+      z-index: 600 !important;
+      background: #000000 !important;
+      transition: none !important;
+    }
+    body.mingle-live-fullscreen #screenMingleReady .mingle-live-fs-minimize-btn {
+      display: inline-flex !important;
+    }
+    body.mingle-live-fullscreen #screenMingleReady .mingle-live-fs-action-bar {
+      display: inline-flex !important;
+    }
+    body.mingle-live-fullscreen .mingle-toast {
+      max-width: calc(100vw - 260px);
+    }
   </style>
 </head>
 <body class="mingle-on-welcome">
@@ -1065,7 +1197,7 @@
     <section id="screenMingleReady" class="mingle-screen">
       <div id="mingleReadyGrid" class="mingle-ready-grid">
         <div class="mingle-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <div id="mingleReadyControlsHeader" style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;">
             <strong id="mingleReadyCamLabel" style="font-size: 15px; color: var(--caramel-brown);">📷 Siap Memotret Tamu</strong>
             <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
               <div style="display: inline-flex; gap: 2px; background: rgba(56, 30, 17, 0.85); padding: 3px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.22);">
@@ -1091,6 +1223,38 @@
               <p id="minglePromptDesc" style="margin: 0; font-size: 13.5px; line-height: 1.5; color: #EAD8C7;">
                 Tidak ada hitungan mundur. Begitu tombol shutter kamera Sony / Canon ditekan, foto langsung tersimpan.
               </p>
+            </div>
+
+            <!-- Tombol Full Layar Live (pojok kiri bawah viewfinder) -->
+            <button type="button" id="btnMingleLiveFullscreenExpand" class="mingle-live-fs-expand-btn" onclick="event.stopPropagation(); mingle.toggleLiveViewFullscreen(true);" title="Perbesar Layar Live View Penuh">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="15 3 21 3 21 9"></polyline>
+                <polyline points="9 21 3 21 3 15"></polyline>
+                <line x1="21" y1="3" x2="14" y2="10"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>
+              <span>Full Layar Live</span>
+            </button>
+
+            <!-- Tombol Minimize Pojok Kanan Atas saat Mode Full Layar Live -->
+            <button type="button" id="btnMingleLiveFullscreenMinimize" class="mingle-live-fs-minimize-btn" onclick="event.stopPropagation(); mingle.toggleLiveViewFullscreen(false);" title="Minimize / Kembali ke tampilan normal">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="4 14 10 14 10 20"></polyline>
+                <polyline points="20 10 14 10 14 4"></polyline>
+                <line x1="14" y1="10" x2="21" y2="3"></line>
+                <line x1="3" y1="21" x2="10" y2="14"></line>
+              </svg>
+              <span>Minimize</span>
+            </button>
+
+            <!-- Kontrol cepat Jepret & Selesai saat Mode Full Layar Live -->
+            <div id="mingleLiveFsActionBar" class="mingle-live-fs-action-bar" onclick="event.stopPropagation()">
+              <button type="button" id="btnMingleLiveFsSnap" onclick="event.stopPropagation(); mingle.triggerBackupCapture();" style="border: 1.5px solid rgba(255,255,255,0.45); background: var(--coral, #E6786B); color: #fff; padding: 7px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 800; cursor: pointer;">
+                📸 Jepret
+              </button>
+              <button type="button" id="btnMingleLiveFsFinish" onclick="event.stopPropagation(); mingle.finishCaptureSession();" style="display: none; border: 1.5px solid rgba(255,255,255,0.45); background: #1F5B56; color: #fff; padding: 7px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 800; cursor: pointer;">
+                ✅ Selesai &amp; Hasil QR ➔
+              </button>
             </div>
           </div>
         </div>
@@ -1430,6 +1594,6 @@
   <script src="/js/event-gallery-viewer.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.8"></script>
   <script src="/js/photo-filters.js?v=1.0"></script>
-  <script src="/js/mingle.js?v=4.0"></script>
+  <script src="/js/mingle.js?v=4.1"></script>
 </body>
 </html>
