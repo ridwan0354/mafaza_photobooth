@@ -3094,3 +3094,81 @@ test('Mingle Ready screen Full Layar Live expands viewfinder and restores normal
   assert.equal(dom.get('btnMingleLiveFullscreenMinimize').style.display, 'none');
   assert.equal(dom.get('mingleLiveFsActionBar').style.display, 'none');
 });
+
+test('Kiosk does not expose guest Auto-Cetak checkbox and respects printer profile manual mode', async () => {
+  const vm = await import('node:vm');
+  const kioskHtml = fs.readFileSync(path.join(process.cwd(), 'public/kiosk.html'), 'utf8');
+  const kioskJs = fs.readFileSync(path.join(process.cwd(), 'public/js/kiosk.js'), 'utf8');
+
+  assert.doesNotMatch(kioskHtml, /id="autoPrintToggle"/);
+  assert.match(kioskHtml, /id="btnPrintSession"[^>]*openPrintOptionsModal\(\)/);
+
+  const trimmed = kioskJs.replace(/\n\/\/ Global kiosk instance[\s\S]*$/, '\n');
+  const lsStore = new Map([['pb_kiosk_auto_print', 'true']]);
+  const makeEl = (id) => ({
+    id,
+    innerText: '',
+    innerHTML: '',
+    value: '1',
+    style: {},
+    classList: { toggle: () => {}, add: () => {}, remove: () => {}, contains: () => false }
+  });
+  const dom = new Map([
+    ['printerReadyBadge', makeEl('printerReadyBadge')],
+    ['printCopiesSelect', makeEl('printCopiesSelect')],
+    ['printStatusBanner', makeEl('printStatusBanner')]
+  ]);
+  const ctx = vm.createContext({
+    URL, URLSearchParams, AbortController, Promise, Math, Date, JSON, Set, Array, Number, String, Boolean,
+    window: { __pbNotifyInitialized: true, location: { origin: 'http://localhost', search: '', hash: '' }, addEventListener: () => {} },
+    document: {
+      body: makeEl('body'),
+      head: { appendChild: () => {} },
+      getElementById: (id) => dom.get(id) || null,
+      querySelectorAll: () => [],
+      createElement: () => makeEl('dyn')
+    },
+    localStorage: {
+      getItem: (k) => lsStore.get(k) ?? null,
+      setItem: (k, v) => lsStore.set(k, String(v)),
+      removeItem: (k) => lsStore.delete(k)
+    },
+    navigator: { onLine: true, mediaDevices: null, userAgent: '' },
+    fetch: async () => ({ ok: true, json: async () => ({}) }),
+    setTimeout, clearTimeout, setInterval, clearInterval, console
+  });
+  vm.runInContext(trimmed, ctx);
+
+  const eng = vm.runInContext('Object.create(KioskEngine.prototype)', ctx);
+  Object.assign(eng, {
+    setupOfflineEngine: () => {},
+    fetchEventConfig: async () => {},
+    fetchCameraConfig: async () => {},
+    fetchPrinterProfile: async () => {},
+    fetchTemplates: async () => {},
+    updateLocalModeUI: () => {},
+    replenishGuestPassPool: async () => {},
+    setupAudio: () => {},
+    setupFullScreenSupport: () => {},
+    setupKeyboardRemoteListeners: () => {},
+    setupMediaDeviceChangeListener: () => {},
+    updateCameraFitButtonsUI: () => {},
+    updateCameraAspectRatioButtonsUI: () => {},
+    updateCameraCaptureOrientationUI: () => {},
+    updateCameraRotationButtonsUI: () => {},
+    applyCameraTransform: () => {},
+    syncLiveViewFullscreenUI: () => {},
+    startCanonUsbAutoDetector: () => {},
+    startCamera: async () => {}
+  });
+
+  await eng.init();
+  assert.equal(eng.autoPrintEnabled, false);
+  assert.equal(lsStore.has('pb_kiosk_auto_print'), false);
+
+  // Printer profile mode === 'auto' enables it, then mode === 'manual' explicitly disables it
+  eng.applyPrinterProfileData({ name: 'Epson L8050 Series', settings: { mode: 'auto', maxCopies: 2 } });
+  assert.equal(eng.autoPrintEnabled, true);
+  eng.applyPrinterProfileData({ name: 'Epson L8050 Series', settings: { mode: 'manual', maxCopies: 2 } });
+  assert.equal(eng.autoPrintEnabled, false);
+});

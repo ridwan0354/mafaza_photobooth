@@ -76,9 +76,8 @@ class KioskEngine {
   async init() {
     console.log('🎬 Initializing Photobooth Kiosk Engine...');
     this.activePrinterName = 'Printer Foto';
-    this.autoPrintEnabled = localStorage.getItem('pb_kiosk_auto_print') === 'true';
-    const autoToggle = document.getElementById('autoPrintToggle');
-    if (autoToggle) autoToggle.checked = this.autoPrintEnabled;
+    this.autoPrintEnabled = false;
+    try { localStorage.removeItem('pb_kiosk_auto_print'); } catch (e) {}
 
     const chkFlash = document.getElementById('chkAudioFlashEnabled');
     if (chkFlash) chkFlash.checked = this.audioFlashEnabled;
@@ -379,11 +378,10 @@ class KioskEngine {
         `<option value="${i + 1}" ${i === 0 ? 'selected' : ''}>${i + 1} Lembar</option>`).join('');
       select.value = '1';
     }
-    if (st.mode === 'auto') {
-      this.autoPrintEnabled = true;
-      const autoToggle = document.getElementById('autoPrintToggle');
-      if (autoToggle) autoToggle.checked = true;
-    }
+    const isAutoProfile = st.mode === 'auto';
+    this.autoPrintEnabled = isAutoProfile;
+    const autoToggle = document.getElementById('autoPrintToggle');
+    if (autoToggle) autoToggle.checked = isAutoProfile;
   }
 
   async fetchPrinterProfile() {
@@ -404,7 +402,7 @@ class KioskEngine {
 
   toggleAutoPrintSetting(checked) {
     this.autoPrintEnabled = !!checked;
-    localStorage.setItem('pb_kiosk_auto_print', this.autoPrintEnabled ? 'true' : 'false');
+    try { localStorage.removeItem('pb_kiosk_auto_print'); } catch (e) {}
     const banner = document.getElementById('printStatusBanner');
     if (banner) {
       banner.style.display = 'block';

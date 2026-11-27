@@ -1238,13 +1238,9 @@
               🖨️ Cetak Foto Sekarang
             </button>
 
-            <!-- Secondary row: Auto-Print toggle & Chrome Print Dialog button -->
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px;">
-              <label style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--caramel-brown); cursor: pointer; background: var(--cream-bg); padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border-soft);" title="Otomatis cetak setiap kali selesai foto">
-                <input type="checkbox" id="autoPrintToggle" onchange="kiosk.toggleAutoPrintSetting(this.checked)" style="accent-color: var(--coral); cursor: pointer;">
-                <span>⚡ Auto-Cetak</span>
-              </label>
-              <button type="button" class="preview-tool-btn" style="font-size: 11px; padding: 4px 8px;" onclick="kiosk.printViaChromeDialog()" title="Cetak langsung via Windows / Android Print Service / macOS">
+            <!-- Secondary row: Chrome Print Dialog button -->
+            <div style="display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin-bottom: 8px;">
+              <button type="button" class="preview-tool-btn" style="width: 100%; font-size: 11px; padding: 5px 8px;" onclick="kiosk.printViaChromeDialog()" title="Cetak langsung via Windows / Android Print Service / macOS">
                 🖨️ Cetak Perangkat
               </button>
             </div>
