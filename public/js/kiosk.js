@@ -1064,6 +1064,9 @@ class KioskEngine {
       target.classList.add('active');
       this.currentScreen = screenId;
     }
+    if (document.body && document.body.classList && typeof document.body.classList.toggle === 'function') {
+      document.body.classList.toggle('kiosk-on-capture', screenId === 'screenCapture');
+    }
     this.syncLiveViewFullscreenUI();
     if (screenId === 'screenCapture' || screenId === 'screenQR') {
       requestAnimationFrame(() => {

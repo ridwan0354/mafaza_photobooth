@@ -11,7 +11,7 @@
   <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
   <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
   <title>Mafaza — Photobooth Kiosk</title>
-  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v5.1">
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v5.3">
   <style>
     /* Specific overrides for Konsep C: Warm Playful Retro */
     .template-retro-card {
@@ -469,9 +469,12 @@
       <button id="btnKioskFullscreen" type="button" onclick="kiosk.toggleFullScreen()" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--coral); font-size: 13px; font-weight: 800; color: var(--coral); cursor: pointer; box-shadow: 0 4px 12px rgba(230,120,107,0.18); transition: transform 0.15s ease;">
         ⛶ Layar Penuh
       </button>
-      <a href="/admin?tab=photos" onclick="if (typeof promptOperatorUnlock === 'function') { event.preventDefault(); promptOperatorUnlock(); }" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 700; color: var(--caramel-brown); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(123,72,46,0.06); transition: transform 0.15s ease;">
+      <a id="btnKioskAdminLink" href="/admin?tab=photos" onclick="if (typeof promptOperatorUnlock === 'function') { event.preventDefault(); promptOperatorUnlock(); }" style="background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 700; color: var(--caramel-brown); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(123,72,46,0.06); transition: transform 0.15s ease;">
         📷 Dasbor Admin
       </a>
+      <button type="button" id="btnCaptureBackWelcome" class="capture-back-welcome-btn" onclick="event.stopPropagation(); kiosk.goBackToWelcomeFromCapture();" title="Kembali ke Beranda" style="display: none; background: var(--cream-card); padding: 8px 16px; border-radius: var(--radius-pill); border: 2px solid var(--border-soft); font-size: 13px; font-weight: 800; color: var(--caramel-brown); cursor: pointer; align-items: center; gap: 6px; box-shadow: 0 4px 12px rgba(123,72,46,0.06);">
+        ❮ Kembali
+      </button>
     </div>
 
     <!-- Warm Corner Accents -->
@@ -633,11 +636,6 @@
 
     <!-- 4. SCREEN: KAMERA & COUNTDOWN (Konsep C: Warm Playful Retro dari Gambar 2) -->
     <div id="screenCapture" class="kiosk-screen" style="padding: 4px 16px 6px; justify-content: flex-start; align-items: center; gap: 0; overflow-y: auto;">
-      <!-- Tombol Kembali ke Beranda (Screen Welcome) -->
-      <button type="button" id="btnCaptureBackWelcome" class="btn btn-secondary capture-back-welcome-btn" onclick="event.stopPropagation(); kiosk.goBackToWelcomeFromCapture();" title="Kembali ke Beranda">
-        ❮ Kembali
-      </button>
-
       <!-- Top Header Group: Step Progress + Pose Indicator -->
       <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30; flex-shrink: 0;">
         <!-- Step progress: Foto ACTIVE -->
@@ -1534,6 +1532,6 @@
   <script src="/js/event-gallery-viewer.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.8"></script>
   <script src="/js/photo-filters.js?v=1.0"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v9.32"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v9.33"></script>
 </body>
 </html>

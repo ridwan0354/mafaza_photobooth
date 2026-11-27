@@ -2839,7 +2839,9 @@ test('Kiosk Capture Full Layar Live expands viewport and restores normal mode vi
   const kioskJs = fs.readFileSync(path.join(process.cwd(), 'public/js/kiosk.js'), 'utf8');
 
   // 1. Markup & CSS checks
-  assert.match(kioskHtml, /id="btnCaptureBackWelcome"[^>]*goBackToWelcomeFromCapture\(\)/);
+  assert.match(kioskHtml, /id="kioskGlobalControls"[\s\S]*id="btnKioskAdminLink"[\s\S]*id="btnCaptureBackWelcome"[^>]*goBackToWelcomeFromCapture\(\)/);
+  assert.match(stylesCss, /body\.kiosk-on-capture #kioskGlobalControls[\s\S]*flex-direction:\s*column\s*!important/);
+  assert.match(stylesCss, /body\.kiosk-on-capture #btnKioskAdminLink\s*\{\s*order:\s*1;\s*\}[\s\S]*body\.kiosk-on-capture #btnCaptureBackWelcome\s*\{\s*order:\s*2;\s*\}/);
   assert.match(kioskHtml, /id="btnLiveFullscreenExpand"[^>]*onclick="event\.stopPropagation\(\); kiosk\.toggleLiveViewFullscreen\(true\);"/);
   assert.match(kioskHtml, /id="btnLiveFullscreenMinimize"[^>]*onclick="event\.stopPropagation\(\); kiosk\.toggleLiveViewFullscreen\(false\);"/);
   assert.match(kioskHtml, /id="liveFullscreenDoneBar"/);
@@ -2969,10 +2971,13 @@ test('Kiosk Capture Full Layar Live expands viewport and restores normal mode vi
   assert.equal(dom.get('cameraRetroFrame').style.aspectRatio, '16 / 9');
   assert.equal(dom.get('liveFullscreenDoneBar').style.display, 'none');
 
-  // Back button from capture returns cleanly to screenWelcome
+  // Back button from capture returns cleanly to screenWelcome and clears kiosk-on-capture
   eng.syncFilterControlsUI = () => {};
+  eng.showScreen('screenCapture');
+  assert.equal(bodyClasses.has('kiosk-on-capture'), true);
   eng.goBackToWelcomeFromCapture();
   assert.equal(eng.currentScreen, 'screenWelcome');
+  assert.equal(bodyClasses.has('kiosk-on-capture'), false);
   assert.equal(eng.posesCaptured.length, 0);
 });
 

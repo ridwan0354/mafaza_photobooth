@@ -569,13 +569,38 @@ h1, h2, h3, h4, .font-heading {
   color: var(--caramel-brown);
 }
 .capture-back-welcome-btn {
-  position: absolute;
-  top: 8px;
-  left: 20px;
-  z-index: 40;
-  padding: 8px 16px !important;
-  font-size: 13px !important;
-  font-weight: 800 !important;
+  display: none;
+}
+body.kiosk-on-capture #btnCaptureBackWelcome {
+  display: inline-flex !important;
+}
+@media (min-width: 769px) {
+  body.kiosk-on-capture:not(.kiosk-live-fullscreen) #cameraRetroFrame {
+    max-width: min(calc(100vw - 360px), 1380px);
+  }
+  body.kiosk-on-capture #kioskGlobalControls {
+    top: 14px !important;
+    right: 14px !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    flex-wrap: nowrap !important;
+    gap: 7px !important;
+    width: 158px;
+  }
+  body.kiosk-on-capture #kioskGlobalControls > a,
+  body.kiosk-on-capture #kioskGlobalControls > button {
+    width: 100%;
+    justify-content: flex-start !important;
+    padding: 7px 12px !important;
+    font-size: 12px !important;
+    white-space: nowrap;
+    box-sizing: border-box;
+  }
+  body.kiosk-on-capture #btnKioskAdminLink { order: 1; }
+  body.kiosk-on-capture #btnCaptureBackWelcome { order: 2; }
+  body.kiosk-on-capture #btnKioskEventPhotos { order: 3; }
+  body.kiosk-on-capture #btnKioskOfflineGallery { order: 4; }
+  body.kiosk-on-capture #btnKioskFullscreen { order: 5; }
 }
 body.kiosk-live-fullscreen #kioskGlobalControls,
 body.kiosk-live-fullscreen #kioskOfflineBadge,
@@ -647,14 +672,17 @@ body.kiosk-live-fullscreen #screenCapture.active #captureToast {
     font-size: 11px !important;
   }
   #screenCapture.active .camera-retro-frame {
-    width: 96vw !important;
-    max-width: 96vw !important;
+    width: 100% !important;
+    max-width: 100% !important;
     height: auto !important;
     max-height: 44dvh !important;
   }
+  body.kiosk-on-capture #screenCapture.active .camera-retro-frame {
+    margin-top: 72px !important;
+  }
   #screenCapture.active .filmstrip-dock-retro {
-    width: 96vw !important;
-    max-width: 96vw !important;
+    width: 100% !important;
+    max-width: 100% !important;
     padding: 6px 10px !important;
     margin-bottom: 44px !important;
   }
@@ -668,13 +696,11 @@ body.kiosk-live-fullscreen #screenCapture.active #captureToast {
     padding: 5px 10px !important;
     font-size: 10.5px !important;
   }
-  #screenCapture.active .capture-back-welcome-btn {
-    top: auto !important;
-    bottom: 8px !important;
-    left: 10px !important;
-    padding: 6px 12px !important;
-    font-size: 11.5px !important;
-  }
+  body.kiosk-on-capture #btnKioskAdminLink { order: 1; }
+  body.kiosk-on-capture #btnCaptureBackWelcome { order: 2; }
+  body.kiosk-on-capture #btnKioskEventPhotos { order: 3; }
+  body.kiosk-on-capture #btnKioskOfflineGallery { order: 4; }
+  body.kiosk-on-capture #btnKioskFullscreen { order: 5; }
 }
 
 /* Subtle Center Guide / Composition Frame */
