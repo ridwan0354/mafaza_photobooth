@@ -11,7 +11,7 @@
   <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
   <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
   <title>Mafaza — Photobooth Kiosk</title>
-  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v5.0">
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v5.1">
   <style>
     /* Specific overrides for Konsep C: Warm Playful Retro */
     .template-retro-card {
@@ -633,6 +633,11 @@
 
     <!-- 4. SCREEN: KAMERA & COUNTDOWN (Konsep C: Warm Playful Retro dari Gambar 2) -->
     <div id="screenCapture" class="kiosk-screen" style="padding: 4px 16px 6px; justify-content: flex-start; align-items: center; gap: 0; overflow-y: auto;">
+      <!-- Tombol Kembali ke Beranda (Screen Welcome) -->
+      <button type="button" id="btnCaptureBackWelcome" class="btn btn-secondary capture-back-welcome-btn" onclick="event.stopPropagation(); kiosk.goBackToWelcomeFromCapture();" title="Kembali ke Beranda">
+        ❮ Kembali
+      </button>
+
       <!-- Top Header Group: Step Progress + Pose Indicator -->
       <div style="display: flex; flex-direction: column; align-items: center; width: 100%; z-index: 30; flex-shrink: 0;">
         <!-- Step progress: Foto ACTIVE -->
@@ -1529,6 +1534,6 @@
   <script src="/js/event-gallery-viewer.js?v=1.0"></script>
   <script src="/js/print-client.js?v=1.8"></script>
   <script src="/js/photo-filters.js?v=1.0"></script>
-  <script src="/js/kiosk.js?v=warm-retro-v9.31"></script>
+  <script src="/js/kiosk.js?v=warm-retro-v9.32"></script>
 </body>
 </html>

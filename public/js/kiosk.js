@@ -1182,6 +1182,12 @@ class KioskEngine {
     }
   }
 
+  goBackToWelcomeFromCapture() {
+    this.toggleCameraZoomControls(false);
+    this.toggleCameraSettingsDrawer(false);
+    this.finishSession();
+  }
+
   skipQR() {
     this.stopQrScannerLoop();
     this.guestPass = null;

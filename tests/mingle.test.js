@@ -2839,6 +2839,7 @@ test('Kiosk Capture Full Layar Live expands viewport and restores normal mode vi
   const kioskJs = fs.readFileSync(path.join(process.cwd(), 'public/js/kiosk.js'), 'utf8');
 
   // 1. Markup & CSS checks
+  assert.match(kioskHtml, /id="btnCaptureBackWelcome"[^>]*goBackToWelcomeFromCapture\(\)/);
   assert.match(kioskHtml, /id="btnLiveFullscreenExpand"[^>]*onclick="event\.stopPropagation\(\); kiosk\.toggleLiveViewFullscreen\(true\);"/);
   assert.match(kioskHtml, /id="btnLiveFullscreenMinimize"[^>]*onclick="event\.stopPropagation\(\); kiosk\.toggleLiveViewFullscreen\(false\);"/);
   assert.match(kioskHtml, /id="liveFullscreenDoneBar"/);
@@ -2967,6 +2968,12 @@ test('Kiosk Capture Full Layar Live expands viewport and restores normal mode vi
   assert.equal(dom.get('btnLiveFullscreenMinimize').style.display, 'none');
   assert.equal(dom.get('cameraRetroFrame').style.aspectRatio, '16 / 9');
   assert.equal(dom.get('liveFullscreenDoneBar').style.display, 'none');
+
+  // Back button from capture returns cleanly to screenWelcome
+  eng.syncFilterControlsUI = () => {};
+  eng.goBackToWelcomeFromCapture();
+  assert.equal(eng.currentScreen, 'screenWelcome');
+  assert.equal(eng.posesCaptured.length, 0);
 });
 
 test('Mingle Ready screen Full Layar Live expands viewfinder and restores normal mode via Minimize', async () => {

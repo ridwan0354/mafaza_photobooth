@@ -568,11 +568,21 @@ h1, h2, h3, h4, .font-heading {
   background: rgba(255, 251, 245, 0.94);
   color: var(--caramel-brown);
 }
+.capture-back-welcome-btn {
+  position: absolute;
+  top: 8px;
+  left: 20px;
+  z-index: 40;
+  padding: 8px 16px !important;
+  font-size: 13px !important;
+  font-weight: 800 !important;
+}
 body.kiosk-live-fullscreen #kioskGlobalControls,
 body.kiosk-live-fullscreen #kioskOfflineBadge,
 body.kiosk-live-fullscreen .retro-corner-tl,
 body.kiosk-live-fullscreen .retro-corner-br,
 body.kiosk-live-fullscreen #screenCapture.active .step-progress-retro,
+body.kiosk-live-fullscreen #screenCapture.active #btnCaptureBackWelcome,
 body.kiosk-live-fullscreen #screenCapture.active #filmstripDock,
 body.kiosk-live-fullscreen #screenCapture.active #btnToggleCameraControls,
 body.kiosk-live-fullscreen #screenCapture.active #cameraZoomControls,
@@ -657,6 +667,13 @@ body.kiosk-live-fullscreen #screenCapture.active #captureToast {
     right: 10px !important;
     padding: 5px 10px !important;
     font-size: 10.5px !important;
+  }
+  #screenCapture.active .capture-back-welcome-btn {
+    top: auto !important;
+    bottom: 8px !important;
+    left: 10px !important;
+    padding: 6px 12px !important;
+    font-size: 11.5px !important;
   }
 }
 
