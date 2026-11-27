@@ -11,7 +11,7 @@
   <link rel="icon" href="/assets/logo-mafaza.jpg" type="image/jpeg">
   <link rel="apple-touch-icon" href="/assets/logo-mafaza.jpg">
   <title>Mafaza — Mingle Booth (Roaming Camera)</title>
-  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v4.9">
+  <link rel="stylesheet" href="/css/styles.css?v=warm-retro-v5.0">
   <style>
     html, body {
       margin: 0;
@@ -942,7 +942,7 @@
     .mingle-live-fs-minimize-btn {
       display: none;
       position: fixed;
-      top: max(14px, env(safe-area-inset-top));
+      bottom: max(16px, env(safe-area-inset-bottom));
       right: max(16px, env(safe-area-inset-right));
       z-index: 650;
       align-items: center;
@@ -1044,7 +1044,14 @@
       display: inline-flex !important;
     }
     body.mingle-live-fullscreen .mingle-toast {
-      max-width: calc(100vw - 260px);
+      max-width: calc(100vw - 40px);
+    }
+    @media (max-width: 560px) {
+      body.mingle-live-fullscreen #screenMingleReady .mingle-live-fs-action-bar {
+        left: max(12px, env(safe-area-inset-left));
+        transform: none;
+        max-width: calc(100vw - 140px);
+      }
     }
   </style>
 </head>
@@ -1236,7 +1243,7 @@
               <span>Full Layar Live</span>
             </button>
 
-            <!-- Tombol Minimize Pojok Kanan Atas saat Mode Full Layar Live -->
+            <!-- Tombol Minimize Pojok Kanan Bawah saat Mode Full Layar Live -->
             <button type="button" id="btnMingleLiveFullscreenMinimize" class="mingle-live-fs-minimize-btn" onclick="event.stopPropagation(); mingle.toggleLiveViewFullscreen(false);" title="Minimize / Kembali ke tampilan normal">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <polyline points="4 14 10 14 10 20"></polyline>

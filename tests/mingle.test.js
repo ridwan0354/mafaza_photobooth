@@ -2843,6 +2843,7 @@ test('Kiosk Capture Full Layar Live expands viewport and restores normal mode vi
   assert.match(kioskHtml, /id="btnLiveFullscreenMinimize"[^>]*onclick="event\.stopPropagation\(\); kiosk\.toggleLiveViewFullscreen\(false\);"/);
   assert.match(kioskHtml, /id="liveFullscreenDoneBar"/);
   assert.match(stylesCss, /body\.kiosk-live-fullscreen #screenCapture\.active #cameraRetroFrame[\s\S]*100vw[\s\S]*100dvh/);
+  assert.match(stylesCss, /\.live-fs-minimize-btn[\s\S]*bottom:\s*max\(16px, env\(safe-area-inset-bottom\)\)[\s\S]*right:\s*max\(16px, env\(safe-area-inset-right\)\)/);
   assert.match(stylesCss, /body\.kiosk-live-fullscreen #kioskGlobalControls[\s\S]*display:\s*none\s*!important/);
   assert.match(stylesCss, /body\.kiosk-live-fullscreen #screenCapture\.active \.live-fs-minimize-btn[\s\S]*display:\s*inline-flex\s*!important/);
 
@@ -2977,6 +2978,7 @@ test('Mingle Ready screen Full Layar Live expands viewfinder and restores normal
   assert.match(mingleHtml, /id="btnMingleLiveFullscreenMinimize"[^>]*toggleLiveViewFullscreen\(false\)/);
   assert.match(mingleHtml, /id="mingleLiveFsActionBar"/);
   assert.match(mingleHtml, /body\.mingle-live-fullscreen #screenMingleReady #mingleViewfinder[\s\S]*100vw[\s\S]*100dvh/);
+  assert.match(mingleHtml, /\.mingle-live-fs-minimize-btn[\s\S]*bottom:\s*max\(16px, env\(safe-area-inset-bottom\)\)[\s\S]*right:\s*max\(16px, env\(safe-area-inset-right\)\)/);
   assert.match(mingleHtml, /body\.mingle-live-fullscreen #screenMingleReady \.mingle-live-fs-minimize-btn[\s\S]*display:\s*inline-flex\s*!important/);
 
   const trimmed = mingleJs.replace(/\nwindow\.mingle\s*=\s*new MingleBoothEngine\(\);\s*$/, '\n');
